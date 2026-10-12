@@ -1,0 +1,10 @@
+services:
+  dlmanager:
+    build: .
+    container_name: dlmanager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+      - ./downloads:/downloads

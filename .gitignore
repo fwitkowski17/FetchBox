@@ -1,0 +1,9 @@
+/target
+/.dev
+.DS_Store
+node_modules
+web/dist/*
+!web/dist/.gitkeep
+web/.svelte-kit
+*.log
+.env

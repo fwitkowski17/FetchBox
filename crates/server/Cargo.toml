@@ -1,0 +1,22 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "dlmanager"
+path = "src/main.rs"
+
+[dependencies]
+dlm-api.workspace = true
+dlm-storage.workspace = true
+axum.workspace = true
+tokio.workspace = true
+rust-embed.workspace = true
+mime_guess.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
