@@ -17,6 +17,38 @@ pub enum Status {
     Cancelled,
 }
 
+impl Status {
+    /// Stable lowercase name, as stored in SQLite.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Queued => "queued",
+            Status::Downloading => "downloading",
+            Status::Paused => "paused",
+            Status::Completed => "completed",
+            Status::Failed => "failed",
+            Status::Cancelled => "cancelled",
+        }
+    }
+
+    /// Parse the stored name.
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "queued" => Status::Queued,
+            "downloading" => Status::Downloading,
+            "paused" => Status::Paused,
+            "completed" => Status::Completed,
+            "failed" => Status::Failed,
+            "cancelled" => Status::Cancelled,
+            _ => return None,
+        })
+    }
+
+    /// No further transitions happen without user action.
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Status::Completed | Status::Failed | Status::Cancelled)
+    }
+}
+
 /// File category, auto-detected from extension and changeable by the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -29,6 +61,33 @@ pub enum Category {
     Other,
 }
 
+impl Category {
+    /// Stable lowercase name, as stored in SQLite.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Category::Photo => "photo",
+            Category::Music => "music",
+            Category::Video => "video",
+            Category::Program => "program",
+            Category::Archive => "archive",
+            Category::Other => "other",
+        }
+    }
+
+    /// Parse the stored name.
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "photo" => Category::Photo,
+            "music" => Category::Music,
+            "video" => Category::Video,
+            "program" => Category::Program,
+            "archive" => Category::Archive,
+            "other" => Category::Other,
+            _ => return None,
+        })
+    }
+}
+
 /// What kind of source a download comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +95,27 @@ pub enum SourceKind {
     Http,
     Magnet,
     TorrentFile,
+}
+
+impl SourceKind {
+    /// Stable name, as stored in SQLite.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SourceKind::Http => "http",
+            SourceKind::Magnet => "magnet",
+            SourceKind::TorrentFile => "torrent_file",
+        }
+    }
+
+    /// Parse the stored name.
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "http" => SourceKind::Http,
+            "magnet" => SourceKind::Magnet,
+            "torrent_file" => SourceKind::TorrentFile,
+            _ => return None,
+        })
+    }
 }
 
 /// A download as stored and shown to the user.
@@ -79,6 +159,26 @@ impl Default for Settings {
     }
 }
 
+/// Upper bound for connections per download; more gains nothing and hurts servers.
+pub const MAX_CONNECTIONS: u32 = 32;
+
+impl Settings {
+    /// Reject values that would break the scheduler or the engine.
+    pub fn validate(&self) -> crate::Result<()> {
+        if !(1..=MAX_CONNECTIONS).contains(&self.connections) {
+            return Err(crate::Error::InvalidInput(format!(
+                "connections must be 1..={MAX_CONNECTIONS}"
+            )));
+        }
+        if self.max_concurrent == 0 {
+            return Err(crate::Error::InvalidInput(
+                "max_concurrent must be at least 1".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Input for `Downloader::start`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
@@ -101,4 +201,61 @@ pub struct Progress {
     pub total: Option<u64>,
     /// Current speed, bytes/s.
     pub speed: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enum_names_round_trip() {
+        for s in [
+            Status::Queued,
+            Status::Downloading,
+            Status::Paused,
+            Status::Completed,
+            Status::Failed,
+            Status::Cancelled,
+        ] {
+            assert_eq!(Status::parse(s.as_str()), Some(s));
+        }
+        for c in [
+            Category::Photo,
+            Category::Music,
+            Category::Video,
+            Category::Program,
+            Category::Archive,
+            Category::Other,
+        ] {
+            assert_eq!(Category::parse(c.as_str()), Some(c));
+        }
+        for k in [
+            SourceKind::Http,
+            SourceKind::Magnet,
+            SourceKind::TorrentFile,
+        ] {
+            assert_eq!(SourceKind::parse(k.as_str()), Some(k));
+        }
+        assert_eq!(Status::parse("nope"), None);
+    }
+
+    #[test]
+    fn settings_validation() {
+        assert!(Settings::default().validate().is_ok());
+        let bad = Settings {
+            connections: 0,
+            ..Settings::default()
+        };
+        assert!(bad.validate().is_err());
+        let bad = Settings {
+            connections: MAX_CONNECTIONS + 1,
+            ..Settings::default()
+        };
+        assert!(bad.validate().is_err());
+        let bad = Settings {
+            max_concurrent: 0,
+            ..Settings::default()
+        };
+        assert!(bad.validate().is_err());
+    }
 }

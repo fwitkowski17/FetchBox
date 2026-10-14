@@ -13,6 +13,9 @@ use rusqlite::Connection;
 pub enum Error {
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    /// A stored value could not be mapped to a domain type (corrupt or newer DB).
+    #[error("invalid stored value: {0}")]
+    Corrupt(String),
 }
 
 /// Result alias for storage operations.
