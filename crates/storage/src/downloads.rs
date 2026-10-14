@@ -14,22 +14,25 @@ pub struct NewDownload {
     pub source_kind: SourceKind,
     /// Replace an existing file with the same name when the download finishes.
     pub overwrite: bool,
+    /// Subdirectory below the download directory; empty = none.
+    pub subdir: String,
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind, overwrite)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             new.url,
             new.filename,
             new.category.as_str(),
             new.source_kind.as_str(),
-            new.overwrite
+            new.overwrite,
+            new.subdir
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -114,16 +117,21 @@ pub fn find_by_url(conn: &Connection, url: &str) -> Result<Vec<Download>> {
     rows.map(|r| r?).collect()
 }
 
-/// Unfinished download (queued, downloading, paused) that will produce `filename`.
-pub fn find_unfinished_by_filename(conn: &Connection, filename: &str) -> Result<Option<Download>> {
+/// Unfinished download (queued, downloading, paused) that will produce `subdir/filename`.
+pub fn find_unfinished_by_filename(
+    conn: &Connection,
+    subdir: &str,
+    filename: &str,
+) -> Result<Option<Download>> {
     let row = conn
         .query_row(
             &format!(
                 "SELECT {COLUMNS} FROM downloads
-                  WHERE filename = ?1 AND status IN ('queued', 'downloading', 'paused')
+                  WHERE filename = ?1 AND subdir = ?2
+                    AND status IN ('queued', 'downloading', 'paused')
                   ORDER BY id LIMIT 1"
             ),
-            [filename],
+            params![filename, subdir],
             read_row,
         )
         .optional()?;
@@ -214,6 +222,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let resumable = row.get(8)?;
     let etag = row.get(9)?;
     let error = row.get(10)?;
+    let subdir = row.get(11)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -231,6 +240,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             resumable,
             etag,
             error,
+            subdir,
             speed: 0,
         })
     })();
@@ -249,6 +259,7 @@ mod tests {
             category: Category::Other,
             source_kind: SourceKind::Http,
             overwrite: false,
+            subdir: String::new(),
         }
     }
 
@@ -373,12 +384,12 @@ mod tests {
         let conn = open_in_memory().expect("db");
         let a = insert(&conn, &new("http://x/a")).expect("a");
         assert_eq!(find_by_url(&conn, "http://x/a").expect("f").len(), 1);
-        assert!(find_unfinished_by_filename(&conn, "f.bin")
+        assert!(find_unfinished_by_filename(&conn, "", "f.bin")
             .expect("f")
             .is_some());
         set_status(&conn, a, Status::Completed, None).expect("s");
         assert_eq!(find_by_url(&conn, "http://x/a").expect("f").len(), 1);
-        assert!(find_unfinished_by_filename(&conn, "f.bin")
+        assert!(find_unfinished_by_filename(&conn, "", "f.bin")
             .expect("f")
             .is_none());
         set_status(&conn, a, Status::Cancelled, None).expect("s");
@@ -394,5 +405,24 @@ mod tests {
         assert!(overwrite_flag(&conn, id).expect("f"));
         let id2 = insert(&conn, &new("http://x/b")).expect("insert");
         assert!(!overwrite_flag(&conn, id2).expect("f"));
+    }
+
+    #[test]
+    fn name_reservation_is_per_subdirectory() {
+        let conn = open_in_memory().expect("db");
+        let mut n = new("http://x/a");
+        n.subdir = "video".into();
+        insert(&conn, &n).expect("insert");
+        assert!(find_unfinished_by_filename(&conn, "video", "f.bin")
+            .expect("f")
+            .is_some());
+        assert!(find_unfinished_by_filename(&conn, "", "f.bin")
+            .expect("f")
+            .is_none());
+        assert!(find_unfinished_by_filename(&conn, "music", "f.bin")
+            .expect("f")
+            .is_none());
+        let d = list(&conn).expect("list");
+        assert_eq!(d[0].subdir, "video");
     }
 }

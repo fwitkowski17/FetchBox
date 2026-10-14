@@ -4,6 +4,7 @@
 //! channel; the server wiring persists them (batched, never on the hot path).
 
 pub mod error;
+pub mod policy;
 pub mod probe;
 pub mod segments;
 pub mod worker;
@@ -26,6 +27,7 @@ use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, JoinSet};
 
 pub use error::EngineError;
+pub use policy::UrlPolicy;
 pub use probe::{probe, validate_url, RemoteInfo};
 use worker::SegmentSpec;
 
@@ -69,6 +71,7 @@ pub struct HttpDownloader {
 
 struct Inner {
     client: Client,
+    policy: UrlPolicy,
     dir: PathBuf,
     limiter: RateLimiter,
     events: mpsc::UnboundedSender<Event>,
@@ -136,15 +139,21 @@ impl HttpDownloader {
     pub fn new(
         dir: impl Into<PathBuf>,
         limiter: RateLimiter,
+        policy: UrlPolicy,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Event>), EngineError> {
-        let client = Client::builder()
+        let mut builder = Client::builder()
             .user_agent(concat!("dlmanager/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(15))
             .read_timeout(Duration::from_secs(30))
-            .build()?;
+            .redirect(policy.redirect_policy());
+        if let Some(resolver) = policy.resolver() {
+            builder = builder.dns_resolver(resolver);
+        }
+        let client = builder.build()?;
         let (tx, rx) = mpsc::unbounded_channel();
         let inner = Inner {
             client,
+            policy,
             dir: dir.into(),
             limiter,
             events: tx,
@@ -166,6 +175,7 @@ impl HttpDownloader {
     /// Validate `raw` and inspect the remote file (size, ranges, name) without downloading.
     pub async fn probe_url(&self, raw: &str) -> Result<RemoteInfo, EngineError> {
         let url = validate_url(raw)?;
+        self.inner.policy.check(&url)?;
         probe(&self.inner.client, &url).await
     }
 
@@ -176,9 +186,11 @@ impl HttpDownloader {
         }
     }
 
-    /// The `.part` file of a download: `<name>.<id>.part` (ids keep same-name downloads apart).
-    pub fn part_path(&self, id: Id, filename: &str) -> PathBuf {
-        part_path(&self.inner.dir, id, filename)
+    /// The `.part` file of a download: `<subdir>/<name>.<id>.part` (ids keep same-name
+    /// downloads apart). It lives next to the final file so the finishing move stays on
+    /// one filesystem.
+    pub fn part_path(&self, id: Id, subdir: &str, filename: &str) -> PathBuf {
+        part_path(&target_dir(&self.inner.dir, subdir), id, filename)
     }
 
     fn spawn(
@@ -227,6 +239,15 @@ impl Inner {
                 segments: r.snapshot(),
             });
         }
+    }
+}
+
+/// Download directory plus the (sanitized) subdirectory, if any.
+fn target_dir(base: &Path, subdir: &str) -> PathBuf {
+    if subdir.is_empty() {
+        base.to_owned()
+    } else {
+        base.join(sanitize(subdir))
     }
 }
 
@@ -301,8 +322,13 @@ async fn download(
     limiter: &DownloadLimiter,
 ) -> Result<(PathBuf, u64), EngineError> {
     let url = validate_url(&job.url)?;
+    inner.policy.check(&url)?;
     let info = probe(&inner.client, &url).await?;
-    let part = part_path(&inner.dir, job.id, &job.filename);
+    let dir = target_dir(&inner.dir, &job.subdir);
+    if !job.subdir.is_empty() {
+        tokio::fs::create_dir_all(&dir).await?;
+    }
+    let part = part_path(&dir, job.id, &job.filename);
 
     // Resume only if the file is demonstrably the same and the .part is still there.
     let plan_end = job.segments.last().map(|s| s.end + 1);
@@ -388,7 +414,7 @@ async fn download(
             )));
         }
     }
-    let final_path = finalize(&inner.dir, &job.filename, &part, job.overwrite).await?;
+    let final_path = finalize(&dir, &job.filename, &part, job.overwrite).await?;
     shared.speed.store(0, Ordering::Relaxed);
     Ok((final_path, total))
 }
@@ -424,7 +450,8 @@ fn build_remote(info: &RemoteInfo, planned: &[SegmentState]) -> Remote {
 #[async_trait]
 impl Downloader for HttpDownloader {
     async fn start(&self, job: &Job) -> dlm_core::Result<Handle> {
-        validate_url(&job.url)?;
+        let url = validate_url(&job.url)?;
+        self.inner.policy.check(&url)?;
         let limiter = self.inner.limiter.for_download(job.speed_limit);
         let shared = Arc::new(Shared::default());
         // Hold the lock across spawn so the task cannot finish before the entry exists.
@@ -512,7 +539,7 @@ impl Downloader for HttpDownloader {
         if let Some(task) = entry.task {
             task.abort();
         }
-        let part = part_path(&self.inner.dir, id, &entry.job.filename);
+        let part = self.part_path(id, &entry.job.subdir, &entry.job.filename);
         match tokio::fs::remove_file(&part).await {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -553,6 +580,7 @@ mod tests {
             etag: None,
             segments: Vec::new(),
             overwrite: false,
+            subdir: String::new(),
         }
     }
 
@@ -572,7 +600,8 @@ mod tests {
     async fn segmented_download_assembles_correct_file() {
         let server = TestServer::spawn(3 * 1024 * 1024 + 7, true, Duration::ZERO).await;
         let dir = tempfile::tempdir().expect("tmp");
-        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         dl.start(&job(1, &server, 4)).await.expect("start");
 
         let Event::Completed { path, size, .. } = next_terminal(&mut rx).await else {
@@ -588,7 +617,8 @@ mod tests {
     async fn server_without_ranges_falls_back_to_single_stream() {
         let server = TestServer::spawn(600_000, false, Duration::ZERO).await;
         let dir = tempfile::tempdir().expect("tmp");
-        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         dl.start(&job(1, &server, 4)).await.expect("start");
 
         let mut started = None;
@@ -637,7 +667,8 @@ mod tests {
         // ~4 MiB at 32 KiB / 10 ms per connection: slow enough to pause mid-flight.
         let server = TestServer::spawn(4 * 1024 * 1024, true, Duration::from_millis(10)).await;
         let dir = tempfile::tempdir().expect("tmp");
-        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         dl.start(&job(7, &server, 4)).await.expect("start");
 
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -678,7 +709,8 @@ mod tests {
     async fn start_over_paused_entry_resumes_from_given_offsets() {
         let server = TestServer::spawn(4 * 1024 * 1024, true, Duration::from_millis(10)).await;
         let dir = tempfile::tempdir().expect("tmp");
-        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         let j = job(5, &server, 4);
         dl.start(&j).await.expect("start");
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -705,7 +737,8 @@ mod tests {
     async fn cancel_removes_part_file() {
         let server = TestServer::spawn(4 * 1024 * 1024, true, Duration::from_millis(10)).await;
         let dir = tempfile::tempdir().expect("tmp");
-        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         dl.start(&job(3, &server, 2)).await.expect("start");
         // Wait for the plan so the .part file exists.
         loop {
@@ -727,7 +760,8 @@ mod tests {
         let server = TestServer::spawn(10_000, true, Duration::ZERO).await;
         let dir = tempfile::tempdir().expect("tmp");
         std::fs::write(dir.path().join("file.bin"), b"existing").expect("write");
-        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         dl.start(&job(1, &server, 1)).await.expect("start");
         let Event::Completed { path, .. } = next_terminal(&mut rx).await else {
             panic!("expected completion");
@@ -746,7 +780,8 @@ mod tests {
     async fn http_error_fails_the_download() {
         let server = TestServer::spawn(10, true, Duration::ZERO).await;
         let dir = tempfile::tempdir().expect("tmp");
-        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         let mut j = job(1, &server, 1);
         j.url = server.url("missing/404");
         dl.start(&j).await.expect("start");
@@ -761,7 +796,8 @@ mod tests {
     #[tokio::test]
     async fn rejects_non_http_urls() {
         let dir = tempfile::tempdir().expect("tmp");
-        let (dl, _rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let (dl, _rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
         let j = Job {
             id: 1,
             url: "file:///etc/passwd".into(),
@@ -771,6 +807,7 @@ mod tests {
             etag: None,
             segments: Vec::new(),
             overwrite: false,
+            subdir: String::new(),
         };
         assert!(matches!(
             dl.start(&j).await,
@@ -848,5 +885,92 @@ mod tests {
             .collect();
         contents.sort();
         assert_eq!(contents, (0..16).collect::<Vec<u8>>());
+    }
+
+    #[tokio::test]
+    async fn subdirectory_holds_part_and_final_file() {
+        let server = TestServer::spawn(4 * 1024 * 1024, true, Duration::from_millis(10)).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+        let j = Job {
+            subdir: "video".into(),
+            ..job(4, &server, 2)
+        };
+        dl.start(&j).await.expect("start");
+        loop {
+            if matches!(rx.recv().await.expect("closed"), Event::Started { .. }) {
+                break;
+            }
+        }
+        assert!(dir.path().join("video/file.bin.4.part").exists());
+        assert_eq!(
+            dl.part_path(4, "video", "file.bin"),
+            dir.path().join("video/file.bin.4.part")
+        );
+        dl.cancel(4).await.expect("cancel");
+        assert!(!dir.path().join("video/file.bin.4.part").exists());
+
+        // A finished download ends up in the subdirectory, not in the base directory.
+        let done = Job { id: 5, ..j };
+        dl.start(&done).await.expect("start");
+        let Event::Completed { path, .. } = next_terminal(&mut rx).await else {
+            panic!("expected completion");
+        };
+        assert_eq!(path, dir.path().join("video/file.bin"));
+        assert!(!dir.path().join("file.bin").exists());
+        assert_eq!(std::fs::read(path).expect("read"), server.body());
+    }
+
+    #[test]
+    fn subdirectory_cannot_escape_the_download_dir() {
+        let base = Path::new("/downloads");
+        assert_eq!(target_dir(base, ""), PathBuf::from("/downloads"));
+        assert_eq!(target_dir(base, "video"), PathBuf::from("/downloads/video"));
+        assert_eq!(
+            target_dir(base, "../../etc"),
+            PathBuf::from("/downloads/etc")
+        );
+        assert_eq!(target_dir(base, "/etc"), PathBuf::from("/downloads/etc"));
+    }
+
+    #[tokio::test]
+    async fn private_address_policy_is_enforced() {
+        let server = TestServer::spawn(1000, true, Duration::ZERO).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let policy = UrlPolicy {
+            block_private: true,
+        };
+        let (dl, _rx) = HttpDownloader::new(dir.path(), RateLimiter::new(), policy).expect("new");
+
+        // IP literal: refused before any connection is made.
+        let literal = server.url("file.bin");
+        assert!(matches!(
+            dl.probe_url(&literal).await,
+            Err(EngineError::InvalidUrl(_))
+        ));
+        assert!(matches!(
+            dl.start(&Job {
+                url: literal,
+                ..job(1, &server, 1)
+            })
+            .await,
+            Err(dlm_core::Error::InvalidInput(_))
+        ));
+
+        // Host name that resolves to loopback: refused where it is resolved.
+        let named = literal_to_localhost(&server.url("file.bin"));
+        let err = dl.probe_url(&named).await.expect_err("must be blocked");
+        assert!(matches!(err, EngineError::Http(_)), "{err}");
+        assert!(err.to_string().contains("blocked"), "{err}");
+
+        // Without the policy the very same server is reachable.
+        let (open, _rx2) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+        assert!(open.probe_url(&server.url("file.bin")).await.is_ok());
+    }
+
+    fn literal_to_localhost(url: &str) -> String {
+        url.replace("127.0.0.1", "localhost")
     }
 }

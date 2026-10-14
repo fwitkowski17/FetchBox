@@ -90,6 +90,7 @@ mod tests {
                 category: Category::Other,
                 source_kind: SourceKind::Http,
                 overwrite: false,
+                subdir: String::new(),
             },
         )
         .expect("insert")

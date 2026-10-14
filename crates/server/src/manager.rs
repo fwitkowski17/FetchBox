@@ -12,7 +12,7 @@ use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
 use dlm_api::service::Service;
-use dlm_core::category::from_filename;
+use dlm_core::category::detect as detect_category;
 use dlm_core::filename::sanitize;
 use dlm_core::limiter::RateLimiter;
 use dlm_core::scheduler::Scheduler;
@@ -20,7 +20,7 @@ use dlm_core::{
     AddRequest, Category, Conflict, ConflictKind, Download, Downloader, Error, Event, Id, Job,
     OnConflict, Result, Settings, SourceKind, Status,
 };
-use dlm_http_engine::{candidates, HttpDownloader};
+use dlm_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use dlm_storage::downloads::{self, NewDownload};
 use dlm_storage::{segments, settings, Connection};
 use tokio::sync::{broadcast, mpsc};
@@ -51,10 +51,14 @@ pub struct Manager {
 
 impl Manager {
     /// Build the manager, recover interrupted downloads and start the event loop.
-    pub async fn start(conn: Connection, dir: PathBuf) -> anyhow::Result<Arc<Self>> {
+    pub async fn start(
+        conn: Connection,
+        dir: PathBuf,
+        policy: UrlPolicy,
+    ) -> anyhow::Result<Arc<Self>> {
         let current = settings::load(&conn)?;
         let limiter = RateLimiter::with_global(current.speed_global);
-        let (engine, rx) = HttpDownloader::new(&dir, limiter)?;
+        let (engine, rx) = HttpDownloader::new(&dir, limiter, policy)?;
         let requeued = downloads::requeue_interrupted(&conn)?;
         if requeued > 0 {
             tracing::info!(count = requeued, "re-queued interrupted downloads");
@@ -186,6 +190,7 @@ impl Manager {
             id,
             url: d.url,
             filename: d.filename,
+            subdir: d.subdir,
             connections: s.connections,
             speed_limit: s.speed_per_download,
             etag: d.etag,
@@ -311,8 +316,8 @@ impl Manager {
     // ---- conflicts -----------------------------------------------------------------
 
     /// First file name that is free on disk and not claimed by an unfinished download.
-    async fn free_name(&self, name: &str) -> Result<String> {
-        for path in candidates(&self.dir, name).take(10_000) {
+    async fn free_name(&self, subdir: &str, name: &str) -> Result<String> {
+        for path in candidates(&self.dir.join(subdir), name).take(10_000) {
             let cand = path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -322,7 +327,7 @@ impl Manager {
                 continue;
             }
             if self
-                .with_db(|c| downloads::find_unfinished_by_filename(c, &cand))?
+                .with_db(|c| downloads::find_unfinished_by_filename(c, subdir, &cand))?
                 .is_some()
             {
                 continue;
@@ -333,19 +338,21 @@ impl Manager {
     }
 
     /// The most relevant collision for `url`/`name`, if any.
-    async fn detect_conflict(&self, url: &str, name: &str) -> Result<Detected> {
+    async fn detect_conflict(&self, url: &str, subdir: &str, name: &str) -> Result<Detected> {
         let dup = self
             .with_db(|c| downloads::find_by_url(c, url))?
             .into_iter()
             .next();
-        let reserved = self.with_db(|c| downloads::find_unfinished_by_filename(c, name))?;
-        let on_disk = tokio::fs::metadata(self.dir.join(name)).await.ok();
+        let reserved = self.with_db(|c| downloads::find_unfinished_by_filename(c, subdir, name))?;
+        let on_disk = tokio::fs::metadata(self.dir.join(subdir).join(name))
+            .await
+            .ok();
         let name_reserved = reserved.is_some();
         let name_taken = name_reserved || on_disk.is_some();
         if dup.is_none() && !name_taken {
             return Ok(Detected::default());
         }
-        let suggested_name = self.free_name(name).await?;
+        let suggested_name = self.free_name(subdir, name).await?;
 
         let conflict = if let Some(d) = dup {
             Conflict {
@@ -387,8 +394,8 @@ impl Manager {
     }
 
     /// Remove the `.part` file of a download, ignoring "not there".
-    async fn remove_part(&self, id: Id, filename: &str) {
-        let part = self.engine.part_path(id, filename);
+    async fn remove_part(&self, id: Id, subdir: &str, filename: &str) {
+        let part = self.engine.part_path(id, subdir, filename);
         if let Err(e) = tokio::fs::remove_file(&part).await {
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::warn!(path = %part.display(), error = %e, "cannot remove part file");
@@ -404,7 +411,7 @@ impl Manager {
             Ok(()) | Err(Error::NotFound(_)) => {}
             Err(e) => return Err(e),
         }
-        self.remove_part(d.id, &d.filename).await;
+        self.remove_part(d.id, &d.subdir, &d.filename).await;
         self.with_db(|c| {
             segments::replace(c, d.id, &[])?;
             downloads::set_status(c, d.id, Status::Cancelled, None).map(|_| ())
@@ -432,12 +439,20 @@ impl Service for Manager {
             other => Error::Engine(format!("cannot reach {}: {other}", req.url)),
         })?;
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
-        let category = req.category.unwrap_or_else(|| from_filename(&name));
+        let category = req
+            .category
+            .unwrap_or_else(|| detect_category(&name, info.content_type.as_deref()));
+        // Decided once, now: later setting changes or category edits never move a download.
+        let subdir = if self.current_settings().category_subdirs {
+            category.as_str().to_owned()
+        } else {
+            String::new()
+        };
         let url = req.url.trim().to_owned();
 
         let id = {
             let _guard = self.add_lock.lock().await;
-            let found = self.detect_conflict(&url, &name).await?;
+            let found = self.detect_conflict(&url, &subdir, &name).await?;
             let (filename, overwrite) = match (found.conflict, req.on_conflict) {
                 (None, _) => (name, false),
                 (Some(c), OnConflict::Reject) => return Err(Error::Conflict(Box::new(c))),
@@ -461,6 +476,7 @@ impl Service for Manager {
                         category,
                         source_kind: SourceKind::Http,
                         overwrite,
+                        subdir,
                     },
                 )?;
                 downloads::set_remote_info(c, id, info.size, info.resumable, info.etag.as_deref())?;

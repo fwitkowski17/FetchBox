@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use axum::body::{Body, Bytes};
 use axum::extract::Path as UrlPath;
-use axum::http::header::CONTENT_LENGTH;
+use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use dlm_api::service::Service;
@@ -37,8 +37,17 @@ async fn spawn_files() -> SocketAddr {
             }
             Some((Ok::<_, std::convert::Infallible>(next), it))
         });
+        // `/img/...` claims to be a JPEG, everything else is a generic binary.
+        let content_type = if kind == "img" {
+            "image/jpeg"
+        } else {
+            "application/octet-stream"
+        };
         (
-            [(CONTENT_LENGTH, BODY_LEN.to_string())],
+            [
+                (CONTENT_LENGTH, BODY_LEN.to_string()),
+                (CONTENT_TYPE, content_type.to_string()),
+            ],
             Body::from_stream(s),
         )
     }
@@ -61,9 +70,13 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
+        Self::with_policy(dlm_http_engine::UrlPolicy::default()).await
+    }
+
+    async fn with_policy(policy: dlm_http_engine::UrlPolicy) -> Self {
         let dir = tempfile::tempdir().expect("tmp");
         let db = dlm_storage::open_in_memory().expect("db");
-        let mgr = Manager::start(db, dir.path().to_owned())
+        let mgr = Manager::start(db, dir.path().to_owned(), policy)
             .await
             .expect("start");
         Self {
@@ -903,4 +916,320 @@ async fn openapi_is_served_publicly_even_with_auth() {
         Some(true)
     );
     assert!(v["paths"]["/api/downloads"].is_object());
+}
+
+// ---- category detection, subdirectories, URL policy ---------------------------------
+
+#[tokio::test]
+async fn category_falls_back_to_content_type_when_the_name_says_nothing() {
+    let h = Harness::new().await;
+    let photo = h
+        .mgr
+        .add(h.req("img", "download", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(photo.category, Category::Photo);
+    let generic = h
+        .mgr
+        .add(h.req("bin", "download", OnConflict::Rename))
+        .await
+        .expect("add");
+    assert_eq!(generic.category, Category::Other);
+    // The extension is the more reliable signal.
+    let by_name = h
+        .mgr
+        .add(h.req("img", "clip.mkv", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(by_name.category, Category::Video);
+    // An explicit choice beats both.
+    let mut forced = h.req("img", "other.jpg", OnConflict::Reject);
+    forced.category = Some(Category::Archive);
+    assert_eq!(
+        h.mgr.add(forced).await.expect("add").category,
+        Category::Archive
+    );
+}
+
+async fn set_subdirs(h: &Harness, on: bool) {
+    let s = Settings {
+        category_subdirs: on,
+        ..h.mgr.settings().await.expect("s")
+    };
+    h.mgr.update_settings(s).await.expect("update");
+}
+
+#[tokio::test]
+async fn category_subdirectories_are_optional_and_decided_at_add_time() {
+    let h = Harness::new().await;
+
+    // Off by default: files land in the download directory.
+    let flat = h
+        .mgr
+        .add(h.req("fast", "flat.mkv", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(flat.subdir, "");
+    h.wait_status(flat.id, Status::Completed).await;
+    assert_eq!(file(&h.path("flat.mkv")), body());
+
+    set_subdirs(&h, true).await;
+    let video = h
+        .mgr
+        .add(h.req("fast", "movie.mkv", OnConflict::Reject))
+        .await
+        .expect("add");
+    let music = h
+        .mgr
+        .add(h.req("fast", "song.mp3", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(
+        (video.subdir.as_str(), music.subdir.as_str()),
+        ("video", "music")
+    );
+    h.wait_status(video.id, Status::Completed).await;
+    h.wait_status(music.id, Status::Completed).await;
+    assert_eq!(file(&h.path("video/movie.mkv")), body());
+    assert_eq!(file(&h.path("music/song.mp3")), body());
+    assert!(!h.path("movie.mkv").exists());
+
+    // Existing downloads stay put when the setting changes or the category is edited.
+    set_subdirs(&h, false).await;
+    let moved = h
+        .mgr
+        .set_category(video.id, Category::Other)
+        .await
+        .expect("cat");
+    assert_eq!(moved.subdir, "video");
+    assert_eq!(file(&h.path("video/movie.mkv")), body());
+}
+
+#[tokio::test]
+async fn conflicts_are_checked_inside_the_subdirectory() {
+    let h = Harness::new().await;
+    set_subdirs(&h, true).await;
+    std::fs::create_dir_all(h.path("video")).expect("mkdir");
+    std::fs::write(h.path("video/clip.mkv"), b"mine").expect("write");
+    // The same name in the base directory is a different file: no conflict with it.
+    std::fs::write(h.path("other.mkv"), b"base").expect("write");
+
+    let r = h
+        .mgr
+        .add(h.req("fast", "clip.mkv", OnConflict::Reject))
+        .await;
+    let Err(Error::Conflict(c)) = r else {
+        panic!("expected conflict")
+    };
+    assert_eq!(c.kind, ConflictKind::FileExists);
+    assert_eq!(c.suggested_name, "clip (1).mkv");
+
+    let d = h
+        .mgr
+        .add(h.req("fast", "other.mkv", OnConflict::Reject))
+        .await
+        .expect("no conflict in video/");
+    h.wait_status(d.id, Status::Completed).await;
+    assert_eq!(file(&h.path("video/other.mkv")), body());
+    assert_eq!(file(&h.path("other.mkv")), b"base");
+}
+
+#[tokio::test]
+async fn private_url_policy_is_applied_by_the_manager() {
+    let h = Harness::with_policy(dlm_http_engine::UrlPolicy {
+        block_private: true,
+    })
+    .await;
+    let r = h.mgr.add(h.req("fast", "a.bin", OnConflict::Reject)).await;
+    assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
+    assert!(h.mgr.list().await.expect("l").is_empty());
+}
+
+// ---- crash recovery -----------------------------------------------------------------
+
+mod resumable_server {
+    use super::*;
+    use axum::extract::State;
+    use axum::http::header::{ACCEPT_RANGES, CONTENT_RANGE, ETAG, RANGE};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::Response;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[derive(Clone)]
+    struct St {
+        body: Arc<Vec<u8>>,
+        delay: Duration,
+        served: Arc<AtomicU64>,
+    }
+
+    fn parse_range(v: &str) -> Option<(usize, Option<usize>)> {
+        let (a, b) = v.strip_prefix("bytes=")?.split_once('-')?;
+        Some((a.parse().ok()?, b.parse().ok()))
+    }
+
+    async fn handler(State(st): State<St>, headers: HeaderMap) -> Response {
+        let total = st.body.len();
+        let range = headers
+            .get(RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_range);
+        let (from, to, partial) = match range {
+            Some((a, b)) => (a, b.unwrap_or(total - 1).min(total - 1), true),
+            None => (0, total - 1, false),
+        };
+        let chunks: Vec<Bytes> = st.body[from..=to]
+            .chunks(1024)
+            .map(Bytes::copy_from_slice)
+            .collect();
+        let len = to - from + 1;
+        let s = stream::unfold((chunks.into_iter(), st), |(mut it, st)| async move {
+            let next = it.next()?;
+            tokio::time::sleep(st.delay).await;
+            st.served.fetch_add(next.len() as u64, Ordering::Relaxed);
+            Some((Ok::<_, std::convert::Infallible>(next), (it, st)))
+        });
+        let mut b = Response::builder()
+            .status(if partial {
+                StatusCode::PARTIAL_CONTENT
+            } else {
+                StatusCode::OK
+            })
+            .header(CONTENT_LENGTH, len)
+            .header(ACCEPT_RANGES, "bytes")
+            .header(ETAG, "\"v1\"");
+        if partial {
+            b = b.header(CONTENT_RANGE, format!("bytes {from}-{to}/{total}"));
+        }
+        b.body(Body::from_stream(s)).expect("response")
+    }
+
+    /// Range-capable file server that counts the body bytes it actually sent.
+    pub async fn spawn(len: usize, delay: Duration) -> (SocketAddr, Arc<AtomicU64>, Vec<u8>) {
+        let body: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+        let served = Arc::new(AtomicU64::new(0));
+        let st = St {
+            body: Arc::new(body.clone()),
+            delay,
+            served: Arc::clone(&served),
+        };
+        let app = axum::Router::new()
+            .route("/{name}", get(handler))
+            .with_state(st);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (addr, served, body)
+    }
+}
+
+/// A process killed mid-download (no pause, no flush) must pick up from the offsets the
+/// last progress tick saved, not start over. Each "process" is its own Tokio runtime that
+/// is dropped without waiting, which kills every task it owned.
+#[test]
+fn killed_process_resumes_from_saved_offsets() {
+    use std::sync::atomic::Ordering;
+
+    const LEN: usize = 600 * 1024; // 3 segments of 200 KiB
+    let server_rt = tokio::runtime::Runtime::new().expect("rt");
+    let (addr, served, body) =
+        server_rt.block_on(resumable_server::spawn(LEN, Duration::from_millis(20)));
+
+    let dir = tempfile::tempdir().expect("tmp");
+    let db_path = dir.path().join("dlmanager.db");
+    let dl_dir = dir.path().join("downloads");
+    std::fs::create_dir_all(&dl_dir).expect("mkdir");
+    let url = format!("http://{addr}/big.bin");
+    let policy = dlm_http_engine::UrlPolicy::default();
+
+    // --- process 1: download until progress has been persisted, then "kill -9" it.
+    let rt1 = tokio::runtime::Runtime::new().expect("rt");
+    let id = rt1.block_on(async {
+        let db = dlm_storage::open(&db_path).expect("db");
+        let mgr = Manager::start(db, dl_dir.clone(), policy)
+            .await
+            .expect("start");
+        let req = AddRequest {
+            url: url.clone(),
+            filename: None,
+            category: None,
+            on_conflict: OnConflict::Reject,
+        };
+        let id = mgr.add(req).await.expect("add").id;
+        let probe = dlm_storage::open(&db_path).expect("second connection");
+        for _ in 0..100 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let d = dlm_storage::downloads::get(&probe, id)
+                .expect("get")
+                .expect("row");
+            if d.status == Status::Downloading && d.downloaded > 0 {
+                break;
+            }
+        }
+        // Let the segment offsets of the same tick land too.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        id
+    });
+    rt1.shutdown_background();
+    std::thread::sleep(Duration::from_millis(400));
+
+    let probe = dlm_storage::open(&db_path).expect("db");
+    let crashed = dlm_storage::downloads::get(&probe, id)
+        .expect("get")
+        .expect("row");
+    assert_eq!(
+        crashed.status,
+        Status::Downloading,
+        "the crash must look like a crash"
+    );
+    assert!(
+        crashed.downloaded > 0 && (crashed.downloaded as usize) < LEN,
+        "{}",
+        crashed.downloaded
+    );
+    let saved: u64 = dlm_storage::segments::list(&probe, id)
+        .expect("segs")
+        .iter()
+        .map(|s| s.downloaded)
+        .sum();
+    assert!(saved > 0, "segment offsets were not persisted");
+    drop(probe);
+    let served_before = served.load(Ordering::Relaxed);
+
+    // --- process 2: same database, fresh runtime.
+    let rt2 = tokio::runtime::Runtime::new().expect("rt");
+    rt2.block_on(async {
+        let db = dlm_storage::open(&db_path).expect("db");
+        let mgr = Manager::start(db, dl_dir.clone(), policy)
+            .await
+            .expect("restart");
+        for _ in 0..200 {
+            let done = mgr
+                .list()
+                .await
+                .expect("list")
+                .into_iter()
+                .find(|d| d.id == id);
+            if let Some(d) = done {
+                assert_ne!(d.status, Status::Failed, "{:?}", d.error);
+                if d.status == Status::Completed {
+                    return;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("download did not complete after the restart");
+    });
+    rt2.shutdown_background();
+
+    assert_eq!(std::fs::read(dl_dir.join("big.bin")).expect("file"), body);
+    let sent_after_restart = served.load(Ordering::Relaxed) - served_before;
+    assert!(
+        (sent_after_restart as usize) < LEN * 85 / 100,
+        "restarted from scratch: re-sent {sent_after_restart} of {LEN} bytes"
+    );
+    server_rt.shutdown_background();
 }

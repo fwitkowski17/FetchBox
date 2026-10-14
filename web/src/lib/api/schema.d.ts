@@ -292,6 +292,8 @@ export interface components {
              */
             speed?: number;
             status: components["schemas"]["Status"];
+            /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
+            subdir?: string;
             url: string;
         };
         /** @description Error body used by every non-2xx response. */
@@ -354,6 +356,11 @@ export interface components {
         OnConflict: "reject" | "rename" | "overwrite";
         /** @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. */
         Settings: {
+            /**
+             * @description Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).
+             *     Existing downloads keep the directory they were created with.
+             */
+            category_subdirs?: boolean;
             /**
              * Format: int32
              * @description Connections (segments) per download.

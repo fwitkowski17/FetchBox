@@ -10,6 +10,8 @@ services:
       # unless --no-auth is passed. Put it in a .env file next to this one, or use
       # a Docker secret + --password-file instead.
       DLM_PASSWORD: ${DLM_PASSWORD:?set DLM_PASSWORD in .env}
+    # Extra flags go here, e.g. when the manager is reachable from outside your network:
+    # command: ["--block-private-urls"]
     volumes:
       - ./data:/data
       - ./downloads:/downloads

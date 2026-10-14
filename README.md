@@ -20,6 +20,11 @@ cargo test --workspace
 cd web && npm run check
 ```
 
+## Options worth knowing
+
+- `--block-private-urls`: refuse URLs that point at loopback, private, link-local or similar addresses (SSRF protection). Off by default so you can download from a NAS or another host in your LAN; turn it on if the manager is reachable from outside.
+- Settings (in the UI/API): connections per download, max simultaneous downloads, per-download and global speed limits, and sorting downloads into per-category subdirectories. All apply live.
+
 ## API documentation and types
 
 The HTTP API is described by an OpenAPI 3.1 document generated from the Rust code (`utoipa`). It is served at `/api/openapi.json` (public) and committed as [docs/openapi.json](docs/openapi.json). The frontend types in `web/src/lib/api/schema.d.ts` are generated from it and must not be edited by hand.

@@ -921,6 +921,10 @@
           "status": {
             "$ref": "#/components/schemas/Status"
           },
+          "subdir": {
+            "type": "string",
+            "description": "Subdirectory of the download directory the file goes to; empty = the directory itself."
+          },
           "url": {
             "type": "string"
           }
@@ -1117,6 +1121,10 @@
           "speed_global"
         ],
         "properties": {
+          "category_subdirs": {
+            "type": "boolean",
+            "description": "Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).\nExisting downloads keep the directory they were created with."
+          },
           "connections": {
             "type": "integer",
             "format": "int32",

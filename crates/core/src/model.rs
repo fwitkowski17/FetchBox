@@ -138,6 +138,9 @@ pub struct Download {
     pub resumable: bool,
     pub etag: Option<String>,
     pub error: Option<String>,
+    /// Subdirectory of the download directory the file goes to; empty = the directory itself.
+    #[serde(default)]
+    pub subdir: String,
     /// Current speed in bytes/s. Not persisted: filled in for running downloads.
     #[serde(default)]
     pub speed: u64,
@@ -155,6 +158,10 @@ pub struct Settings {
     pub speed_per_download: u64,
     /// Global speed limit, bytes/s.
     pub speed_global: u64,
+    /// Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).
+    /// Existing downloads keep the directory they were created with.
+    #[serde(default)]
+    pub category_subdirs: bool,
 }
 
 impl Default for Settings {
@@ -164,6 +171,7 @@ impl Default for Settings {
             max_concurrent: 3,
             speed_per_download: 0,
             speed_global: 0,
+            category_subdirs: false,
         }
     }
 }
@@ -302,6 +310,8 @@ pub struct Job {
     pub id: Id,
     pub url: String,
     pub filename: String,
+    /// Subdirectory of the download directory (empty = none). Must be a single safe name.
+    pub subdir: String,
     pub connections: u32,
     /// Per-download speed limit, bytes/s (`0` = unlimited).
     pub speed_limit: u64,

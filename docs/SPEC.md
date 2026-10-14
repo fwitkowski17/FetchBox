@@ -16,6 +16,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - max simultaneous downloads (extra ones are `Queued`)
   - speed limit per download
   - global speed limit
+  - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
 
@@ -97,11 +98,21 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 - Two-level token bucket: global and per-download. Every segment acquires tokens before reading from the socket.
 - Settings changes are propagated live (watch channel).
 
+### 6.3.1 Categories and directories
+
+- Category = file extension first (servers often send `application/octet-stream`), then `Content-Type`
+  (`image/*` Photo, `audio/*` Music, `video/*` Video, archive and installer MIME types), else `Other`.
+  An explicit `category` in the add request wins; it can be changed later with `PATCH`.
+- With `category_subdirs` on, a new download goes to `<download dir>/<category>/` (`photo`, `music`, `video`,
+  `program`, `archive`, `other`). The subdirectory is stored per download (`downloads.subdir`) when it is added:
+  changing the setting or the category afterwards never moves an existing file. The `.part` file lives next to the
+  final file; conflict checks and name reservation are per subdirectory.
+
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -143,7 +154,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   memory with a 7-day TTL and a cap of 100; failed logins are throttled globally (5 per minute, then `429` with
   `Retry-After`). `Secure` is added to the cookie when `X-Forwarded-Proto: https` is present.
 - Sanitize filenames, never write outside download dir.
-- Optional blocklist of private IP ranges for URLs (SSRF) when exposed outside LAN.
+- Optional blocklist of private IP ranges for URLs (SSRF), `--block-private-urls`, off by default because fetching
+  from a NAS in the LAN is normal use. It blocks loopback, RFC 1918, link-local (cloud metadata), CGNAT, multicast,
+  unspecified and IPv6 unique-local/link-local addresses (IPv4-mapped IPv6 is judged by its IPv4 part), and is
+  enforced in three places so it cannot be bypassed: IP literals in the URL, a filtering DNS resolver for host
+  names (also stops DNS rebinding), and every redirect hop. Violations are `400` (literal) or `502` (name).
+- Crash safety: progress is persisted once per tick; after a kill the interrupted downloads are re-queued and resume
+  from the saved segment offsets (verified by a test that kills a runtime mid-download).
 
 ## 7. Dependencies (Rust)
 

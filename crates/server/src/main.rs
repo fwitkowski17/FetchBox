@@ -42,6 +42,11 @@ struct Args {
     /// Print the OpenAPI document to stdout and exit (used to generate the frontend types).
     #[arg(long)]
     print_openapi: bool,
+    /// Refuse downloads from private, loopback and link-local addresses (SSRF protection).
+    /// Enable it when the manager is reachable from outside your network. Off by default,
+    /// because fetching from a NAS or another host in the LAN is a normal use.
+    #[arg(long)]
+    block_private_urls: bool,
     /// Run without authentication. Anyone who can reach the port can use the manager.
     #[arg(long)]
     no_auth: bool,
@@ -110,9 +115,15 @@ async fn main() -> anyhow::Result<()> {
     let db = dlm_storage::open(&db_path).context("open database")?;
     tracing::info!(db = %db_path.display(), download_dir = %args.download_dir.display(), "storage ready");
 
-    let manager = manager::Manager::start(db, args.download_dir.clone())
-        .await
-        .context("start download manager")?;
+    let manager = manager::Manager::start(
+        db,
+        args.download_dir.clone(),
+        dlm_http_engine::UrlPolicy {
+            block_private: args.block_private_urls,
+        },
+    )
+    .await
+    .context("start download manager")?;
     let app: Router = dlm_api::router(manager, auth).fallback(static_handler);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
@@ -178,6 +189,7 @@ mod auth_config_tests {
             port: 0,
             password_file,
             print_openapi: false,
+            block_private_urls: false,
             no_auth,
         }
     }

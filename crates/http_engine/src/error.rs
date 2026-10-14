@@ -5,7 +5,7 @@
 pub enum EngineError {
     #[error("invalid url: {0}")]
     InvalidUrl(String),
-    #[error("http error: {0}")]
+    #[error("http error: {}", chain(.0))]
     Http(#[from] reqwest::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -15,6 +15,18 @@ pub enum EngineError {
     Protocol(String),
     #[error("connection closed before the full body arrived")]
     Truncated,
+}
+
+/// `reqwest` hides the real reason (refused, DNS, blocked address) in the error source.
+fn chain(e: &reqwest::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = std::error::Error::source(e);
+    while let Some(s) = source {
+        out.push_str(": ");
+        out.push_str(&s.to_string());
+        source = s.source();
+    }
+    out
 }
 
 impl EngineError {
