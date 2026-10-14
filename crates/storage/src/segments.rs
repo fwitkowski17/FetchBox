@@ -89,6 +89,7 @@ mod tests {
                 filename: "a".into(),
                 category: Category::Other,
                 source_kind: SourceKind::Http,
+                overwrite: false,
             },
         )
         .expect("insert")

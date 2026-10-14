@@ -12,6 +12,8 @@ pub struct NewDownload {
     pub filename: String,
     pub category: Category,
     pub source_kind: SourceKind,
+    /// Replace an existing file with the same name when the download finishes.
+    pub overwrite: bool,
 }
 
 const COLUMNS: &str =
@@ -20,12 +22,14 @@ const COLUMNS: &str =
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             new.url,
             new.filename,
             new.category.as_str(),
-            new.source_kind.as_str()
+            new.source_kind.as_str(),
+            new.overwrite
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -72,6 +76,60 @@ pub fn set_status(conn: &Connection, id: Id, status: Status, error: Option<&str>
     Ok(n > 0)
 }
 
+/// Change status only if the current one is in `from` (guards against late engine events).
+/// Returns whether the transition happened.
+pub fn transition(
+    conn: &Connection,
+    id: Id,
+    from: &[Status],
+    to: Status,
+    error: Option<&str>,
+) -> Result<bool> {
+    let Some(current) = get(conn, id)? else {
+        return Ok(false);
+    };
+    if !from.contains(&current.status) {
+        return Ok(false);
+    }
+    set_status(conn, id, to, error)
+}
+
+/// Whether the user chose to overwrite an existing file for this download.
+pub fn overwrite_flag(conn: &Connection, id: Id) -> Result<bool> {
+    Ok(conn
+        .query_row("SELECT overwrite FROM downloads WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// Downloads of this URL that still count (not failed/cancelled), oldest first.
+pub fn find_by_url(conn: &Connection, url: &str) -> Result<Vec<Download>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLUMNS} FROM downloads
+          WHERE url = ?1 AND status NOT IN ('failed', 'cancelled') ORDER BY id"
+    ))?;
+    let rows = stmt.query_map([url], read_row)?;
+    rows.map(|r| r?).collect()
+}
+
+/// Unfinished download (queued, downloading, paused) that will produce `filename`.
+pub fn find_unfinished_by_filename(conn: &Connection, filename: &str) -> Result<Option<Download>> {
+    let row = conn
+        .query_row(
+            &format!(
+                "SELECT {COLUMNS} FROM downloads
+                  WHERE filename = ?1 AND status IN ('queued', 'downloading', 'paused')
+                  ORDER BY id LIMIT 1"
+            ),
+            [filename],
+            read_row,
+        )
+        .optional()?;
+    row.transpose()
+}
+
 /// Persist what the engine learned about the remote file.
 pub fn set_remote_info(
     conn: &Connection,
@@ -88,9 +146,11 @@ pub fn set_remote_info(
 }
 
 /// Persist the total number of downloaded bytes (batched by the caller).
+/// Only applies while the download is `downloading`, so late engine events cannot
+/// touch a download the user has meanwhile paused, cancelled or finished.
 pub fn set_downloaded(conn: &Connection, id: Id, downloaded: u64) -> Result<()> {
     conn.execute(
-        "UPDATE downloads SET downloaded = ?2 WHERE id = ?1",
+        "UPDATE downloads SET downloaded = ?2 WHERE id = ?1 AND status = 'downloading'",
         params![id, to_i64(downloaded)],
     )?;
     Ok(())
@@ -162,6 +222,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             resumable,
             etag,
             error,
+            speed: 0,
         })
     })();
     Ok(mapped)
@@ -178,6 +239,7 @@ mod tests {
             filename: "f.bin".into(),
             category: Category::Other,
             source_kind: SourceKind::Http,
+            overwrite: false,
         }
     }
 
@@ -217,6 +279,7 @@ mod tests {
         let conn = open_in_memory().expect("db");
         let id = insert(&conn, &new("http://x/a")).expect("insert");
         set_remote_info(&conn, id, Some(1000), true, Some("\"abc\"")).expect("info");
+        set_status(&conn, id, Status::Downloading, None).expect("status");
         set_downloaded(&conn, id, 400).expect("progress");
         let d = get(&conn, id).expect("get").expect("exists");
         assert_eq!(d.size, Some(1000));
@@ -261,5 +324,66 @@ mod tests {
         assert_eq!(requeue_interrupted(&conn).expect("requeue"), 1);
         assert_eq!(get(&conn, a).expect("g").expect("e").status, Status::Queued);
         assert_eq!(get(&conn, b).expect("g").expect("e").status, Status::Paused);
+    }
+
+    #[test]
+    fn transition_respects_expected_status() {
+        let conn = open_in_memory().expect("db");
+        let id = insert(&conn, &new("http://x/a")).expect("insert");
+        assert!(transition(&conn, id, &[Status::Queued], Status::Downloading, None).expect("t"));
+        // A late event must not resurrect a cancelled download.
+        set_status(&conn, id, Status::Cancelled, None).expect("set");
+        assert!(!transition(
+            &conn,
+            id,
+            &[Status::Queued, Status::Downloading],
+            Status::Paused,
+            None
+        )
+        .expect("t"));
+        assert_eq!(
+            get(&conn, id).expect("g").expect("e").status,
+            Status::Cancelled
+        );
+        assert!(!transition(&conn, 999, &[Status::Queued], Status::Paused, None).expect("t"));
+    }
+
+    #[test]
+    fn progress_ignored_unless_downloading() {
+        let conn = open_in_memory().expect("db");
+        let id = insert(&conn, &new("http://x/a")).expect("insert");
+        set_downloaded(&conn, id, 50).expect("p");
+        assert_eq!(get(&conn, id).expect("g").expect("e").downloaded, 0);
+        set_status(&conn, id, Status::Downloading, None).expect("s");
+        set_downloaded(&conn, id, 50).expect("p");
+        assert_eq!(get(&conn, id).expect("g").expect("e").downloaded, 50);
+    }
+
+    #[test]
+    fn conflict_lookups() {
+        let conn = open_in_memory().expect("db");
+        let a = insert(&conn, &new("http://x/a")).expect("a");
+        assert_eq!(find_by_url(&conn, "http://x/a").expect("f").len(), 1);
+        assert!(find_unfinished_by_filename(&conn, "f.bin")
+            .expect("f")
+            .is_some());
+        set_status(&conn, a, Status::Completed, None).expect("s");
+        assert_eq!(find_by_url(&conn, "http://x/a").expect("f").len(), 1);
+        assert!(find_unfinished_by_filename(&conn, "f.bin")
+            .expect("f")
+            .is_none());
+        set_status(&conn, a, Status::Cancelled, None).expect("s");
+        assert!(find_by_url(&conn, "http://x/a").expect("f").is_empty());
+    }
+
+    #[test]
+    fn overwrite_flag_is_stored() {
+        let conn = open_in_memory().expect("db");
+        let mut n = new("http://x/a");
+        n.overwrite = true;
+        let id = insert(&conn, &n).expect("insert");
+        assert!(overwrite_flag(&conn, id).expect("f"));
+        let id2 = insert(&conn, &new("http://x/b")).expect("insert");
+        assert!(!overwrite_flag(&conn, id2).expect("f"));
     }
 }

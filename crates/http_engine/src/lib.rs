@@ -163,6 +163,12 @@ impl HttpDownloader {
         &self.inner.limiter
     }
 
+    /// Validate `raw` and inspect the remote file (size, ranges, name) without downloading.
+    pub async fn probe_url(&self, raw: &str) -> Result<RemoteInfo, EngineError> {
+        let url = validate_url(raw)?;
+        probe(&self.inner.client, &url).await
+    }
+
     /// Apply a new per-download speed limit to every active download.
     pub fn set_speed_per_download(&self, rate: u64) {
         for e in self.inner.entries().values() {
@@ -229,7 +235,7 @@ fn part_path(dir: &Path, id: Id, filename: &str) -> PathBuf {
 }
 
 /// `name`, then `stem (1).ext`, `stem (2).ext`, ... (extension kept).
-fn candidates(dir: &Path, filename: &str) -> impl Iterator<Item = PathBuf> {
+pub fn candidates(dir: &Path, filename: &str) -> impl Iterator<Item = PathBuf> {
     let name = sanitize(filename);
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_owned(), format!(".{e}")),
@@ -423,7 +429,9 @@ impl Downloader for HttpDownloader {
         let shared = Arc::new(Shared::default());
         // Hold the lock across spawn so the task cannot finish before the entry exists.
         let mut entries = self.inner.entries();
-        if entries.contains_key(&job.id) {
+        // A paused entry is replaced: the caller's job (built from persisted offsets) wins,
+        // which makes resume-after-pause and resume-after-restart the same code path.
+        if entries.get(&job.id).is_some_and(|e| e.task.is_some()) {
             return Err(dlm_core::Error::InvalidState(format!(
                 "download {} is already active",
                 job.id
@@ -660,6 +668,33 @@ mod tests {
         ));
 
         dl.resume(7).await.expect("resume");
+        let Event::Completed { path, .. } = next_terminal(&mut rx).await else {
+            panic!("expected completion");
+        };
+        assert_eq!(std::fs::read(path).expect("read"), server.body());
+    }
+
+    #[tokio::test]
+    async fn start_over_paused_entry_resumes_from_given_offsets() {
+        let server = TestServer::spawn(4 * 1024 * 1024, true, Duration::from_millis(10)).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let (dl, mut rx) = HttpDownloader::new(dir.path(), RateLimiter::new()).expect("new");
+        let j = job(5, &server, 4);
+        dl.start(&j).await.expect("start");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        dl.pause(5).await.expect("pause");
+        let segments = loop {
+            if let Event::Paused { segments, .. } = rx.recv().await.expect("closed") {
+                break segments;
+            }
+        };
+        // Same call the manager makes after reading offsets back from SQLite.
+        let resumed = Job {
+            etag: Some("\"v1\"".into()),
+            segments,
+            ..j
+        };
+        dl.start(&resumed).await.expect("restart over paused entry");
         let Event::Completed { path, .. } = next_terminal(&mut rx).await else {
             panic!("expected completion");
         };

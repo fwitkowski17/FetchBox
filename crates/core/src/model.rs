@@ -133,6 +133,9 @@ pub struct Download {
     pub resumable: bool,
     pub etag: Option<String>,
     pub error: Option<String>,
+    /// Current speed in bytes/s. Not persisted: filled in for running downloads.
+    #[serde(default)]
+    pub speed: u64,
 }
 
 /// Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.
@@ -177,6 +180,78 @@ impl Settings {
         }
         Ok(())
     }
+}
+
+/// What to do when a new download collides with an existing one (SPEC: name conflicts).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnConflict {
+    /// Refuse with a conflict description (default; nothing happens behind the user's back).
+    #[default]
+    Reject,
+    /// Use the first free name.
+    Rename,
+    /// Replace the existing file once the download finishes.
+    Overwrite,
+}
+
+/// Request to add a download by URL.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AddRequest {
+    pub url: String,
+    /// Override the file name suggested by the server.
+    #[serde(default)]
+    pub filename: Option<String>,
+    /// Override the category detected from the file name.
+    #[serde(default)]
+    pub category: Option<Category>,
+    #[serde(default)]
+    pub on_conflict: OnConflict,
+}
+
+/// Why an add request collided with something.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictKind {
+    /// The same URL is already queued, running, paused or completed.
+    DuplicateUrl,
+    /// A file with this name is already in the download directory.
+    FileExists,
+    /// Another unfinished download will produce a file with this name.
+    NameReserved,
+}
+
+/// Description of a collision, shown to the user so they can choose.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Conflict {
+    pub kind: ConflictKind,
+    pub existing_name: String,
+    pub existing_size: Option<u64>,
+    /// Unix seconds, for files already on disk.
+    pub existing_modified: Option<i64>,
+    /// The existing download, when the collision is with one.
+    pub existing_id: Option<Id>,
+    /// First free name, used by `OnConflict::Rename`.
+    pub suggested_name: String,
+}
+
+/// Live updates pushed to the UI (SSE).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Event {
+    /// A download was created or its status/metadata changed.
+    Download { download: Download },
+    /// Periodic progress of a running download.
+    Progress {
+        id: Id,
+        downloaded: u64,
+        total: Option<u64>,
+        speed: u64,
+    },
+    /// A download was removed from the list.
+    Removed { id: Id },
+    /// Settings changed.
+    Settings { settings: Settings },
 }
 
 /// One byte range `[start, end]` (inclusive) of a file and how much of it is on disk.
