@@ -179,6 +179,32 @@ impl Settings {
     }
 }
 
+/// One byte range `[start, end]` (inclusive) of a file and how much of it is on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SegmentState {
+    pub idx: u32,
+    pub start: u64,
+    pub end: u64,
+    pub downloaded: u64,
+}
+
+impl SegmentState {
+    /// Length of the range in bytes.
+    pub fn len(&self) -> u64 {
+        self.end - self.start + 1
+    }
+
+    /// Ranges are never empty (`end >= start`).
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// Whole range is on disk.
+    pub fn is_done(&self) -> bool {
+        self.downloaded >= self.len()
+    }
+}
+
 /// Input for `Downloader::start`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
@@ -186,6 +212,12 @@ pub struct Job {
     pub url: String,
     pub filename: String,
     pub connections: u32,
+    /// Per-download speed limit, bytes/s (`0` = unlimited).
+    pub speed_limit: u64,
+    /// `ETag` seen when the stored offsets were written; used to validate a resume.
+    pub etag: Option<String>,
+    /// Stored segment offsets to resume from; empty means a fresh start.
+    pub segments: Vec<SegmentState>,
 }
 
 /// Opaque reference to a started job.

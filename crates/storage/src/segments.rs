@@ -6,13 +6,7 @@ use rusqlite::{params, Connection};
 use crate::Result;
 
 /// One persisted segment: inclusive byte range plus bytes already written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SegmentRow {
-    pub idx: u32,
-    pub start: u64,
-    pub end: u64,
-    pub downloaded: u64,
-}
+pub use dlm_core::SegmentState as SegmentRow;
 
 /// Replace all segments of a download with a fresh plan (single transaction).
 pub fn replace(conn: &mut Connection, download_id: Id, rows: &[SegmentRow]) -> Result<()> {

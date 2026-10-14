@@ -11,7 +11,9 @@ pub mod scheduler;
 use async_trait::async_trait;
 
 pub use error::{Error, Result};
-pub use model::{Category, Download, Handle, Id, Job, Progress, Settings, SourceKind, Status};
+pub use model::{
+    Category, Download, Handle, Id, Job, Progress, SegmentState, Settings, SourceKind, Status,
+};
 
 /// Backend that actually moves bytes (HTTP now, BitTorrent later).
 #[async_trait]
