@@ -113,6 +113,15 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`
+- Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
+  (b) file with that name in the download dir, (c) name reserved by an unfinished download. Without `on_conflict`
+  it answers `409 {"error":"conflict","conflict":{kind,existing_name,existing_size,existing_modified,existing_id,suggested_name}}`
+  with `kind` = `duplicate_url` | `file_exists` | `name_reserved`. The UI shows it and re-sends the request with
+  `on_conflict`: `rename` (use `suggested_name`) or `overwrite` (replace the file when the download finishes);
+  cancelling means not re-sending. Overwriting a name reserved by an unfinished download is refused (400).
+  The engine never overwrites on its own: an unexpected collision at finalize picks the next free name.
+- SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
+  `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa`; frontend types generated with `openapi-typescript`.
 
 ### 6.6 Frontend

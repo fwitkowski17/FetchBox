@@ -145,6 +145,15 @@ pub fn set_remote_info(
     Ok(())
 }
 
+/// Record the total size once it is known (e.g. a plain stream that just finished).
+pub fn set_size(conn: &Connection, id: Id, size: u64) -> Result<()> {
+    conn.execute(
+        "UPDATE downloads SET size = ?2 WHERE id = ?1",
+        params![id, to_i64(size)],
+    )?;
+    Ok(())
+}
+
 /// Persist the total number of downloaded bytes (batched by the caller).
 /// Only applies while the download is `downloading`, so late engine events cannot
 /// touch a download the user has meanwhile paused, cancelled or finished.

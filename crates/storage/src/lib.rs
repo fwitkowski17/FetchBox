@@ -6,7 +6,7 @@ pub mod settings;
 
 use std::path::Path;
 
-use rusqlite::Connection;
+pub use rusqlite::Connection;
 
 /// Storage errors.
 #[derive(Debug, thiserror::Error)]

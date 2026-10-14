@@ -1,5 +1,9 @@
 //! dlmanager server binary: wires storage, API and the embedded frontend.
 
+mod manager;
+#[cfg(test)]
+mod tests;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -45,10 +49,13 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.download_dir).context("create download dir")?;
 
     let db_path = args.data_dir.join("dlmanager.db");
-    let _db = dlm_storage::open(&db_path).context("open database")?;
+    let db = dlm_storage::open(&db_path).context("open database")?;
     tracing::info!(db = %db_path.display(), download_dir = %args.download_dir.display(), "storage ready");
 
-    let app: Router = dlm_api::router().fallback(static_handler);
+    let manager = manager::Manager::start(db, args.download_dir.clone())
+        .await
+        .context("start download manager")?;
+    let app: Router = dlm_api::router(manager).fallback(static_handler);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     let listener = tokio::net::TcpListener::bind(addr)
