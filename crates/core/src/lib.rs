@@ -3,6 +3,7 @@
 
 pub mod category;
 pub mod error;
+pub mod filename;
 pub mod limiter;
 pub mod model;
 pub mod scheduler;
