@@ -228,21 +228,63 @@ fn part_path(dir: &Path, id: Id, filename: &str) -> PathBuf {
     dir.join(format!("{}.{id}.part", sanitize(filename)))
 }
 
-/// First free `name`, `name (1)`, `name (2)`, ... keeping the extension.
-fn unique_path(dir: &Path, filename: &str) -> PathBuf {
+/// `name`, then `stem (1).ext`, `stem (2).ext`, ... (extension kept).
+fn candidates(dir: &Path, filename: &str) -> impl Iterator<Item = PathBuf> {
     let name = sanitize(filename);
-    let first = dir.join(&name);
-    if !first.exists() {
-        return first;
-    }
     let (stem, ext) = match name.rsplit_once('.') {
-        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
-        _ => (name.as_str(), String::new()),
+        Some((s, e)) if !s.is_empty() => (s.to_owned(), format!(".{e}")),
+        _ => (name.clone(), String::new()),
     };
-    (1u32..)
-        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
-        .find(|p| !p.exists())
-        .unwrap_or(first)
+    let dir = dir.to_owned();
+    std::iter::once(dir.join(&name))
+        .chain((1u32..).map(move |n| dir.join(format!("{stem} ({n}){ext}"))))
+}
+
+/// Move the finished `.part` to its final name without ever clobbering a file the
+/// user did not agree to replace. Returns the final path.
+///
+/// A hard link fails atomically with `AlreadyExists`, which closes the window between
+/// "is the name free?" and "take it" that a plain `rename` (silently overwriting on
+/// Unix) would leave open for two downloads finishing together.
+async fn finalize(
+    dir: &Path,
+    filename: &str,
+    part: &Path,
+    overwrite: bool,
+) -> std::io::Result<PathBuf> {
+    if overwrite {
+        let target = sanitize(filename);
+        let target = dir.join(target);
+        tokio::fs::rename(part, &target).await?;
+        return Ok(target);
+    }
+    for target in candidates(dir, filename) {
+        match tokio::fs::hard_link(part, &target).await {
+            Ok(()) => {
+                tokio::fs::remove_file(part).await?;
+                return Ok(target);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                // Filesystems without hard links (FAT, some network mounts): fall back to
+                // check-then-rename, which is racy but still never replaces a seen file.
+                tracing::debug!(error = %e, "hard link unavailable, using rename");
+                return rename_if_free(dir, filename, part).await;
+            }
+        }
+    }
+    Err(std::io::Error::other("no free file name"))
+}
+
+async fn rename_if_free(dir: &Path, filename: &str, part: &Path) -> std::io::Result<PathBuf> {
+    for target in candidates(dir, filename) {
+        if tokio::fs::try_exists(&target).await? {
+            continue;
+        }
+        tokio::fs::rename(part, &target).await?;
+        return Ok(target);
+    }
+    Err(std::io::Error::other("no free file name"))
 }
 
 /// Probe, plan, fetch all segments, rename. Returns the final path and size.
@@ -340,8 +382,7 @@ async fn download(
             )));
         }
     }
-    let final_path = unique_path(&inner.dir, &job.filename);
-    tokio::fs::rename(&part, &final_path).await?;
+    let final_path = finalize(&inner.dir, &job.filename, &part, job.overwrite).await?;
     shared.speed.store(0, Ordering::Relaxed);
     Ok((final_path, total))
 }
@@ -503,6 +544,7 @@ mod tests {
             speed_limit: 0,
             etag: None,
             segments: Vec::new(),
+            overwrite: false,
         }
     }
 
@@ -693,6 +735,7 @@ mod tests {
             speed_limit: 0,
             etag: None,
             segments: Vec::new(),
+            overwrite: false,
         };
         assert!(matches!(
             dl.start(&j).await,
@@ -701,17 +744,74 @@ mod tests {
     }
 
     #[test]
-    fn unique_path_keeps_extension() {
+    fn candidates_keep_extension() {
+        let dir = Path::new("/d");
+        let got: Vec<PathBuf> = candidates(dir, "a.tar.gz").take(3).collect();
+        assert_eq!(
+            got,
+            vec![
+                PathBuf::from("/d/a.tar.gz"),
+                PathBuf::from("/d/a.tar (1).gz"),
+                PathBuf::from("/d/a.tar (2).gz")
+            ]
+        );
+        let got: Vec<PathBuf> = candidates(dir, "README").take(2).collect();
+        assert_eq!(got[1], PathBuf::from("/d/README (1)"));
+    }
+
+    #[tokio::test]
+    async fn finalize_skips_existing_names() {
         let dir = tempfile::tempdir().expect("tmp");
-        std::fs::write(dir.path().join("a.tar.gz"), b"x").expect("w");
-        std::fs::write(dir.path().join("a.tar (1).gz"), b"x").expect("w");
-        assert_eq!(
-            unique_path(dir.path(), "a.tar.gz"),
-            dir.path().join("a.tar (2).gz")
-        );
-        assert_eq!(
-            unique_path(dir.path(), "new.txt"),
-            dir.path().join("new.txt")
-        );
+        std::fs::write(dir.path().join("a.txt"), b"keep").expect("w");
+        std::fs::write(dir.path().join("a (1).txt"), b"keep").expect("w");
+        let part = dir.path().join("a.txt.9.part");
+        std::fs::write(&part, b"new").expect("w");
+        let out = finalize(dir.path(), "a.txt", &part, false)
+            .await
+            .expect("fin");
+        assert_eq!(out, dir.path().join("a (2).txt"));
+        assert_eq!(std::fs::read(&out).expect("r"), b"new");
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).expect("r"), b"keep");
+        assert!(!part.exists());
+    }
+
+    #[tokio::test]
+    async fn finalize_overwrites_only_when_asked() {
+        let dir = tempfile::tempdir().expect("tmp");
+        std::fs::write(dir.path().join("a.txt"), b"old").expect("w");
+        let part = dir.path().join("a.txt.9.part");
+        std::fs::write(&part, b"new").expect("w");
+        let out = finalize(dir.path(), "a.txt", &part, true)
+            .await
+            .expect("fin");
+        assert_eq!(out, dir.path().join("a.txt"));
+        assert_eq!(std::fs::read(&out).expect("r"), b"new");
+    }
+
+    #[tokio::test]
+    async fn concurrent_finalize_never_loses_a_file() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let mut tasks = Vec::new();
+        for i in 0..16u8 {
+            let part = dir.path().join(format!("a.txt.{i}.part"));
+            std::fs::write(&part, [i]).expect("w");
+            let d = dir.path().to_owned();
+            tasks.push(tokio::spawn(async move {
+                finalize(&d, "a.txt", &part, false).await.expect("fin")
+            }));
+        }
+        let mut paths = Vec::new();
+        for t in tasks {
+            paths.push(t.await.expect("join"));
+        }
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), 16, "two downloads ended up on the same file");
+        let mut contents: Vec<u8> = paths
+            .iter()
+            .map(|p| std::fs::read(p).expect("r")[0])
+            .collect();
+        contents.sort();
+        assert_eq!(contents, (0..16).collect::<Vec<u8>>());
     }
 }

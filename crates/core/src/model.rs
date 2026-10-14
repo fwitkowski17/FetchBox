@@ -218,6 +218,9 @@ pub struct Job {
     pub etag: Option<String>,
     /// Stored segment offsets to resume from; empty means a fresh start.
     pub segments: Vec<SegmentState>,
+    /// The user explicitly chose to replace an existing file with the same name.
+    /// When `false` the engine never overwrites: it picks a free name instead.
+    pub overwrite: bool,
 }
 
 /// Opaque reference to a started job.
