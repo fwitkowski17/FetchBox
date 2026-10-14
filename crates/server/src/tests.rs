@@ -468,7 +468,11 @@ async fn category_can_be_changed_manually() {
 // ---- over real HTTP ---------------------------------------------------------------
 
 async fn spawn_api(h: &Harness) -> String {
-    let app = dlm_api::router(h.mgr.clone());
+    spawn_api_with(h, dlm_api::Auth::disabled()).await
+}
+
+async fn spawn_api_with(h: &Harness, auth: Arc<dlm_api::Auth>) -> String {
+    let app = dlm_api::router(h.mgr.clone(), auth);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -632,4 +636,244 @@ async fn sse_streams_download_events() {
         seen.push_str(&String::from_utf8_lossy(&chunk));
     }
     assert!(seen.contains("event: progress") || seen.contains("\"status\":\"downloading\""));
+}
+
+// ---- authentication over real HTTP --------------------------------------------------
+
+async fn raw(
+    c: &reqwest::Client,
+    method: reqwest::Method,
+    url: String,
+    json: Option<&str>,
+    header: Option<(&str, &str)>,
+) -> reqwest::Response {
+    let mut r = c.request(method, url);
+    if let Some((k, v)) = header {
+        r = r.header(k, v);
+    }
+    if let Some(j) = json {
+        r = r
+            .header("content-type", "application/json")
+            .body(j.to_owned());
+    }
+    r.send().await.expect("send")
+}
+
+async fn aget(
+    c: &reqwest::Client,
+    api: &str,
+    path: &str,
+    header: Option<(&str, &str)>,
+) -> reqwest::Response {
+    raw(
+        c,
+        reqwest::Method::GET,
+        format!("{api}{path}"),
+        None,
+        header,
+    )
+    .await
+}
+
+async fn alogin(c: &reqwest::Client, api: &str, password: &str) -> reqwest::Response {
+    let body = format!(r#"{{"password":"{password}"}}"#);
+    raw(
+        c,
+        reqwest::Method::POST,
+        format!("{api}/auth/login"),
+        Some(&body),
+        None,
+    )
+    .await
+}
+
+fn session_cookie(resp: &reqwest::Response) -> String {
+    let set = resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .expect("set-cookie")
+        .to_owned();
+    set.split(';').next().expect("pair").to_owned()
+}
+
+#[tokio::test]
+async fn api_requires_login_when_a_password_is_set() {
+    let h = Harness::new().await;
+    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let c = reqwest::Client::new();
+
+    // Public: health and auth status. Everything else: 401.
+    assert_eq!(aget(&c, &api, "/health", None).await.status().as_u16(), 200);
+    let st = aget(&c, &api, "/auth/status", None)
+        .await
+        .text()
+        .await
+        .expect("t");
+    assert!(st.contains(r#""auth_required":true"#) && st.contains(r#""authenticated":false"#));
+    for path in ["/downloads", "/settings", "/events"] {
+        assert_eq!(
+            aget(&c, &api, path, None).await.status().as_u16(),
+            401,
+            "{path}"
+        );
+    }
+    assert_eq!(
+        aget(
+            &c,
+            &api,
+            "/downloads",
+            Some(("authorization", "Bearer forged"))
+        )
+        .await
+        .status()
+        .as_u16(),
+        401
+    );
+    let add = raw(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/downloads"),
+        Some(&format!(r#"{{"url":"{}"}}"#, h.url("fast", "x.bin"))),
+        None,
+    )
+    .await;
+    assert_eq!(add.status().as_u16(), 401);
+    assert!(
+        h.mgr.list().await.expect("l").is_empty(),
+        "unauthenticated add must not run"
+    );
+
+    // Wrong password.
+    let bad = raw(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/auth/login"),
+        Some(r#"{"password":"nope"}"#),
+        None,
+    )
+    .await;
+    assert_eq!(bad.status().as_u16(), 401);
+    assert!(bad.headers().get("set-cookie").is_none());
+
+    // Right password: cookie works (also for SSE), and so does the bearer token.
+    let ok = raw(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/auth/login"),
+        Some(r#"{"password":"correct-horse"}"#),
+        None,
+    )
+    .await;
+    assert_eq!(ok.status().as_u16(), 200);
+    let set = ok
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .expect("cookie")
+        .to_owned();
+    assert!(
+        set.contains("HttpOnly") && set.contains("SameSite=Strict"),
+        "{set}"
+    );
+    let cookie = session_cookie(&ok);
+    let body: serde_json::Value = serde_json::from_str(&ok.text().await.expect("t")).expect("json");
+    let token = body["token"].as_str().expect("token").to_owned();
+
+    assert_eq!(
+        aget(&c, &api, "/downloads", Some(("cookie", &cookie)))
+            .await
+            .status()
+            .as_u16(),
+        200
+    );
+    assert_eq!(
+        aget(&c, &api, "/events", Some(("cookie", &cookie)))
+            .await
+            .status()
+            .as_u16(),
+        200
+    );
+    let bearer = format!("Bearer {token}");
+    assert_eq!(
+        aget(&c, &api, "/settings", Some(("authorization", &bearer)))
+            .await
+            .status()
+            .as_u16(),
+        200
+    );
+    let st = aget(&c, &api, "/auth/status", Some(("cookie", &cookie)))
+        .await
+        .text()
+        .await
+        .expect("t");
+    assert!(st.contains(r#""authenticated":true"#));
+
+    // Logout ends the session for both transports.
+    let out = raw(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/auth/logout"),
+        None,
+        Some(("cookie", &cookie)),
+    )
+    .await;
+    assert_eq!(out.status().as_u16(), 204);
+    assert_eq!(
+        aget(&c, &api, "/downloads", Some(("cookie", &cookie)))
+            .await
+            .status()
+            .as_u16(),
+        401
+    );
+    assert_eq!(
+        aget(&c, &api, "/downloads", Some(("authorization", &bearer)))
+            .await
+            .status()
+            .as_u16(),
+        401
+    );
+}
+
+#[tokio::test]
+async fn repeated_wrong_passwords_are_throttled() {
+    let h = Harness::new().await;
+    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let c = reqwest::Client::new();
+    for _ in 0..5 {
+        assert_eq!(alogin(&c, &api, "wrong").await.status().as_u16(), 401);
+    }
+    let locked = alogin(&c, &api, "correct-horse").await;
+    assert_eq!(locked.status().as_u16(), 429);
+    assert!(locked.headers().get("retry-after").is_some());
+}
+
+#[tokio::test]
+async fn disabled_auth_keeps_the_api_open() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let st = raw(
+        &c,
+        reqwest::Method::GET,
+        format!("{api}/auth/status"),
+        None,
+        None,
+    )
+    .await;
+    let text = st.text().await.expect("t");
+    assert!(text.contains(r#""auth_required":false"#) && text.contains(r#""authenticated":true"#));
+    assert_eq!(
+        raw(
+            &c,
+            reqwest::Method::GET,
+            format!("{api}/downloads"),
+            None,
+            None
+        )
+        .await
+        .status()
+        .as_u16(),
+        200
+    );
 }

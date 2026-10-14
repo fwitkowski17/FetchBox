@@ -112,7 +112,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `PATCH /api/downloads/:id` (e.g. change category)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/events` (SSE: progress, status changes)
-- `POST /api/auth/login`
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
   (b) file with that name in the download dir, (c) name reserved by an unfinished download. Without `on_conflict`
   it answers `409 {"error":"conflict","conflict":{kind,existing_name,existing_size,existing_modified,existing_id,suggested_name}}`
@@ -132,7 +132,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
 ### 6.7 Security
 
-- Single-user auth, HTTPS via reverse proxy.
+- Single-user auth, HTTPS via reverse proxy. One shared password from `DLM_PASSWORD` or `--password-file`
+  (min. 8 characters); the server refuses to start without one unless `--no-auth` is passed explicitly.
+  `POST /api/auth/login` returns a random 256-bit session token, set as an `HttpOnly; SameSite=Strict` cookie
+  (needed for SSE) and usable as `Authorization: Bearer`. Public: `/api/health`, `/api/auth/*` (`status` tells the
+  UI whether to show the login screen) and the static frontend; everything else answers `401`. Sessions are in
+  memory with a 7-day TTL and a cap of 100; failed logins are throttled globally (5 per minute, then `429` with
+  `Retry-After`). `Secure` is added to the cookie when `X-Forwarded-Proto: https` is present.
 - Sanitize filenames, never write outside download dir.
 - Optional blocklist of private IP ranges for URLs (SSRF) when exposed outside LAN.
 

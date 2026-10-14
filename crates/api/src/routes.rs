@@ -5,6 +5,7 @@ use std::sync::Arc;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
+    middleware,
     routing::{get, patch, post},
     Json, Router,
 };
@@ -12,6 +13,7 @@ use dlm_core::{AddRequest, Category, Download, Error, Id, Settings};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::auth::{self, Auth};
 use crate::error::ApiError;
 use crate::service::Service;
 use crate::sse;
@@ -19,10 +21,9 @@ use crate::sse;
 type Svc = State<Arc<dyn Service>>;
 type ApiResult<T> = Result<T, ApiError>;
 
-/// Routes mounted under `/api`.
-pub fn router(service: Arc<dyn Service>) -> Router {
-    Router::new()
-        .route("/health", get(health))
+/// Routes mounted under `/api`. Only `/health` and `/auth/*` are public.
+pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
+    let protected = Router::new()
         .route("/downloads", get(list).post(add))
         .route("/downloads/{id}", patch(update).delete(remove))
         .route("/downloads/{id}/pause", post(pause))
@@ -31,6 +32,15 @@ pub fn router(service: Arc<dyn Service>) -> Router {
         .route("/settings", get(get_settings).put(put_settings))
         .route("/events", get(sse::events))
         .with_state(service)
+        .route_layer(middleware::from_fn_with_state(
+            Arc::clone(&auth),
+            auth::require_auth,
+        ));
+
+    Router::new()
+        .route("/health", get(health))
+        .merge(auth::router(auth))
+        .merge(protected)
 }
 
 async fn health() -> Json<Value> {

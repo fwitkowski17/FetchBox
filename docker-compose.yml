@@ -5,6 +5,11 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    environment:
+      # Required (min. 8 characters). The server refuses to start without a password
+      # unless --no-auth is passed. Put it in a .env file next to this one, or use
+      # a Docker secret + --password-file instead.
+      DLM_PASSWORD: ${DLM_PASSWORD:?set DLM_PASSWORD in .env}
     volumes:
       - ./data:/data
       - ./downloads:/downloads
