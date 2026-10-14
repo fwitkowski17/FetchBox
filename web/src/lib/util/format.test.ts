@@ -7,6 +7,7 @@ import {
   formatSpeed,
   fraction,
   hostOf,
+  isHttpUrl,
   joinSpeed,
   splitSpeed,
 } from './format';
@@ -98,5 +99,16 @@ describe('hostOf', () => {
   it('extracts the host or falls back', () => {
     expect(hostOf('https://example.com:8080/a/b.zip?x=1')).toBe('example.com:8080');
     expect(hostOf('not a url')).toBe('not a url');
+  });
+});
+
+describe('isHttpUrl', () => {
+  it('accepts only http(s) URLs', () => {
+    expect(isHttpUrl('https://example.com/a.zip')).toBe(true);
+    expect(isHttpUrl('  http://nas/file  ')).toBe(true);
+    expect(isHttpUrl('ftp://example.com/a')).toBe(false);
+    expect(isHttpUrl('file:///etc/passwd')).toBe(false);
+    expect(isHttpUrl('example.com/a.zip')).toBe(false);
+    expect(isHttpUrl('')).toBe(false);
   });
 });

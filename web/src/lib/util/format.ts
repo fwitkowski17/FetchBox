@@ -75,6 +75,16 @@ export function hostOf(url: string): string {
   }
 }
 
+/** Quick client-side check; the server validates for real. */
+export function isHttpUrl(text: string): boolean {
+  try {
+    const u = new URL(text.trim());
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // ---- speed limits in the settings form -------------------------------------------
 
 export type SpeedUnit = 'KB' | 'MB';
