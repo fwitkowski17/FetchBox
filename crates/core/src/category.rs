@@ -38,6 +38,53 @@ pub fn from_extension(ext: &str) -> Category {
     }
 }
 
+/// Detect the category from a `Content-Type` value (parameters like `; charset=` are ignored).
+/// Generic types such as `application/octet-stream` and `text/*` say nothing: `Other`.
+pub fn from_content_type(content_type: &str) -> Category {
+    let mime = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let Some((kind, subtype)) = mime.split_once('/') else {
+        return Category::Other;
+    };
+    match kind {
+        "image" => Category::Photo,
+        "audio" => Category::Music,
+        "video" => Category::Video,
+        _ => match subtype {
+            "zip" | "x-zip-compressed" | "gzip" | "x-gzip" | "x-tar" | "x-bzip2" | "x-xz"
+            | "x-7z-compressed" | "vnd.rar" | "x-rar-compressed" | "zstd" | "x-zstd" => {
+                Category::Archive
+            }
+            "x-msdownload"
+            | "vnd.microsoft.portable-executable"
+            | "x-msi"
+            | "x-apple-diskimage"
+            | "vnd.android.package-archive"
+            | "vnd.debian.binary-package"
+            | "x-debian-package"
+            | "x-rpm"
+            | "x-iso9660-image"
+            | "x-sh"
+            | "x-executable"
+            | "x-appimage" => Category::Program,
+            _ => Category::Other,
+        },
+    }
+}
+
+/// Best guess for a download: the extension wins (servers often send
+/// `application/octet-stream`), the `Content-Type` is the fallback.
+pub fn detect(filename: &str, content_type: Option<&str>) -> Category {
+    match from_filename(filename) {
+        Category::Other => content_type.map_or(Category::Other, from_content_type),
+        by_name => by_name,
+    }
+}
+
 /// Detect the category from a file name. Names without extension are `Other`.
 pub fn from_filename(name: &str) -> Category {
     match name.rsplit_once('.') {
@@ -78,5 +125,47 @@ mod tests {
         assert_eq!(from_filename(".bashrc"), Category::Other);
         assert_eq!(from_filename("trailing."), Category::Other);
         assert_eq!(from_filename(""), Category::Other);
+    }
+
+    #[test]
+    fn content_types() {
+        assert_eq!(from_content_type("image/png"), Category::Photo);
+        assert_eq!(from_content_type("image/svg+xml"), Category::Photo);
+        assert_eq!(from_content_type("audio/mpeg"), Category::Music);
+        assert_eq!(from_content_type("video/mp4; codecs=avc1"), Category::Video);
+        assert_eq!(from_content_type("Application/ZIP"), Category::Archive);
+        assert_eq!(
+            from_content_type("application/x-7z-compressed"),
+            Category::Archive
+        );
+        assert_eq!(
+            from_content_type("application/vnd.android.package-archive"),
+            Category::Program
+        );
+        assert_eq!(
+            from_content_type("application/octet-stream"),
+            Category::Other
+        );
+        assert_eq!(
+            from_content_type("text/html; charset=utf-8"),
+            Category::Other
+        );
+        assert_eq!(from_content_type("garbage"), Category::Other);
+        assert_eq!(from_content_type(""), Category::Other);
+    }
+
+    #[test]
+    fn extension_beats_content_type_but_content_type_fills_gaps() {
+        assert_eq!(
+            detect("a.mkv", Some("application/octet-stream")),
+            Category::Video
+        );
+        assert_eq!(detect("a.mkv", Some("audio/mpeg")), Category::Video);
+        assert_eq!(detect("download", Some("image/jpeg")), Category::Photo);
+        assert_eq!(
+            detect("download", Some("application/octet-stream")),
+            Category::Other
+        );
+        assert_eq!(detect("download", None), Category::Other);
     }
 }

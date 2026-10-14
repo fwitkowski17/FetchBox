@@ -7,3 +7,13 @@ publish.workspace = true
 
 [dependencies]
 dlm-core.workspace = true
+reqwest.workspace = true
+futures-util.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "io-util", "net"] }
+tempfile = "3"

@@ -10,13 +10,22 @@ name = "dlmanager"
 path = "src/main.rs"
 
 [dependencies]
+dlm-core.workspace = true
 dlm-api.workspace = true
 dlm-storage.workspace = true
+dlm-http-engine.workspace = true
 axum.workspace = true
 tokio.workspace = true
+async-trait.workspace = true
 rust-embed.workspace = true
 mime_guess.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+serde_json.workspace = true
+tempfile = "3"
+futures-util.workspace = true

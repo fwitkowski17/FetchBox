@@ -28,6 +28,16 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal
 axum = "0.8"
 async-trait = "0.1"
 
+# HTTP client for the download engine (rustls, no OpenSSL in the final image)
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
+futures-util = { version = "0.3", default-features = false }
+
+# OpenAPI schema generation (derive only; no UI assets, so the binary stays small)
+utoipa = { version = "5", default-features = false, features = ["macros"] }
+
+# OS randomness for session tokens (tiny, no RNG framework needed)
+getrandom = "0.3"
+
 # Embedded frontend: serve web/dist from the binary
 rust-embed = "8"
 mime_guess = "2"

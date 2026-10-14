@@ -6,20 +6,33 @@ pub mod settings;
 
 use std::path::Path;
 
-use rusqlite::Connection;
+pub use rusqlite::Connection;
 
 /// Storage errors.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    /// A stored value could not be mapped to a domain type (corrupt or newer DB).
+    #[error("invalid stored value: {0}")]
+    Corrupt(String),
+}
+
+impl From<Error> for dlm_core::Error {
+    fn from(e: Error) -> Self {
+        dlm_core::Error::Internal(e.to_string())
+    }
 }
 
 /// Result alias for storage operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Migrations in order. Index + 1 is the schema version stored in `PRAGMA user_version`.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_init.sql"),
+    include_str!("../migrations/0002_overwrite.sql"),
+    include_str!("../migrations/0003_subdir.sql"),
+];
 
 /// Open (creating if needed) the database at `path` and run pending migrations.
 pub fn open(path: &Path) -> Result<Connection> {

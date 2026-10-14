@@ -14,6 +14,12 @@ pub enum Error {
     /// Input (URL, file name, settings) failed validation.
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    /// The new download collides with an existing one; the user must choose.
+    #[error("conflict: {0:?}")]
+    Conflict(Box<crate::model::Conflict>),
+    /// Unexpected internal failure (database, ...).
+    #[error("internal error: {0}")]
+    Internal(String),
     /// Engine-level failure (network, disk, ...).
     #[error("engine error: {0}")]
     Engine(String),
