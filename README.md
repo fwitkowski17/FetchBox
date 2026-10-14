@@ -20,6 +20,18 @@ cargo test --workspace
 cd web && npm run check
 ```
 
+## Frontend
+
+Svelte 5 + Vite + TypeScript in `web/`, mobile-first, no UI framework (about 32 kB gzipped JS). It is embedded into the binary at build time; `cd web && npm run dev` serves it with hot reload and proxies `/api` to `localhost:8080`.
+
+- Download list as cards with live progress (server-sent events): status, size, speed, ETA, category, pause/resume/retry, cancel, remove.
+- Sorting (date, name, size, progress, speed, status; either direction), status tabs, category filter and search; the choices are remembered.
+- Add by URL with optional name and category; name conflicts open a dialog (keep both / replace / cancel).
+- Settings: connections, simultaneous downloads, speed limits (KB/s or MB/s), category folders. Applied live; other open tabs follow.
+- Light, dark or follow-the-system theme (no flash on load), login screen, automatic return to it when the session ends.
+
+`npm run check` (types), `npm test` (vitest, logic only) and `npm run build` run in CI.
+
 ## Options worth knowing
 
 - `--block-private-urls`: refuse URLs that point at loopback, private, link-local or similar addresses (SSRF protection). Off by default so you can download from a NAS or another host in your LAN; turn it on if the manager is reachable from outside.

@@ -141,7 +141,14 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 ### 6.6 Frontend
 
 - Svelte + Vite + TypeScript, mobile-first, list of cards (not a table), large pause/resume buttons, category badge, progress bar, speed/ETA.
-- SSE store keeps list in sync; REST for commands.
+- SSE store keeps list in sync; REST for commands. Command responses are not patched into the list (they can be older
+  than the event that followed); the stream is the single source of truth, and the list is re-fetched on every
+  (re)connect and on `resync`.
+- Sorting (date added, name, size, progress, speed, status; unknown sizes always last), status tabs, category filter,
+  search; remembered in `localStorage`. Dark / light / system theme via CSS tokens (`[data-theme]` plus
+  `prefers-color-scheme`), applied before first paint.
+- Settings form works in KB/MB and "limit on/off"; the API stays in bytes/s with `0` = unlimited. The form follows
+  server changes made by other clients unless the user has unsaved edits.
 - PWA: manifest + service worker (app shell cache only).
 
 ### 6.7 Security
