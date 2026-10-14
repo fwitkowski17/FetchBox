@@ -25,7 +25,22 @@ fn event_name(e: &Event) -> &'static str {
     }
 }
 
-/// `GET /api/events`.
+/// Live updates as server-sent events.
+///
+/// Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, or
+/// `resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`
+/// (this client fell behind) reload the list with `GET /api/downloads`. Subscribe before
+/// fetching the list so nothing in between is lost.
+#[utoipa::path(
+    get,
+    path = "/api/events",
+    tag = "events",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, description = "Event stream", content_type = "text/event-stream", body = Event),
+        (status = 401, description = "Not logged in", body = crate::error::ErrorBody),
+    )
+)]
 pub async fn events(
     State(svc): State<Arc<dyn Service>>,
 ) -> Sse<impl Stream<Item = Result<Sse_, Infallible>>> {

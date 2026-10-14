@@ -877,3 +877,30 @@ async fn disabled_auth_keeps_the_api_open() {
         200
     );
 }
+
+// ---- OpenAPI ------------------------------------------------------------------------
+
+#[test]
+fn committed_openapi_matches_the_code() {
+    let committed = include_str!("../../../docs/openapi.json");
+    let current = dlm_api::openapi::spec_json().expect("render");
+    assert!(
+        committed == current,
+        "docs/openapi.json is stale: run ./scripts/gen-api.sh and commit the result"
+    );
+}
+
+#[tokio::test]
+async fn openapi_is_served_publicly_even_with_auth() {
+    let h = Harness::new().await;
+    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let c = reqwest::Client::new();
+    let resp = aget(&c, &api, "/openapi.json", None).await;
+    assert_eq!(resp.status().as_u16(), 200);
+    let v: serde_json::Value = serde_json::from_str(&resp.text().await.expect("t")).expect("json");
+    assert_eq!(
+        v["openapi"].as_str().map(|s| s.starts_with("3.")),
+        Some(true)
+    );
+    assert!(v["paths"]["/api/downloads"].is_object());
+}

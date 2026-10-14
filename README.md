@@ -20,6 +20,18 @@ cargo test --workspace
 cd web && npm run check
 ```
 
+## API documentation and types
+
+The HTTP API is described by an OpenAPI 3.1 document generated from the Rust code (`utoipa`). It is served at `/api/openapi.json` (public) and committed as [docs/openapi.json](docs/openapi.json). The frontend types in `web/src/lib/api/schema.d.ts` are generated from it and must not be edited by hand.
+
+After changing anything in the HTTP API run:
+
+```bash
+./scripts/gen-api.sh   # rewrites docs/openapi.json and web/src/lib/api/schema.d.ts
+```
+
+A test fails when `docs/openapi.json` is stale, and CI fails when the generated TypeScript is. `dlmanager --print-openapi` prints the document without starting the server.
+
 ## Authentication
 
 The API is protected by a single shared password. The server **refuses to start** without one:

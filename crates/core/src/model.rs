@@ -7,6 +7,7 @@ pub type Id = i64;
 
 /// Lifecycle status of a download.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Queued,
@@ -51,6 +52,7 @@ impl Status {
 
 /// File category, auto-detected from extension and changeable by the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Photo,
@@ -90,6 +92,7 @@ impl Category {
 
 /// What kind of source a download comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
     Http,
@@ -120,7 +123,9 @@ impl SourceKind {
 
 /// A download as stored and shown to the user.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Download {
+    #[cfg_attr(feature = "openapi", schema(value_type = i64))]
     pub id: Id,
     pub url: String,
     pub filename: String,
@@ -140,6 +145,7 @@ pub struct Download {
 
 /// Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Settings {
     /// Connections (segments) per download.
     pub connections: u32,
@@ -184,6 +190,7 @@ impl Settings {
 
 /// What to do when a new download collides with an existing one (SPEC: name conflicts).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum OnConflict {
     /// Refuse with a conflict description (default; nothing happens behind the user's back).
@@ -197,6 +204,7 @@ pub enum OnConflict {
 
 /// Request to add a download by URL.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AddRequest {
     pub url: String,
     /// Override the file name suggested by the server.
@@ -211,6 +219,7 @@ pub struct AddRequest {
 
 /// Why an add request collided with something.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ConflictKind {
     /// The same URL is already queued, running, paused or completed.
@@ -223,6 +232,7 @@ pub enum ConflictKind {
 
 /// Description of a collision, shown to the user so they can choose.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Conflict {
     pub kind: ConflictKind,
     pub existing_name: String,
@@ -230,6 +240,7 @@ pub struct Conflict {
     /// Unix seconds, for files already on disk.
     pub existing_modified: Option<i64>,
     /// The existing download, when the collision is with one.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<i64>))]
     pub existing_id: Option<Id>,
     /// First free name, used by `OnConflict::Rename`.
     pub suggested_name: String,
@@ -237,19 +248,24 @@ pub struct Conflict {
 
 /// Live updates pushed to the UI (SSE).
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
     /// A download was created or its status/metadata changed.
     Download { download: Download },
     /// Periodic progress of a running download.
     Progress {
+        #[cfg_attr(feature = "openapi", schema(value_type = i64))]
         id: Id,
         downloaded: u64,
         total: Option<u64>,
         speed: u64,
     },
     /// A download was removed from the list.
-    Removed { id: Id },
+    Removed {
+        #[cfg_attr(feature = "openapi", schema(value_type = i64))]
+        id: Id,
+    },
     /// Settings changed.
     Settings { settings: Settings },
 }

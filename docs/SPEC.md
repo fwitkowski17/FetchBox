@@ -122,7 +122,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   The engine never overwrites on its own: an unexpected collision at finalize picks the next free name.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
   `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
-- OpenAPI generated with `utoipa`; frontend types generated with `openapi-typescript`.
+- OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
+  `docs/openapi.json`; `dlmanager --print-openapi` prints it. `utoipa` is an optional feature of `dlm-core`, so the core
+  crate stays free of it unless the API enables it. Frontend types are generated with `openapi-typescript` into
+  `web/src/lib/api/schema.d.ts` by `scripts/gen-api.sh`; a Rust test and a CI step fail on stale generated files.
 
 ### 6.6 Frontend
 

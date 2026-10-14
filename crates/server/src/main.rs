@@ -39,6 +39,9 @@ struct Args {
     /// Without it the `DLM_PASSWORD` environment variable is used.
     #[arg(long)]
     password_file: Option<PathBuf>,
+    /// Print the OpenAPI document to stdout and exit (used to generate the frontend types).
+    #[arg(long)]
+    print_openapi: bool,
     /// Run without authentication. Anyone who can reach the port can use the manager.
     #[arg(long)]
     no_auth: bool,
@@ -91,6 +94,14 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
+    if args.print_openapi {
+        // Before logging, passwords and directories: this must work on a bare checkout/CI.
+        print!(
+            "{}",
+            dlm_api::openapi::spec_json().context("render OpenAPI")?
+        );
+        return Ok(());
+    }
     let auth = resolve_auth(&args)?;
     std::fs::create_dir_all(&args.data_dir).context("create data dir")?;
     std::fs::create_dir_all(&args.download_dir).context("create download dir")?;
@@ -166,6 +177,7 @@ mod auth_config_tests {
             download_dir: "dl".into(),
             port: 0,
             password_file,
+            print_openapi: false,
             no_auth,
         }
     }

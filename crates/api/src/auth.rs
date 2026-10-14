@@ -20,8 +20,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+use crate::error::ErrorBody;
 
 const COOKIE: &str = "dlm_session";
 const SESSION_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
@@ -195,10 +197,12 @@ fn session_cookie(token: &str, max_age: u64, headers: &HeaderMap) -> HeaderValue
     HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static(""))
 }
 
-fn unauthorized() -> Response {
+pub(crate) fn unauthorized() -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "unauthorized" })),
+        Json(ErrorBody {
+            error: "unauthorized".into(),
+        }),
     )
         .into_response()
 }
@@ -221,19 +225,59 @@ pub fn router(auth: Arc<Auth>) -> Router {
         .with_state(auth)
 }
 
-#[derive(Debug, Deserialize)]
-struct LoginBody {
-    password: String,
+/// Login request.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct LoginRequest {
+    pub password: String,
 }
 
-async fn login(
+/// Successful login. The same token is also set as the `dlm_session` cookie.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LoginResponse {
+    /// Session token, usable as `Authorization: Bearer <token>`. Empty when auth is disabled.
+    pub token: String,
+}
+
+/// Too many failed logins.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LockedBody {
+    pub error: String,
+    /// Seconds until the next attempt is allowed.
+    pub retry_after: u64,
+}
+
+/// What the UI needs to decide whether to show the login screen.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuthStatus {
+    /// A password is configured; unauthenticated requests are refused.
+    pub auth_required: bool,
+    /// The caller's session (or the disabled auth) lets it through.
+    pub authenticated: bool,
+}
+
+/// Log in and start a session.
+#[utoipa::path(
+    post,
+    path = "/api/auth/login",
+    tag = "auth",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Logged in; sets the `dlm_session` cookie", body = LoginResponse),
+        (status = 401, description = "Wrong password", body = ErrorBody),
+        (status = 429, description = "Too many failed attempts (5 per minute); see `Retry-After`", body = LockedBody),
+    )
+)]
+pub(crate) async fn login(
     State(auth): State<Arc<Auth>>,
     headers: HeaderMap,
-    Json(body): Json<LoginBody>,
+    Json(body): Json<LoginRequest>,
 ) -> Response {
     match auth.login(&body.password) {
         Ok(token) => {
-            let mut resp = Json(json!({ "token": token })).into_response();
+            let mut resp = Json(LoginResponse {
+                token: token.clone(),
+            })
+            .into_response();
             if auth.required() {
                 resp.headers_mut().insert(
                     header::SET_COOKIE,
@@ -250,7 +294,9 @@ async fn login(
             tracing::error!("cannot create a session token: no OS randomness");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal error" })),
+                Json(ErrorBody {
+                    error: "internal error".into(),
+                }),
             )
                 .into_response()
         }
@@ -258,7 +304,10 @@ async fn login(
             tracing::warn!(retry_after = secs, "login locked after repeated failures");
             let mut resp = (
                 StatusCode::TOO_MANY_REQUESTS,
-                Json(json!({ "error": "too many attempts", "retry_after": secs })),
+                Json(LockedBody {
+                    error: "too many attempts".into(),
+                    retry_after: secs,
+                }),
             )
                 .into_response();
             if let Ok(v) = HeaderValue::from_str(&secs.to_string()) {
@@ -269,7 +318,14 @@ async fn login(
     }
 }
 
-async fn logout(State(auth): State<Arc<Auth>>, headers: HeaderMap) -> Response {
+/// End the current session (idempotent) and clear the cookie.
+#[utoipa::path(
+    post,
+    path = "/api/auth/logout",
+    tag = "auth",
+    responses((status = 204, description = "Session ended"))
+)]
+pub(crate) async fn logout(State(auth): State<Arc<Auth>>, headers: HeaderMap) -> Response {
     if let Some(token) = token_from(&headers) {
         auth.logout(&token);
     }
@@ -279,10 +335,19 @@ async fn logout(State(auth): State<Arc<Auth>>, headers: HeaderMap) -> Response {
     resp
 }
 
-/// Lets the UI decide whether to show the login screen.
-async fn status(State(auth): State<Arc<Auth>>, headers: HeaderMap) -> Json<serde_json::Value> {
+/// Whether login is required and whether the caller is already logged in.
+#[utoipa::path(
+    get,
+    path = "/api/auth/status",
+    tag = "auth",
+    responses((status = 200, body = AuthStatus))
+)]
+pub(crate) async fn status(State(auth): State<Arc<Auth>>, headers: HeaderMap) -> Json<AuthStatus> {
     let authenticated = auth.is_valid(token_from(&headers).as_deref());
-    Json(json!({ "auth_required": auth.required(), "authenticated": authenticated }))
+    Json(AuthStatus {
+        auth_required: auth.required(),
+        authenticated,
+    })
 }
 
 #[cfg(test)]
