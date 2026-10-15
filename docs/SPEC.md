@@ -275,8 +275,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Sorting (date added, name, size, progress, speed, status; unknown sizes always last), status tabs, category filter,
   search; remembered in `localStorage`. System / light / dark / black theme via CSS tokens (`[data-theme]` plus
   `prefers-color-scheme`; black is dark with a pure black background for OLED), applied before first paint.
-- Settings form works in KB/MB and "limit on/off"; the API stays in bytes/s with `0` = unlimited. The form follows
-  server changes made by other clients unless the user has unsaved edits.
+- Settings form works in KB/s, MB/s, Kbit/s and Mbit/s and "limit on/off"; the API stays in bytes/s with `0` = unlimited.
+  Bytes are binary (1 KB = 1024 B), bits decimal as network speeds are quoted (1 Mbit/s = 125 000 B/s). The server does
+  not store the unit: a stored speed is shown in the first unit (MB, KB, Mbit, Kbit) that gives a whole number, so
+  100 Mbit/s comes back as 100 Mbit/s. The same unit picker is in the speed dialog of a download. The form follows server
+  changes made by other clients unless the user has unsaved edits. While there are unsaved edits a bar is fixed to the
+  bottom of the viewport (next to the side panel on wide screens) with "Discard" and "Save changes" and a failed save's
+  message, wherever the page is scrolled; the page gets room below so nothing hides behind it.
 - i18n without a library: `web/src/lib/i18n/` holds one typed dictionary per language (`en.ts` is the source of truth for
   the keys, other languages must provide all of them), `{name}` placeholders, plural forms via `Intl.PluralRules`
   (Polish needs one/few/many/other), and a registry (`locales.ts`) where each language is one line and a lazily loaded

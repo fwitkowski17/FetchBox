@@ -1,4 +1,4 @@
-// The settings form works with friendly values (KB/MB, "limit on/off"); the API with bytes/s and 0.
+// The settings form works with friendly values (KB/MB or Kbit/Mbit, "limit on/off"); the API with bytes/s and 0.
 import type { Settings } from '../api/types';
 import { joinSpeed, splitSpeed, type SpeedUnit } from './format';
 

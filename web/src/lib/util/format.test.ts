@@ -103,6 +103,17 @@ describe('speed limit fields', () => {
     expect(splitSpeed(512 * 1024)).toEqual({ value: 512, unit: 'KB' });
     expect(splitSpeed(5 * 1024 * 1024)).toEqual({ value: 5, unit: 'MB' });
     expect(splitSpeed(1536 * 1024)).toEqual({ value: 1536, unit: 'KB' });
+    // Bits are decimal: 1 Mbit/s = 125 000 B/s. What was typed in bits comes back in bits.
+    expect(joinSpeed(8, 'Mbit')).toBe(1_000_000);
+    expect(joinSpeed(512, 'Kbit')).toBe(64_000);
+    expect(splitSpeed(12_500_000)).toEqual({ value: 100, unit: 'Mbit' });
+    expect(splitSpeed(187_500)).toEqual({ value: 1500, unit: 'Kbit' });
+    expect(splitSpeed(250_000)).toEqual({ value: 2, unit: 'Mbit' });
+    for (const unit of ['KB', 'MB', 'Kbit', 'Mbit'] as const) {
+      for (const value of [1, 3, 64, 250, 999]) {
+        expect(splitSpeed(joinSpeed(value, unit))).toEqual({ value, unit });
+      }
+    }
     for (const bytes of [0, 1024, 300 * 1024, 5 * 1024 * 1024, 123_456]) {
       const { value, unit } = splitSpeed(bytes);
       expect(Math.abs(joinSpeed(value, unit) - bytes)).toBeLessThanOrEqual(6);

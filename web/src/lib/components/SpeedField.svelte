@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../i18n';
+  import { SPEED_UNITS, SPEED_UNIT_LABEL } from '../util/format';
   import type { SpeedDraft } from '../util/settingsForm';
   import Toggle from './Toggle.svelte';
 
@@ -33,8 +34,9 @@
       />
       <label class="sr-only" for={`${id}-unit`}>{t('settings.speed.unit')}</label>
       <select id={`${id}-unit`} class="select w-28 shrink-0" bind:value={value.unit}>
-        <option value="KB">KB/s</option>
-        <option value="MB">MB/s</option>
+        {#each SPEED_UNITS as unit (unit)}
+          <option value={unit}>{SPEED_UNIT_LABEL[unit]}</option>
+        {/each}
       </select>
     </div>
   {:else}

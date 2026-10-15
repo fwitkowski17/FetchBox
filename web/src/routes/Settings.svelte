@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { fly } from 'svelte/transition';
   import { ApiError } from '../lib/api/client';
   import type { Settings as ServerSettings } from '../lib/api/types';
   import Icon from '../lib/components/Icon.svelte';
@@ -11,6 +12,7 @@
   import { settings } from '../lib/stores/settings.svelte';
   import { toast } from '../lib/stores/toast.svelte';
   import { CARD } from '../lib/util/classes';
+  import { motion } from '../lib/util/motion';
   import {
     fromDraft,
     isUntouched,
@@ -67,7 +69,7 @@
   }
 </script>
 
-<div class="page-narrow">
+<div class={["page-narrow", dirty && "pb-28"]}>
   <header class="mb-4"><h1 class="text-2xl font-bold tracking-tight">{t('settings.title')}</h1></header>
 
   <form class="grid gap-4" onsubmit={save}>
@@ -81,26 +83,6 @@
     {:else}
       <SettingsFields bind:draft {errors} />
 
-      {#if error}
-        <p class="flex gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger" role="alert">
-          <Icon name="alert" size={18} />{error}
-        </p>
-      {/if}
-
-      {#if dirty}
-        <div
-          class="sticky bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-10 flex items-center gap-2 rounded-xl border border-accent bg-surface px-3 py-2 shadow-card"
-          role="group"
-          aria-label={t('settings.unsaved')}
-          data-part="savebar"
-        >
-          <span class="hint flex-1">{t('settings.unsaved')}</span>
-          <button type="button" class="btn" onclick={reset} disabled={saving}>{t('settings.discard')}</button>
-          <button type="submit" class="btn primary" disabled={!valid || saving}>
-            {saving ? t('settings.saving') : t('settings.save')}
-          </button>
-        </div>
-      {/if}
     {/if}
 
     <section class={CARD}>
@@ -108,6 +90,33 @@
       <AppearanceFields />
     </section>
 
+    <!-- Fixed to the bottom while there is something to save, whatever the scroll position. -->
+    {#if draft !== null && dirty}
+      <div
+        class="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-6px_20px_rgb(0_0_0/0.08)] lg:left-[var(--sidebar-w)]"
+        role="group"
+        aria-label={t('settings.unsaved')}
+        data-part="savebar"
+        transition:fly={{ y: 40, duration: motion(180) }}
+      >
+        <div class="mx-auto max-w-[76rem] lg:px-5">
+          <div class="page-narrow grid gap-2">
+            {#if error}
+              <p class="flex gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger" role="alert">
+                <Icon name="alert" size={18} />{error}
+              </p>
+            {/if}
+            <div class="flex items-center gap-2">
+              <span class="hint flex-1">{t('settings.unsaved')}</span>
+              <button type="button" class="btn" onclick={reset} disabled={saving}>{t('settings.discard')}</button>
+              <button type="submit" class="btn primary" disabled={!valid || saving}>
+                {saving ? t('settings.saving') : t('settings.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
   </form>
 
   {#if auth.required}
