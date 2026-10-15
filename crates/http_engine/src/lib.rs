@@ -155,7 +155,7 @@ impl HttpDownloader {
         policy: UrlPolicy,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Event>), EngineError> {
         let mut builder = Client::builder()
-            .user_agent(concat!("dlmanager/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("WebDownloadManager/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(15))
             .read_timeout(Duration::from_secs(30))
             .redirect(policy.redirect_policy());

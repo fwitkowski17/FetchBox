@@ -78,7 +78,7 @@
       <span class="grid size-8 place-items-center rounded-lg bg-accent text-accent-contrast">
         <Icon name="down" size={18} />
       </span>
-      dlmanager
+      WebDownloadManager
     </span>
     <button class="btn icon ghost lg:hidden" aria-label={t('nav.close')} onclick={onclose}>
       <Icon name="x" />

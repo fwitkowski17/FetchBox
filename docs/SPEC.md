@@ -1,4 +1,4 @@
-# dlmanager — specification
+# WebDownloadManager — specification
 
 ## 1. Goal
 
@@ -42,7 +42,7 @@ axum API ──> Scheduler ──> Downloader (HttpDownloader | TorrentDownloade
 ## 5. Directory structure
 
 ```
-dlmanager/
+WebDownloadManager/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/

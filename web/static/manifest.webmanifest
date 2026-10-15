@@ -1,6 +1,6 @@
 {
-  "name": "dlmanager",
-  "short_name": "dlmanager",
+  "name": "WebDownloadManager",
+  "short_name": "WebDownloadManager",
   "description": "Self-hosted download manager",
   "start_url": "/",
   "scope": "/",

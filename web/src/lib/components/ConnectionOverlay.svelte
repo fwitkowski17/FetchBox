@@ -38,6 +38,9 @@
       <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
     </svg>
     <p role="status">{t('connection.lost.text')}</p>
-    <p class="hint">{t('connection.lost.hint')}</p>
+    <!-- Only where there are downloads to speak of: not on the login screen or before the app has loaded. -->
+    {#if auth.state === 'ready'}
+      <p class="hint">{t('connection.lost.hint')}</p>
+    {/if}
   </div>
 </Modal>

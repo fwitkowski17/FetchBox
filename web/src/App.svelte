@@ -75,7 +75,7 @@
 
   // Current speed in the tab title, handy when the tab is in the background.
   $effect(() => {
-    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · dlmanager` : 'dlmanager';
+    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · WebDownloadManager` : 'WebDownloadManager';
   });
 
   // ---- the menu: a permanent panel on wide screens, a drawer on narrow ones
@@ -152,15 +152,15 @@
         >
           <Icon name="menu" />
         </button>
-        <span class="flex items-center gap-2 font-bold tracking-tight">
-          <span class="grid size-7 place-items-center rounded-md bg-accent text-accent-contrast">
+        <span class="flex min-w-0 items-center gap-2 font-bold tracking-tight">
+          <span class="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-accent-contrast">
             <Icon name="down" size={16} />
           </span>
-          dlmanager
+          <span class="truncate">WebDownloadManager</span>
         </span>
         <span class="flex-1"></span>
         {#if summary.active > 0}
-          <span class="text-sm font-semibold text-accent tabular-nums" title={t('app.totalSpeed')}>
+          <span class="shrink-0 text-sm font-semibold text-accent tabular-nums" title={t('app.totalSpeed')}>
             ↓ {i18n.speed(summary.speed)}
           </span>
         {/if}

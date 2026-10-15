@@ -1,4 +1,4 @@
-//! dlmanager server binary: wires storage, API and the embedded frontend.
+//! WebDownloadManager server binary: wires storage, API and the embedded frontend.
 
 mod assets;
 mod manager;

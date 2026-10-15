@@ -1,4 +1,4 @@
-# dlmanager
+# WebDownloadManager
 
 Self-hosted download manager for a homelab. One Rust binary serves the REST API, SSE and the embedded Svelte frontend. See [docs/SPEC.md](docs/SPEC.md).
 
@@ -8,7 +8,7 @@ Status: usable; BitTorrent support is planned.
 
 ```bash
 cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads
-cd web && npm install && npm run dev   # Vite proxies /api to localhost:8080
+cd web && npm install && npm run dev   # Vite proxies /api to 127.0.0.1:8080
 ```
 
 Checks:

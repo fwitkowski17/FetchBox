@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "dlmanager API",
+    "title": "WebDownloadManager API",
     "description": "Self-hosted download manager. Commands over REST, live updates over SSE.\n\nEverything except `/api/health`, `/api/openapi.json` and `/api/auth/*` needs a session: log in with `POST /api/auth/login` (sets the `dlm_session` cookie) or send the returned token as `Authorization: Bearer`.",
     "license": {
       "name": "MIT",

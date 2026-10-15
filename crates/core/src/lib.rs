@@ -1,4 +1,4 @@
-//! Core domain of dlmanager: models, categories, the `Downloader` trait,
+//! Core domain of WebDownloadManager: models, categories, the `Downloader` trait,
 //! scheduler and rate limiter. No HTTP, no SQL, no axum.
 
 pub mod category;

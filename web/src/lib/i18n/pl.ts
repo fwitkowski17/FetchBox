@@ -41,7 +41,7 @@ const pl: Messages = {
   'login.failed': 'Logowanie nie powiodło się.',
 
   // ---- first-run setup
-  'setup.title': 'Witaj w dlmanagerze',
+  'setup.title': 'Witaj w WebDownloadManager',
   'setup.step': 'Krok {current} z {total}',
   'setup.steps': 'Postęp konfiguracji',
   'setup.step.look': 'Wygląd',
@@ -52,7 +52,7 @@ const pl: Messages = {
   'setup.look.hint': 'Wybierz język, motyw i kolor akcentu. Zmienisz je później w Ustawieniach.',
   'setup.account.title': 'Utwórz konto',
   'setup.account.hint':
-    'dlmanager jest chroniony hasłem. Aby mieć pewność, że to Ty, utworzenie konta wymaga jednorazowego kodu z logu serwera.',
+    'WebDownloadManager jest chroniony hasłem. Aby mieć pewność, że to Ty, utworzenie konta wymaga jednorazowego kodu z logu serwera.',
   'setup.code.label': 'Kod konfiguracji',
   'setup.code.hint':
     'Znajdziesz go w logu serwera, w linii z napisem „setup code”, na przykład poleceniem „docker compose logs dlmanager”.',
@@ -70,7 +70,7 @@ const pl: Messages = {
   'setup.downloads.hint':
     'Domyślne wartości pasują do większości zastosowań. Wszystko zmienisz później w Ustawieniach.',
   'setup.done.title': 'Wszystko gotowe',
-  'setup.done.hint': 'dlmanager jest gotowy. Dodaj pierwsze pobieranie albo najpierw się rozejrzyj.',
+  'setup.done.hint': 'WebDownloadManager jest gotowy. Dodaj pierwsze pobieranie albo najpierw się rozejrzyj.',
   'setup.done.add': 'Dodaj pobranie',
   'setup.done.list': 'Przejdź do pobrań',
   'setup.next': 'Dalej',

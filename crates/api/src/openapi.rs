@@ -20,7 +20,7 @@ use dlm_core::{
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "dlmanager API",
+        title = "WebDownloadManager API",
         description = "Self-hosted download manager. Commands over REST, live updates over SSE.\n\n\
 Everything except `/api/health`, `/api/openapi.json` and `/api/auth/*` needs a session: \
 log in with `POST /api/auth/login` (sets the `dlm_session` cookie) or send the returned \
