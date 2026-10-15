@@ -15,6 +15,7 @@ use axum::{
     Router,
 };
 use clap::Parser;
+use dlm_api::auth::MIN_PASSWORD_LEN;
 use rust_embed::RustEmbed;
 
 /// Frontend build output, embedded at compile time.
@@ -52,12 +53,14 @@ struct Args {
     no_auth: bool,
 }
 
-/// Shorter passwords are refused at startup.
-const MIN_PASSWORD_LEN: usize = 8;
-
 /// Decide how the API is protected. Open access needs an explicit `--no-auth`, so a
-/// forgotten password never silently exposes the manager.
-fn resolve_auth(args: &Args) -> anyhow::Result<Arc<dlm_api::Auth>> {
+/// forgotten password never silently exposes the manager. Without an external password
+/// the account is kept in `store`: created in the browser on first run, guarded by a
+/// one-time code written to the log.
+fn resolve_auth(
+    args: &Args,
+    store: Arc<dyn dlm_api::auth::CredentialStore>,
+) -> anyhow::Result<Arc<dlm_api::Auth>> {
     let from_file = match &args.password_file {
         Some(path) => Some(
             std::fs::read_to_string(path)
@@ -78,15 +81,31 @@ fn resolve_auth(args: &Args) -> anyhow::Result<Arc<dlm_api::Auth>> {
                 p.chars().count() >= MIN_PASSWORD_LEN,
                 "password must have at least {MIN_PASSWORD_LEN} characters"
             );
+            if store
+                .load_password_hash()
+                .map_err(anyhow::Error::msg)?
+                .is_some()
+            {
+                tracing::warn!(
+                    "DLM_PASSWORD / --password-file takes precedence over the password set in the web UI"
+                );
+            }
             Ok(dlm_api::Auth::with_password(p))
         }
         (None, true) => {
             tracing::warn!("authentication is DISABLED (--no-auth)");
             Ok(dlm_api::Auth::disabled())
         }
-        (None, false) => anyhow::bail!(
-            "no password configured: set DLM_PASSWORD, use --password-file, or pass --no-auth"
-        ),
+        (None, false) => {
+            let auth = dlm_api::Auth::from_store(store).map_err(anyhow::Error::msg)?;
+            if let Some(code) = auth.setup_code() {
+                tracing::warn!(
+                    "first run: open the web UI and enter the setup code {code} to create your account \
+                     (or set DLM_PASSWORD / --password-file)"
+                );
+            }
+            Ok(auth)
+        }
     }
 }
 
@@ -107,7 +126,6 @@ async fn main() -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    let auth = resolve_auth(&args)?;
     std::fs::create_dir_all(&args.data_dir).context("create data dir")?;
     std::fs::create_dir_all(&args.download_dir).context("create download dir")?;
 
@@ -124,6 +142,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await
     .context("start download manager")?;
+    let auth = resolve_auth(&args, manager.clone())?;
     let app: Router = dlm_api::router(manager, auth).fallback(static_handler);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
@@ -194,31 +213,62 @@ mod auth_config_tests {
         }
     }
 
+    /// Credential store backed by a value in memory.
+    #[derive(Default)]
+    struct MemStore(std::sync::Mutex<Option<String>>);
+
+    impl dlm_api::auth::CredentialStore for MemStore {
+        fn load_password_hash(&self) -> Result<Option<String>, String> {
+            Ok(self.0.lock().expect("lock").clone())
+        }
+        fn save_password_hash(&self, hash: &str) -> Result<(), String> {
+            *self.0.lock().expect("lock") = Some(hash.to_owned());
+            Ok(())
+        }
+    }
+
+    fn store() -> Arc<MemStore> {
+        Arc::new(MemStore::default())
+    }
+
     // `DLM_PASSWORD` is process-global, so everything touching it lives in one test.
     #[test]
     fn password_sources_and_validation() {
         std::env::remove_var("DLM_PASSWORD");
 
-        // Nothing configured: refuse to start rather than run open.
-        assert!(resolve_auth(&args(None, false)).is_err());
-        assert!(!resolve_auth(&args(None, true)).expect("no-auth").required());
+        // Nothing configured: locked until the account is created in the browser
+        // (never open), with a setup code to log.
+        let a = resolve_auth(&args(None, false), store()).expect("setup mode");
+        assert!(a.required() && a.setup_required());
+        assert!(a.setup_code().is_some());
+        assert!(!resolve_auth(&args(None, true), store())
+            .expect("no-auth")
+            .required());
 
         // File secret, trailing newline stripped, short passwords refused.
         let dir = tempfile::tempdir().expect("tmp");
         let f = dir.path().join("pw");
         std::fs::write(&f, "correct-horse\n").expect("write");
-        let a = resolve_auth(&args(Some(f.clone()), false)).expect("file");
-        assert!(a.required());
+        let a = resolve_auth(&args(Some(f.clone()), false), store()).expect("file");
+        assert!(a.required() && !a.setup_required());
         assert!(a.login("correct-horse").is_ok());
         std::fs::write(&f, "short").expect("write");
-        assert!(resolve_auth(&args(Some(f.clone()), false)).is_err());
-        assert!(resolve_auth(&args(Some(dir.path().join("missing")), false)).is_err());
+        assert!(resolve_auth(&args(Some(f.clone()), false), store()).is_err());
+        assert!(resolve_auth(&args(Some(dir.path().join("missing")), false), store()).is_err());
 
         // Environment variable.
         std::env::set_var("DLM_PASSWORD", "from-the-env");
-        assert!(resolve_auth(&args(None, false)).expect("env").required());
+        let a = resolve_auth(&args(None, false), store()).expect("env");
+        assert!(a.required() && !a.can_change_password());
         // A password and --no-auth together is a mistake, not a silent choice.
-        assert!(resolve_auth(&args(None, true)).is_err());
+        assert!(resolve_auth(&args(None, true), store()).is_err());
+
+        // The external password wins over one created in the UI earlier.
+        let used = store();
+        let hash = "$argon2id$irrelevant".to_owned();
+        dlm_api::auth::CredentialStore::save_password_hash(used.as_ref(), &hash).expect("save");
+        let a = resolve_auth(&args(None, false), used).expect("env wins");
+        assert!(a.login("from-the-env").is_ok());
         std::env::remove_var("DLM_PASSWORD");
     }
 }

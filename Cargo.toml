@@ -38,6 +38,10 @@ utoipa = { version = "5", default-features = false, features = ["macros"] }
 # OS randomness for session tokens (tiny, no RNG framework needed)
 getrandom = "0.3"
 
+# Password hashing for the account created in the first-run setup. Pure Rust, no system
+# library; the salt comes from getrandom, so the RNG features stay off.
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
+
 # Embedded frontend: serve web/dist from the binary
 rust-embed = "8"
 mime_guess = "2"
@@ -58,3 +62,9 @@ clap = { version = "4", features = ["derive"] }
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Argon2 is deliberately slow; unoptimised debug builds would make login take seconds.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
