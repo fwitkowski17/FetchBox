@@ -1,12 +1,12 @@
 //! Repository for the `segments` table (resume offsets, SPEC 6.2).
 
-use dlm_core::Id;
+use fetchbox_core::Id;
 use rusqlite::{params, Connection};
 
 use crate::Result;
 
 /// One persisted segment: inclusive byte range plus bytes already written.
-pub use dlm_core::SegmentState as SegmentRow;
+pub use fetchbox_core::SegmentState as SegmentRow;
 
 /// Replace all segments of a download with a fresh plan (single transaction).
 pub fn replace(conn: &mut Connection, download_id: Id, rows: &[SegmentRow]) -> Result<()> {
@@ -79,7 +79,7 @@ mod tests {
     use super::*;
     use crate::downloads::{self, NewDownload};
     use crate::open_in_memory;
-    use dlm_core::{Category, SourceKind};
+    use fetchbox_core::{Category, SourceKind};
 
     fn seed(conn: &Connection) -> Id {
         downloads::insert(

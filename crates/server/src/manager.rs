@@ -11,18 +11,18 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
-use dlm_api::service::Service;
-use dlm_core::category::detect as detect_category;
-use dlm_core::filename::sanitize;
-use dlm_core::limiter::RateLimiter;
-use dlm_core::scheduler::Scheduler;
-use dlm_core::{
+use fetchbox_api::service::Service;
+use fetchbox_core::category::detect as detect_category;
+use fetchbox_core::filename::sanitize;
+use fetchbox_core::limiter::RateLimiter;
+use fetchbox_core::scheduler::Scheduler;
+use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
     Id, Job, OnConflict, Result, Settings, SourceKind, Status,
 };
-use dlm_http_engine::{candidates, HttpDownloader, UrlPolicy};
-use dlm_storage::downloads::{self, NewDownload};
-use dlm_storage::{segments, settings, Connection};
+use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
+use fetchbox_storage::downloads::{self, NewDownload};
+use fetchbox_storage::{segments, settings, Connection};
 use tokio::sync::{broadcast, mpsc, watch};
 
 /// Capacity of the UI event bus; slow subscribers get a lag error and resync.
@@ -119,7 +119,10 @@ impl Manager {
             .clone()
     }
 
-    fn with_db<T>(&self, f: impl FnOnce(&mut Connection) -> dlm_storage::Result<T>) -> Result<T> {
+    fn with_db<T>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> fetchbox_storage::Result<T>,
+    ) -> Result<T> {
         let mut conn = self.db();
         Ok(f(&mut conn)?)
     }
@@ -221,14 +224,17 @@ impl Manager {
 
     // ---- engine events -------------------------------------------------------------
 
-    async fn run_events(self: Arc<Self>, mut rx: mpsc::UnboundedReceiver<dlm_http_engine::Event>) {
+    async fn run_events(
+        self: Arc<Self>,
+        mut rx: mpsc::UnboundedReceiver<fetchbox_http_engine::Event>,
+    ) {
         while let Some(ev) = rx.recv().await {
             self.handle_engine_event(ev).await;
         }
     }
 
-    async fn handle_engine_event(&self, ev: dlm_http_engine::Event) {
-        use dlm_http_engine::Event as E;
+    async fn handle_engine_event(&self, ev: fetchbox_http_engine::Event) {
+        use fetchbox_http_engine::Event as E;
         const ACTIVE: [Status; 2] = [Status::Queued, Status::Downloading];
         match ev {
             E::Started {
@@ -485,7 +491,7 @@ impl Manager {
             let d = self.view(d);
             let Some(size) = d.size else { continue };
             let here = *same_disk.entry(d.subdir.clone()).or_insert_with(|| {
-                dlm_http_engine::disk::volume(&self.engine.dir_for(&d.subdir))
+                fetchbox_http_engine::disk::volume(&self.engine.dir_for(&d.subdir))
                     .map_or(true, |v| v.dev == dev)
             });
             if here {
@@ -504,7 +510,7 @@ impl Manager {
     ///
     /// A disk whose space cannot be read is not checked: that must not stop downloads.
     fn check_room(&self, subdir: &str, needed: u64) -> Result<bool> {
-        let vol = match dlm_http_engine::disk::volume(&self.engine.dir_for(subdir)) {
+        let vol = match fetchbox_http_engine::disk::volume(&self.engine.dir_for(subdir)) {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(error = %e, "cannot read free disk space; skipping the check");
@@ -515,7 +521,7 @@ impl Manager {
             return Ok(true);
         }
         let others = self.reserved_on(vol.dev)?;
-        dlm_http_engine::disk::ensure_fits(needed, others, vol.space.available)?;
+        fetchbox_http_engine::disk::ensure_fits(needed, others, vol.space.available)?;
         Ok(false)
     }
 }
@@ -533,7 +539,7 @@ impl Service for Manager {
 
     async fn add(&self, req: AddRequest) -> Result<Download> {
         let info = self.engine.probe_url(&req.url).await.map_err(|e| match e {
-            dlm_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
+            fetchbox_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
             other => Error::Engine(format!("cannot reach {}: {other}", req.url)),
         })?;
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
@@ -641,7 +647,7 @@ impl Service for Manager {
             let ignore = self.with_db(|c| downloads::ignore_space_flag(c, id))?;
             let needed = size.saturating_sub(d.downloaded);
             if !ignore {
-                if let Ok(v) = dlm_http_engine::disk::volume(&self.engine.dir_for(&d.subdir)) {
+                if let Ok(v) = fetchbox_http_engine::disk::volume(&self.engine.dir_for(&d.subdir)) {
                     if needed > v.space.available {
                         return Err(Error::InsufficientSpace {
                             needed,
@@ -724,7 +730,7 @@ impl Service for Manager {
     }
 
     async fn disk_space(&self) -> Result<DiskSpace> {
-        let vol = dlm_http_engine::disk::volume(&self.dir).map_err(io_err)?;
+        let vol = fetchbox_http_engine::disk::volume(&self.dir).map_err(io_err)?;
         let mut space = vol.space;
         space.reserved = self.reserved_on(vol.dev)?;
         Ok(space)
@@ -759,7 +765,7 @@ impl Service for Manager {
 }
 
 /// The password hash created in the first-run setup lives next to the settings.
-impl dlm_api::auth::CredentialStore for Manager {
+impl fetchbox_api::auth::CredentialStore for Manager {
     fn load_password_hash(&self) -> std::result::Result<Option<String>, String> {
         settings::password_hash(&self.db()).map_err(|e| e.to_string())
     }

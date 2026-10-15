@@ -1,6 +1,6 @@
 //! Repository for the `settings` key/value table.
 
-use dlm_core::Settings;
+use fetchbox_core::Settings;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::Result;

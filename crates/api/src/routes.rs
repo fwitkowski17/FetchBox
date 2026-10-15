@@ -9,7 +9,7 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
-use dlm_core::{AddRequest, Category, DiskSpace, Download, Error, Id, Settings};
+use fetchbox_core::{AddRequest, Category, DiskSpace, Download, Error, Id, Settings};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 

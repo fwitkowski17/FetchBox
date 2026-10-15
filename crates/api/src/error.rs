@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use dlm_core::{Conflict, Error};
+use fetchbox_core::{Conflict, Error};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -45,7 +45,7 @@ fn err(message: impl Into<String>) -> ErrorBody {
     }
 }
 
-/// Wrapper so handlers can use `?` on `dlm_core::Result`.
+/// Wrapper so handlers can use `?` on `fetchbox_core::Result`.
 #[derive(Debug)]
 pub struct ApiError(pub Error);
 
@@ -104,7 +104,7 @@ impl IntoResponse for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dlm_core::{Conflict, ConflictKind};
+    use fetchbox_core::{Conflict, ConflictKind};
 
     fn status(e: Error) -> StatusCode {
         ApiError(e).into_response().status()

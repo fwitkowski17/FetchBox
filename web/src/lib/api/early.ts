@@ -12,7 +12,7 @@ interface EarlyRequests {
 
 declare global {
   interface Window {
-    __dlmEarly?: EarlyRequests;
+    __fetchboxEarly?: EarlyRequests;
   }
 }
 
@@ -22,7 +22,7 @@ declare global {
  * a normal request: an early `/downloads` asked before sign-in is a `401`.
  */
 export function takeEarly(path: string, now = Date.now()): Promise<Response> | null {
-  const early = typeof window === 'undefined' ? undefined : window.__dlmEarly;
+  const early = typeof window === 'undefined' ? undefined : window.__fetchboxEarly;
   if (!early) return null;
   const entry = early[path];
   delete early[path];

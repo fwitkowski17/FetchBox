@@ -2,7 +2,7 @@
 //! so `api` depends on neither the database nor the engine.
 
 use async_trait::async_trait;
-use dlm_core::{AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings};
+use fetchbox_core::{AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings};
 use tokio::sync::{broadcast, watch};
 
 /// Download manager as seen by the API.

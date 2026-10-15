@@ -23,7 +23,7 @@ impl Server {
             .expect("addr")
             .port();
         let dir = tempfile::tempdir().expect("tempdir");
-        let child = Command::new(env!("CARGO_BIN_EXE_dlmanager"))
+        let child = Command::new(env!("CARGO_BIN_EXE_fetchbox"))
             .arg("--data-dir")
             .arg(dir.path().join("data"))
             .arg("--download-dir")
@@ -32,7 +32,7 @@ impl Server {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .expect("spawn dlmanager");
+            .expect("spawn fetchbox");
         let server = Self {
             child,
             port,

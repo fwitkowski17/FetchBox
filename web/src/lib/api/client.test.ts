@@ -87,7 +87,7 @@ describe('api client', () => {
 
   describe('answers the page asked for early', () => {
     function early(path: string, res: Promise<Response>) {
-      vi.stubGlobal('window', { __dlmEarly: { startedAt: Date.now(), [path]: res } });
+      vi.stubGlobal('window', { __fetchboxEarly: { startedAt: Date.now(), [path]: res } });
     }
 
     it('uses a good early answer instead of asking again', async () => {

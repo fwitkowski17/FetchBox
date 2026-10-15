@@ -15,7 +15,7 @@ class AuthStore {
   state = $state<AuthState>('loading');
   /** A password is configured on the server (otherwise there is nothing to log out of). */
   required = $state(false);
-  /** The password was created in the UI, so it can be changed there (not `DLM_PASSWORD`). */
+  /** The password was created in the UI, so it can be changed there (not `FETCHBOX_PASSWORD`). */
   canChangePassword = $state(false);
   /**
    * The first-run wizard is on screen. It starts when the server reports that no account exists

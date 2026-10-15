@@ -8,7 +8,7 @@
 use std::io;
 use std::path::Path;
 
-use dlm_core::DiskSpace;
+use fetchbox_core::DiskSpace;
 
 use crate::error::EngineError;
 

@@ -13,7 +13,7 @@ pub enum EngineError {
     Status(u16),
     #[error("protocol error: {0}")]
     Protocol(String),
-    #[error("{}", dlm_core::error::no_space_message(*.needed, *.free, *.reserved))]
+    #[error("{}", fetchbox_core::error::no_space_message(*.needed, *.free, *.reserved))]
     NoSpace {
         needed: u64,
         free: u64,
@@ -47,20 +47,20 @@ impl EngineError {
     }
 }
 
-impl From<EngineError> for dlm_core::Error {
+impl From<EngineError> for fetchbox_core::Error {
     fn from(e: EngineError) -> Self {
         match e {
-            EngineError::InvalidUrl(m) => dlm_core::Error::InvalidInput(m),
+            EngineError::InvalidUrl(m) => fetchbox_core::Error::InvalidInput(m),
             EngineError::NoSpace {
                 needed,
                 free,
                 reserved,
-            } => dlm_core::Error::InsufficientSpace {
+            } => fetchbox_core::Error::InsufficientSpace {
                 needed,
                 free,
                 reserved,
             },
-            other => dlm_core::Error::Engine(other.to_string()),
+            other => fetchbox_core::Error::Engine(other.to_string()),
         }
     }
 }

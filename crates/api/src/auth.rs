@@ -6,7 +6,7 @@
 //!
 //! Where the password comes from decides what the UI may do with it:
 //! - `--no-auth`: nothing is checked.
-//! - `DLM_PASSWORD` / `--password-file`: an external secret; it wins over everything and
+//! - `FETCHBOX_PASSWORD` / `--password-file`: an external secret; it wins over everything and
 //!   cannot be changed from the UI.
 //! - otherwise the account is created in the browser on first run (`POST /auth/setup`),
 //!   guarded by a one-time setup code printed to the server log, so whoever reaches a fresh
@@ -35,7 +35,7 @@ use utoipa::ToSchema;
 
 use crate::error::ErrorBody;
 
-const COOKIE: &str = "dlm_session";
+const COOKIE: &str = "fetchbox_session";
 const SESSION_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
 const MAX_SESSIONS: usize = 100;
 const MAX_FAILURES: usize = 5;
@@ -456,7 +456,7 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-/// Successful login. The same token is also set as the `dlm_session` cookie.
+/// Successful login. The same token is also set as the `fetchbox_session` cookie.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LoginResponse {
     /// Session token, usable as `Authorization: Bearer <token>`. Empty when auth is disabled.
@@ -481,7 +481,7 @@ pub struct AuthStatus {
     /// No account exists yet: show the first-run setup (`POST /api/auth/setup`).
     pub setup_required: bool,
     /// The password was created in the UI and can be changed (`POST /api/auth/password`);
-    /// false for a password from `DLM_PASSWORD` / `--password-file`.
+    /// false for a password from `FETCHBOX_PASSWORD` / `--password-file`.
     pub can_change_password: bool,
 }
 
@@ -509,7 +509,7 @@ pub struct ChangePasswordRequest {
     tag = "auth",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Logged in; sets the `dlm_session` cookie", body = LoginResponse),
+        (status = 200, description = "Logged in; sets the `fetchbox_session` cookie", body = LoginResponse),
         (status = 401, description = "Wrong password", body = ErrorBody),
         (status = 429, description = "Too many failed attempts (5 per minute); see `Retry-After`", body = LockedBody),
     )
@@ -614,7 +614,7 @@ fn account_error(e: AccountError) -> Response {
     tag = "auth",
     request_body = SetupRequest,
     responses(
-        (status = 200, description = "Account created and logged in; sets the `dlm_session` cookie", body = LoginResponse),
+        (status = 200, description = "Account created and logged in; sets the `fetchbox_session` cookie", body = LoginResponse),
         (status = 400, description = "Password too short or too long", body = ErrorBody),
         (status = 403, description = "Wrong setup code", body = ErrorBody),
         (status = 409, description = "Setup already done, or authentication is configured externally", body = ErrorBody),
@@ -1012,7 +1012,7 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(
             header::COOKIE,
-            HeaderValue::from_static("theme=dark; dlm_session=xyz; other=1"),
+            HeaderValue::from_static("theme=dark; fetchbox_session=xyz; other=1"),
         );
         assert_eq!(token_from(&h).as_deref(), Some("xyz"));
         assert_eq!(token_from(&HeaderMap::new()), None);

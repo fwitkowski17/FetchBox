@@ -1,6 +1,6 @@
 //! Repository for the `downloads` table.
 
-use dlm_core::{Category, Download, Id, SourceKind, Status};
+use fetchbox_core::{Category, Download, Id, SourceKind, Status};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::{Error, Result};

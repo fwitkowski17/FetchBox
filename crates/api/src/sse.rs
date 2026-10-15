@@ -1,7 +1,7 @@
 //! Server-sent events: progress and status changes (SPEC 6.6).
 //!
 //! Event names: `download`, `progress`, `removed`, `settings`, plus `resync` when this
-//! client fell behind and must reload the list. Data is the JSON of [`dlm_core::Event`].
+//! client fell behind and must reload the list. Data is the JSON of [`fetchbox_core::Event`].
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use axum::{
         IntoResponse,
     },
 };
-use dlm_core::Event;
+use fetchbox_core::Event;
 use futures_util::stream::{self, StreamExt};
 use tokio::sync::broadcast::error::RecvError;
 

@@ -301,7 +301,7 @@ export interface components {
             authenticated: boolean;
             /**
              * @description The password was created in the UI and can be changed (`POST /api/auth/password`);
-             *     false for a password from `DLM_PASSWORD` / `--password-file`.
+             *     false for a password from `FETCHBOX_PASSWORD` / `--password-file`.
              */
             can_change_password: boolean;
             /** @description No account exists yet: show the first-run setup (`POST /api/auth/setup`). */
@@ -465,7 +465,7 @@ export interface components {
         LoginRequest: {
             password: string;
         };
-        /** @description Successful login. The same token is also set as the `dlm_session` cookie. */
+        /** @description Successful login. The same token is also set as the `fetchbox_session` cookie. */
         LoginResponse: {
             /** @description Session token, usable as `Authorization: Bearer <token>`. Empty when auth is disabled. */
             token: string;
@@ -584,7 +584,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Logged in; sets the `dlm_session` cookie */
+            /** @description Logged in; sets the `fetchbox_session` cookie */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -711,7 +711,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Account created and logged in; sets the `dlm_session` cookie */
+            /** @description Account created and logged in; sets the `fetchbox_session` cookie */
             200: {
                 headers: {
                     [name: string]: unknown;

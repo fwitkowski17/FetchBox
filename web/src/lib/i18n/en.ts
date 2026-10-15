@@ -61,7 +61,7 @@ export const en = {
     'FetchBox is protected by a password. To make sure it is you, creating the account needs a one-time code from the server log.',
   'setup.code.label': 'Setup code',
   'setup.code.hint':
-    'Find the line with “setup code” in the server log, for example with “docker compose logs dlmanager”.',
+    'Find the line with “setup code” in the server log, for example with “docker compose logs fetchbox”.',
   'setup.password.label': 'Password',
   'setup.password.hint': 'At least {min} characters.',
   'setup.confirm.label': 'Repeat the password',
@@ -247,7 +247,7 @@ export const en = {
   'settings.password': 'Password',
   'settings.password.hint': 'Changing the password signs out all your other devices.',
   'settings.password.external':
-    'The password is set on the server (DLM_PASSWORD or a password file), so it cannot be changed here.',
+    'The password is set on the server (FETCHBOX_PASSWORD or a password file), so it cannot be changed here.',
   'settings.password.current': 'Current password',
   'settings.password.new': 'New password',
   'settings.password.confirm': 'Repeat the new password',

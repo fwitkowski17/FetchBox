@@ -10,8 +10,8 @@ use axum::extract::Path as UrlPath;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::response::IntoResponse;
 use axum::routing::get;
-use dlm_api::service::Service;
-use dlm_core::{
+use fetchbox_api::service::Service;
+use fetchbox_core::{
     AddRequest, Category, ConflictKind, Download, Error, Id, OnConflict, Settings, Status,
 };
 use futures_util::{stream, StreamExt};
@@ -85,12 +85,12 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
-        Self::with_policy(dlm_http_engine::UrlPolicy::default()).await
+        Self::with_policy(fetchbox_http_engine::UrlPolicy::default()).await
     }
 
-    async fn with_policy(policy: dlm_http_engine::UrlPolicy) -> Self {
+    async fn with_policy(policy: fetchbox_http_engine::UrlPolicy) -> Self {
         let dir = tempfile::tempdir().expect("tmp");
-        let db = dlm_storage::open_in_memory().expect("db");
+        let db = fetchbox_storage::open_in_memory().expect("db");
         let mgr = Manager::start(db, dir.path().to_owned(), policy)
             .await
             .expect("start");
@@ -852,11 +852,11 @@ async fn category_can_be_changed_manually() {
 // ---- over real HTTP ---------------------------------------------------------------
 
 async fn spawn_api(h: &Harness) -> String {
-    spawn_api_with(h, dlm_api::Auth::disabled()).await
+    spawn_api_with(h, fetchbox_api::Auth::disabled()).await
 }
 
-async fn spawn_api_with(h: &Harness, auth: Arc<dlm_api::Auth>) -> String {
-    let app = dlm_api::router(h.mgr.clone(), auth);
+async fn spawn_api_with(h: &Harness, auth: Arc<fetchbox_api::Auth>) -> String {
+    let app = fetchbox_api::router(h.mgr.clone(), auth);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -1239,7 +1239,7 @@ async fn a_download_added_anyway_is_started_and_not_failed_for_space() {
 #[tokio::test]
 async fn disk_endpoint_is_protected_and_refusals_are_507() {
     let h = Harness::new().await;
-    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let api = spawn_api_with(&h, fetchbox_api::Auth::with_password("correct-horse")).await;
     let c = reqwest::Client::new();
     assert_eq!(aget(&c, &api, "/disk", None).await.status().as_u16(), 401);
 
@@ -1365,7 +1365,7 @@ fn session_cookie(resp: &reqwest::Response) -> String {
 #[tokio::test]
 async fn api_requires_login_when_a_password_is_set() {
     let h = Harness::new().await;
-    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let api = spawn_api_with(&h, fetchbox_api::Auth::with_password("correct-horse")).await;
     let c = reqwest::Client::new();
 
     // Public: health and auth status. Everything else: 401.
@@ -1503,7 +1503,7 @@ async fn api_requires_login_when_a_password_is_set() {
 #[tokio::test]
 async fn repeated_wrong_passwords_are_throttled() {
     let h = Harness::new().await;
-    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let api = spawn_api_with(&h, fetchbox_api::Auth::with_password("correct-horse")).await;
     let c = reqwest::Client::new();
     for _ in 0..5 {
         assert_eq!(alogin(&c, &api, "wrong").await.status().as_u16(), 401);
@@ -1573,7 +1573,7 @@ async fn delete_over_http_takes_the_file_only_when_asked() {
 async fn first_run_setup_creates_the_account_and_survives_a_restart() {
     let h = Harness::new().await;
     // The manager is the credential store: the hash goes to the real SQLite table.
-    let auth = dlm_api::Auth::from_store(h.mgr.clone()).expect("auth");
+    let auth = fetchbox_api::Auth::from_store(h.mgr.clone()).expect("auth");
     let code = auth.setup_code().expect("code");
     let api = spawn_api_with(&h, auth).await;
     let c = reqwest::Client::new();
@@ -1633,7 +1633,7 @@ async fn first_run_setup_creates_the_account_and_survives_a_restart() {
     assert_eq!(ok.status().as_u16(), 200);
     let cookie = session_cookie(&ok);
     assert!(
-        cookie.starts_with("dlm_session=") && cookie.len() > 20,
+        cookie.starts_with("fetchbox_session=") && cookie.len() > 20,
         "{cookie}"
     );
     assert_eq!(
@@ -1721,7 +1721,7 @@ async fn first_run_setup_creates_the_account_and_survives_a_restart() {
     );
 
     // "Restart": a new Auth over the same database knows the account and the new password.
-    let restarted = dlm_api::Auth::from_store(h.mgr.clone()).expect("auth");
+    let restarted = fetchbox_api::Auth::from_store(h.mgr.clone()).expect("auth");
     assert!(!restarted.setup_required());
     assert!(restarted.login("battery-staple").is_ok());
     assert!(restarted.login("correct-horse").is_err());
@@ -1730,7 +1730,7 @@ async fn first_run_setup_creates_the_account_and_survives_a_restart() {
 #[tokio::test]
 async fn externally_configured_password_cannot_be_changed_or_set_up() {
     let h = Harness::new().await;
-    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let api = spawn_api_with(&h, fetchbox_api::Auth::with_password("correct-horse")).await;
     let c = reqwest::Client::new();
     let ok = alogin(&c, &api, "correct-horse").await;
     let cookie = session_cookie(&ok);
@@ -1801,7 +1801,7 @@ async fn disabled_auth_keeps_the_api_open() {
 #[test]
 fn committed_openapi_matches_the_code() {
     let committed = include_str!("../../../docs/openapi.json");
-    let current = dlm_api::openapi::spec_json().expect("render");
+    let current = fetchbox_api::openapi::spec_json().expect("render");
     assert!(
         committed == current,
         "docs/openapi.json is stale: run ./scripts/gen-api.sh and commit the result"
@@ -1811,7 +1811,7 @@ fn committed_openapi_matches_the_code() {
 #[tokio::test]
 async fn openapi_is_served_publicly_even_with_auth() {
     let h = Harness::new().await;
-    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let api = spawn_api_with(&h, fetchbox_api::Auth::with_password("correct-horse")).await;
     let c = reqwest::Client::new();
     let resp = aget(&c, &api, "/openapi.json", None).await;
     assert_eq!(resp.status().as_u16(), 200);
@@ -1941,7 +1941,7 @@ async fn conflicts_are_checked_inside_the_subdirectory() {
 
 #[tokio::test]
 async fn private_url_policy_is_applied_by_the_manager() {
-    let h = Harness::with_policy(dlm_http_engine::UrlPolicy {
+    let h = Harness::with_policy(fetchbox_http_engine::UrlPolicy {
         block_private: true,
     })
     .await;
@@ -2044,16 +2044,16 @@ fn killed_process_resumes_from_saved_offsets() {
         server_rt.block_on(resumable_server::spawn(LEN, Duration::from_millis(20)));
 
     let dir = tempfile::tempdir().expect("tmp");
-    let db_path = dir.path().join("dlmanager.db");
+    let db_path = dir.path().join("fetchbox.db");
     let dl_dir = dir.path().join("downloads");
     std::fs::create_dir_all(&dl_dir).expect("mkdir");
     let url = format!("http://{addr}/big.bin");
-    let policy = dlm_http_engine::UrlPolicy::default();
+    let policy = fetchbox_http_engine::UrlPolicy::default();
 
     // --- process 1: download until progress has been persisted, then "kill -9" it.
     let rt1 = tokio::runtime::Runtime::new().expect("rt");
     let id = rt1.block_on(async {
-        let db = dlm_storage::open(&db_path).expect("db");
+        let db = fetchbox_storage::open(&db_path).expect("db");
         let mgr = Manager::start(db, dl_dir.clone(), policy)
             .await
             .expect("start");
@@ -2065,10 +2065,10 @@ fn killed_process_resumes_from_saved_offsets() {
             ignore_space: false,
         };
         let id = mgr.add(req).await.expect("add").id;
-        let probe = dlm_storage::open(&db_path).expect("second connection");
+        let probe = fetchbox_storage::open(&db_path).expect("second connection");
         for _ in 0..100 {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            let d = dlm_storage::downloads::get(&probe, id)
+            let d = fetchbox_storage::downloads::get(&probe, id)
                 .expect("get")
                 .expect("row");
             if d.status == Status::Downloading && d.downloaded > 0 {
@@ -2082,8 +2082,8 @@ fn killed_process_resumes_from_saved_offsets() {
     rt1.shutdown_background();
     std::thread::sleep(Duration::from_millis(400));
 
-    let probe = dlm_storage::open(&db_path).expect("db");
-    let crashed = dlm_storage::downloads::get(&probe, id)
+    let probe = fetchbox_storage::open(&db_path).expect("db");
+    let crashed = fetchbox_storage::downloads::get(&probe, id)
         .expect("get")
         .expect("row");
     assert_eq!(
@@ -2096,7 +2096,7 @@ fn killed_process_resumes_from_saved_offsets() {
         "{}",
         crashed.downloaded
     );
-    let saved: u64 = dlm_storage::segments::list(&probe, id)
+    let saved: u64 = fetchbox_storage::segments::list(&probe, id)
         .expect("segs")
         .iter()
         .map(|s| s.downloaded)
@@ -2108,7 +2108,7 @@ fn killed_process_resumes_from_saved_offsets() {
     // --- process 2: same database, fresh runtime.
     let rt2 = tokio::runtime::Runtime::new().expect("rt");
     rt2.block_on(async {
-        let db = dlm_storage::open(&db_path).expect("db");
+        let db = fetchbox_storage::open(&db_path).expect("db");
         let mgr = Manager::start(db, dl_dir.clone(), policy)
             .await
             .expect("restart");

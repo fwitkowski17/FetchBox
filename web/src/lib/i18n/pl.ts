@@ -55,7 +55,7 @@ const pl: Messages = {
     'FetchBox jest chroniony hasłem. Aby mieć pewność, że to Ty, utworzenie konta wymaga jednorazowego kodu z logu serwera.',
   'setup.code.label': 'Kod konfiguracji',
   'setup.code.hint':
-    'Znajdziesz go w logu serwera, w linii z napisem „setup code”, na przykład poleceniem „docker compose logs dlmanager”.',
+    'Znajdziesz go w logu serwera, w linii z napisem „setup code”, na przykład poleceniem „docker compose logs fetchbox”.',
   'setup.password.label': 'Hasło',
   'setup.password.hint': 'Co najmniej {min} znaków.',
   'setup.confirm.label': 'Powtórz hasło',
@@ -244,7 +244,7 @@ const pl: Messages = {
   'settings.password': 'Hasło',
   'settings.password.hint': 'Zmiana hasła wylogowuje Cię ze wszystkich innych urządzeń.',
   'settings.password.external':
-    'Hasło jest ustawione na serwerze (DLM_PASSWORD lub plik z hasłem), więc nie można go tutaj zmienić.',
+    'Hasło jest ustawione na serwerze (FETCHBOX_PASSWORD lub plik z hasłem), więc nie można go tutaj zmienić.',
   'settings.password.current': 'Obecne hasło',
   'settings.password.new': 'Nowe hasło',
   'settings.password.confirm': 'Powtórz nowe hasło',

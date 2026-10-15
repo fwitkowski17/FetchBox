@@ -18,9 +18,9 @@ pub enum Error {
     Corrupt(String),
 }
 
-impl From<Error> for dlm_core::Error {
+impl From<Error> for fetchbox_core::Error {
     fn from(e: Error) -> Self {
-        dlm_core::Error::Internal(e.to_string())
+        fetchbox_core::Error::Internal(e.to_string())
     }
 }
 

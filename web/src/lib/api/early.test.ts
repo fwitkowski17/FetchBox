@@ -4,7 +4,7 @@ import { takeEarly } from './early';
 const ok = () => new Response('[]', { status: 200 });
 
 function page(entries: Record<string, Promise<Response>>, startedAt = Date.now()) {
-  vi.stubGlobal('window', { __dlmEarly: { startedAt, ...entries } });
+  vi.stubGlobal('window', { __fetchboxEarly: { startedAt, ...entries } });
 }
 
 afterEach(() => vi.unstubAllGlobals());

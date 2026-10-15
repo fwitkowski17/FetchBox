@@ -13,20 +13,29 @@
       // waiting by the time the app asks for them (see `takeEarly` in `src/lib/api/early.ts`).
       // Only the three the first screen needs; the app falls back to a normal request if one fails.
       try {
-        var early = (window.__dlmEarly = { startedAt: Date.now() });
+        var early = (window.__fetchboxEarly = { startedAt: Date.now() });
         ['/auth/status', '/downloads', '/settings'].forEach(function (p) {
           early[p] = fetch('/api' + p, { credentials: 'same-origin' });
           early[p].catch(function () {});
         });
       } catch (e) {}
+      // The keys were called dlm.* before the project was renamed: carry the values over once.
+      try {
+        ['theme', 'accent', 'locale', 'list', 'speedUnit'].forEach(function (k) {
+          var old = localStorage.getItem('dlm.' + k);
+          if (old === null) return;
+          if (localStorage.getItem('fetchbox.' + k) === null) localStorage.setItem('fetchbox.' + k, old);
+          localStorage.removeItem('dlm.' + k);
+        });
+      } catch (e) {}
       // Apply the saved theme before the first paint so a dark-mode user never sees a white flash.
       try {
-        var t = localStorage.getItem('dlm.theme');
+        var t = localStorage.getItem('fetchbox.theme');
         if (t) t = JSON.parse(t);
         if (t === 'light' || t === 'dark' || t === 'black') document.documentElement.setAttribute('data-theme', t);
       } catch (e) {}
       try {
-        var a = JSON.parse(localStorage.getItem('dlm.accent'));
+        var a = JSON.parse(localStorage.getItem('fetchbox.accent'));
         if (a && typeof a.hue === 'number' && typeof a.chroma === 'number') {
           document.documentElement.style.setProperty('--accent-h', a.hue);
           document.documentElement.style.setProperty('--accent-k', a.chroma);

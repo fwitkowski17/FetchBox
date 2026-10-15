@@ -42,7 +42,7 @@ axum API ──> Scheduler ──> Downloader (HttpDownloader | TorrentDownloade
 ## 5. Directory structure
 
 ```
-WebDownloadManager/
+FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
@@ -184,7 +184,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
   `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
-  `docs/openapi.json`; `dlmanager --print-openapi` prints it. `utoipa` is an optional feature of `dlm-core`, so the core
+  `docs/openapi.json`; `fetchbox --print-openapi` prints it. `utoipa` is an optional feature of `fetchbox-core`, so the core
   crate stays free of it unless the API enables it. Frontend types are generated with `openapi-typescript` into
   `web/src/lib/api/schema.d.ts` by `scripts/gen-api.sh`; a Rust test and a CI step fail on stale generated files.
 
@@ -276,7 +276,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   to them (Node's own zlib, in `vite.config.ts`), the server embeds them and picks the variant from `Accept-Encoding`
   (Brotli before gzip, each with its own `ETag`, `Vary: accept-encoding`); the server compresses nothing at request
   time. `index.html` starts `GET /api/auth/status`, `/api/downloads` and `/api/settings` itself before the bundle has
-  loaded (`window.__dlmEarly`, `api/early.ts`); the app takes those answers once instead of asking again, falls back to
+  loaded (`window.__fetchboxEarly`, `api/early.ts`); the app takes those answers once instead of asking again, falls back to
   a normal request when one failed or is not `ok` (before sign-in two of them are `401`, which must never sign anyone
   out), and ignores them after 10 s. The session check also runs while the language file loads, and the list is
   fetched while the event stream opens (the reload on open stays: it closes any gap between the two). The first disk
@@ -309,7 +309,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   search; remembered in `localStorage`. System / light / dark / black theme via CSS tokens (`[data-theme]` plus
   `prefers-color-scheme`; black is dark with a pure black background for OLED), applied before first paint.
 - Speed unit shown in the app: a display choice in Settings > Appearance (and the setup wizard), kept per browser in
-  `localStorage` (`dlm.speedUnit`), not a server setting. `Automatic` (B, KB, MB... as before), `Automatic in bits` (bit,
+  `localStorage` (`fetchbox.speedUnit`), not a server setting. `Automatic` (B, KB, MB... as before), `Automatic in bits` (bit,
   Kbit, Mbit, Gbit...) or one fixed unit (KB/s, MB/s, Kbit/s, Mbit/s). It applies to every speed the UI writes (list header,
   side panel, cards, limits on cards and in menus); the limit fields keep the unit of their own field. Fixed and bit units
   show three significant figures (123, 12.3, 1.23).
@@ -334,7 +334,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 ### 6.7 Security
 
 - Single-user auth, HTTPS via reverse proxy. One shared password, from the first source that applies:
-  `DLM_PASSWORD` / `--password-file` (external: wins, cannot be changed in the UI), the account created in the
+  `FETCHBOX_PASSWORD` / `--password-file` (external: wins, cannot be changed in the UI), the account created in the
   first-run setup (below), or none at all with an explicit `--no-auth`. Without any of them the server still starts
   but stays locked until setup is done, so a forgotten password never exposes it. Passwords have 8 to 256 characters.
   `POST /api/auth/login` returns a random 256-bit session token, set as an `HttpOnly; SameSite=Strict` cookie

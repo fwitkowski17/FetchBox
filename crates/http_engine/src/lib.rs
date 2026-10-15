@@ -20,9 +20,9 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use dlm_core::filename::sanitize;
-use dlm_core::limiter::{DownloadLimiter, RateLimiter};
-use dlm_core::{Downloader, Handle, Id, Job, Progress, SegmentState};
+use fetchbox_core::filename::sanitize;
+use fetchbox_core::limiter::{DownloadLimiter, RateLimiter};
+use fetchbox_core::{Downloader, Handle, Id, Job, Progress, SegmentState};
 use reqwest::Client;
 use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, JoinSet};
@@ -523,7 +523,7 @@ fn build_remote(info: &RemoteInfo, planned: &[SegmentState]) -> Remote {
 
 #[async_trait]
 impl Downloader for HttpDownloader {
-    async fn start(&self, job: &Job) -> dlm_core::Result<Handle> {
+    async fn start(&self, job: &Job) -> fetchbox_core::Result<Handle> {
         let url = validate_url(&job.url)?;
         self.inner.policy.check(&url)?;
         let shared = Arc::new(Shared::default());
@@ -532,7 +532,7 @@ impl Downloader for HttpDownloader {
         // A paused entry is replaced: the caller's job (built from persisted offsets) wins,
         // which makes resume-after-pause and resume-after-restart the same code path.
         if entries.get(&job.id).is_some_and(|e| e.task.is_some()) {
-            return Err(dlm_core::Error::InvalidState(format!(
+            return Err(fetchbox_core::Error::InvalidState(format!(
                 "download {} is already active",
                 job.id
             )));
@@ -560,13 +560,14 @@ impl Downloader for HttpDownloader {
         Ok(Handle { id: job.id })
     }
 
-    async fn pause(&self, id: Id) -> dlm_core::Result<()> {
+    async fn pause(&self, id: Id) -> fetchbox_core::Result<()> {
         let mut entries = self.inner.entries();
-        let entry = entries.get_mut(&id).ok_or(dlm_core::Error::NotFound(id))?;
-        let task = entry
-            .task
-            .take()
-            .ok_or_else(|| dlm_core::Error::InvalidState("download is already paused".into()))?;
+        let entry = entries
+            .get_mut(&id)
+            .ok_or(fetchbox_core::Error::NotFound(id))?;
+        let task = entry.task.take().ok_or_else(|| {
+            fetchbox_core::Error::InvalidState("download is already paused".into())
+        })?;
         // Offsets only advance after a write completes, so aborting mid-write is safe:
         // resume rewrites at most the bytes of one chunk.
         task.abort();
@@ -589,11 +590,13 @@ impl Downloader for HttpDownloader {
         Ok(())
     }
 
-    async fn resume(&self, id: Id) -> dlm_core::Result<()> {
+    async fn resume(&self, id: Id) -> fetchbox_core::Result<()> {
         let mut entries = self.inner.entries();
-        let entry = entries.get_mut(&id).ok_or(dlm_core::Error::NotFound(id))?;
+        let entry = entries
+            .get_mut(&id)
+            .ok_or(fetchbox_core::Error::NotFound(id))?;
         if entry.task.is_some() {
-            return Err(dlm_core::Error::InvalidState(
+            return Err(fetchbox_core::Error::InvalidState(
                 "download is not paused".into(),
             ));
         }
@@ -608,12 +611,12 @@ impl Downloader for HttpDownloader {
         Ok(())
     }
 
-    async fn cancel(&self, id: Id) -> dlm_core::Result<()> {
+    async fn cancel(&self, id: Id) -> fetchbox_core::Result<()> {
         let entry = self
             .inner
             .entries()
             .remove(&id)
-            .ok_or(dlm_core::Error::NotFound(id))?;
+            .ok_or(fetchbox_core::Error::NotFound(id))?;
         if let Some(task) = entry.task {
             task.abort();
         }
@@ -774,7 +777,7 @@ mod tests {
         );
         assert!(matches!(
             dl.pause(7).await,
-            Err(dlm_core::Error::InvalidState(_))
+            Err(fetchbox_core::Error::InvalidState(_))
         ));
 
         dl.resume(7).await.expect("resume");
@@ -830,7 +833,7 @@ mod tests {
         assert!(!dir.path().join("file.bin.3.part").exists());
         assert!(matches!(
             dl.cancel(3).await,
-            Err(dlm_core::Error::NotFound(3))
+            Err(fetchbox_core::Error::NotFound(3))
         ));
     }
 
@@ -960,7 +963,7 @@ mod tests {
         // The entry is gone, so the id can be started again.
         assert!(matches!(
             dl.pause(1).await,
-            Err(dlm_core::Error::NotFound(1))
+            Err(fetchbox_core::Error::NotFound(1))
         ));
     }
 
@@ -983,7 +986,7 @@ mod tests {
         };
         assert!(matches!(
             dl.start(&j).await,
-            Err(dlm_core::Error::InvalidInput(_))
+            Err(fetchbox_core::Error::InvalidInput(_))
         ));
     }
 
@@ -1127,7 +1130,7 @@ mod tests {
                 ..job(1, &server, 1)
             })
             .await,
-            Err(dlm_core::Error::InvalidInput(_))
+            Err(fetchbox_core::Error::InvalidInput(_))
         ));
 
         // Host name that resolves to loopback: refused where it is resolved.
