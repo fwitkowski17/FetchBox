@@ -87,7 +87,7 @@ const pl: Messages = {
   'setup.create': 'Utwórz konto',
   'setup.done.title': 'Wszystko gotowe',
   'setup.done.hint': 'FetchBox jest gotowy. Resztę, na przykład limity prędkości, znajdziesz w Ustawieniach.',
-  'setup.done.open': 'Przejdź do pobrań',
+  'setup.done.open': 'Przejdź do aplikacji',
   'setup.next': 'Dalej',
   'setup.back': 'Wstecz',
 

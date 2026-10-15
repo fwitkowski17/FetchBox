@@ -93,7 +93,7 @@ export const en = {
   'setup.create': 'Create account',
   'setup.done.title': 'All set',
   'setup.done.hint': 'FetchBox is ready. Everything else, like speed limits, is in Settings.',
-  'setup.done.open': 'Go to downloads',
+  'setup.done.open': 'Go to the app',
   'setup.next': 'Next',
   'setup.back': 'Back',
 
