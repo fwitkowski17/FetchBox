@@ -14,6 +14,7 @@ export type AddRequest = Schemas['AddRequest'];
 export type AppEvent = Schemas['Event'];
 export type AuthStatus = Schemas['AuthStatus'];
 export type DiskSpace = Schemas['DiskSpace'];
+export type UrlInfo = Schemas['UrlInfo'];
 export type Stats = Schemas['Stats'];
 export type StatsRange = Schemas['StatsRange'];
 export type DayStat = Schemas['DayStat'];

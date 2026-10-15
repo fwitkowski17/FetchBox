@@ -10,6 +10,7 @@ import type {
   Settings,
   Stats,
   StatsRange,
+  UrlInfo,
 } from './types';
 
 export interface SpaceInfo {
@@ -89,7 +90,12 @@ async function early(method: string, path: string): Promise<Response | null> {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
   let res: Response;
   try {
     res =
@@ -99,6 +105,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
         credentials: 'same-origin',
         headers: body === undefined ? undefined : { 'content-type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
       }));
   } catch {
     throw new ApiError(0, undefined);
@@ -129,6 +136,8 @@ export const api = {
 
   listDownloads: () => request<Download[]>('GET', '/downloads'),
   addDownload: (req: AddRequest) => request<Download>('POST', '/downloads', req),
+  probeUrl: (url: string, signal?: AbortSignal) =>
+    request<UrlInfo>('POST', '/probe', { url }, signal),
   pause: (id: number) => request<Download>('POST', `/downloads/${id}/pause`),
   resume: (id: number) => request<Download>('POST', `/downloads/${id}/resume`),
   cancel: (id: number) => request<Download>('POST', `/downloads/${id}/cancel`),
