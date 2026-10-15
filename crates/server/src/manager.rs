@@ -23,7 +23,7 @@ use dlm_core::{
 use dlm_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use dlm_storage::downloads::{self, NewDownload};
 use dlm_storage::{segments, settings, Connection};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, watch};
 
 /// Capacity of the UI event bus; slow subscribers get a lag error and resync.
 const BUS_CAPACITY: usize = 256;
@@ -47,6 +47,8 @@ pub struct Manager {
     /// Serializes "check for conflicts, then insert" so two adds cannot claim one name.
     add_lock: tokio::sync::Mutex<()>,
     bus: broadcast::Sender<Event>,
+    /// `true` once the server is shutting down (see `Service::closing`).
+    closing: watch::Sender<bool>,
 }
 
 impl Manager {
@@ -75,6 +77,7 @@ impl Manager {
             dir,
             add_lock: tokio::sync::Mutex::new(()),
             bus,
+            closing: watch::channel(false).0,
         });
 
         tokio::spawn(Arc::clone(&me).run_events(rx));
@@ -85,6 +88,18 @@ impl Manager {
         }
         me.launch(to_start).await;
         Ok(me)
+    }
+
+    /// The server is going down: end the long-lived responses so the HTTP server can finish.
+    /// Running downloads need nothing: progress is persisted every tick and what was running
+    /// is re-queued at the next start.
+    pub fn shutdown(&self) {
+        self.closing.send_replace(true);
+    }
+
+    /// For the shutdown deadline in `main`.
+    pub fn closing_receiver(&self) -> watch::Receiver<bool> {
+        self.closing.subscribe()
     }
 
     // ---- small helpers -------------------------------------------------------------
@@ -736,6 +751,10 @@ impl Service for Manager {
 
     fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.bus.subscribe()
+    }
+
+    fn closing(&self) -> watch::Receiver<bool> {
+        self.closing.subscribe()
     }
 }
 

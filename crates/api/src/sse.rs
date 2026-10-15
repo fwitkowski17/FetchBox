@@ -49,6 +49,7 @@ fn event_name(e: &Event) -> &'static str {
 pub async fn events(State(svc): State<Arc<dyn Service>>) -> impl IntoResponse {
     // Subscribe before returning so nothing between the client's list fetch and now is lost.
     let rx = svc.subscribe();
+    let mut closing = svc.closing();
     let stream = stream::unfold(rx, |mut rx| async move {
         loop {
             match rx.recv().await {
@@ -80,7 +81,14 @@ pub async fn events(State(svc): State<Arc<dyn Service>>) -> impl IntoResponse {
             HeaderName::from_static("x-accel-buffering"),
             HeaderValue::from_static("no"),
         )],
-        Sse::new(hello.chain(stream)).keep_alive(KeepAlive::default()),
+        // An open event stream is a connection that never finishes by itself: without this a browser
+        // tab would keep the server from shutting down.
+        Sse::new(
+            hello
+                .chain(stream)
+                .take_until(async move { _ = closing.wait_for(|c| *c).await }),
+        )
+        .keep_alive(KeepAlive::default()),
     )
 }
 

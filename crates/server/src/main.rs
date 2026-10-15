@@ -8,6 +8,7 @@ mod tests;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use axum::Router;
@@ -100,8 +101,23 @@ fn resolve_auth(
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// How long open connections get to finish after the shutdown signal before they are dropped.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// How long the runtime waits for blocking work (a name lookup stuck in the OS, a slow disk) when
+/// the process exits. It would wait for ever, and the server would never quit.
+const RUNTIME_EXIT_WAIT: Duration = Duration::from_secs(3);
+
+fn main() -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("start the async runtime")?;
+    let result = runtime.block_on(run());
+    runtime.shutdown_timeout(RUNTIME_EXIT_WAIT);
+    result
+}
+
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -134,24 +150,67 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("start download manager")?;
     let auth = resolve_auth(&args, manager.clone())?;
-    let app: Router = dlm_api::router(manager, auth).fallback(assets::handler);
+    let app: Router = dlm_api::router(manager.clone(), auth).fallback(assets::handler);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("bind {addr}"))?;
     tracing::info!(%addr, "listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("serve")?;
+
+    // Graceful: stop accepting, let requests finish. The event streams never finish by themselves,
+    // so they are told to end; whatever still hangs on after the grace period is dropped.
+    let mut closing = manager.closing_receiver();
+    let serve = axum::serve(listener, app).with_graceful_shutdown({
+        let manager = manager.clone();
+        async move {
+            shutdown_signal().await;
+            manager.shutdown();
+            // A second signal means "now": do not make anybody reach for `kill -9`.
+            tokio::spawn(async {
+                shutdown_signal().await;
+                tracing::warn!("second signal, exiting at once");
+                std::process::exit(130);
+            });
+        }
+    });
+    tokio::select! {
+        served = serve => served.context("serve")?,
+        () = async {
+            _ = closing.wait_for(|c| *c).await;
+            tokio::time::sleep(SHUTDOWN_GRACE).await;
+        } => tracing::warn!("closing connections that did not finish in time"),
+    }
+    tracing::info!("stopped");
     Ok(())
 }
 
+/// Resolves on Ctrl-C and, on Unix, on SIGTERM (`kill`, `docker stop`, launchd, systemd).
 async fn shutdown_signal() {
-    if let Err(e) = tokio::signal::ctrl_c().await {
-        tracing::warn!(error = %e, "ctrl-c handler failed");
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!(error = %e, "ctrl-c handler failed");
+            std::future::pending::<()>().await;
+        }
+    };
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let terminate = async {
+            match signal(SignalKind::terminate()) {
+                Ok(mut s) => {
+                    s.recv().await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "SIGTERM handler failed");
+                    std::future::pending::<()>().await;
+                }
+            }
+        };
+        tokio::select! { () = ctrl_c => {}, () = terminate => {} }
     }
+    #[cfg(not(unix))]
+    ctrl_c.await;
     tracing::info!("shutting down");
 }
 

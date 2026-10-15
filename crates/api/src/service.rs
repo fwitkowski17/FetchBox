@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use dlm_core::{AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 /// Download manager as seen by the API.
 #[async_trait]
@@ -29,4 +29,7 @@ pub trait Service: Send + Sync + 'static {
     async fn disk_space(&self) -> Result<DiskSpace>;
     /// Live updates for SSE.
     fn subscribe(&self) -> broadcast::Receiver<Event>;
+    /// Turns `true` when the server is shutting down: long-lived responses (the event stream) must
+    /// end then, or a graceful shutdown would wait for them for ever.
+    fn closing(&self) -> watch::Receiver<bool>;
 }

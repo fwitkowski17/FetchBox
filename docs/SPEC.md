@@ -352,6 +352,17 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Crash safety: progress is persisted once per tick; after a kill the interrupted downloads are re-queued and resume
   from the saved segment offsets (verified by a test that kills a runtime mid-download).
 
+### 6.8 Shutdown
+
+- `SIGINT` (Ctrl-C) and, on Unix, `SIGTERM` (`kill`, `docker stop`, launchd, systemd) start a graceful shutdown: the
+  listener closes, requests in flight finish, and the event streams (`/api/events`), which never end by themselves, are
+  ended by the server (`Service::closing`). Without that a single open browser tab kept the process alive for ever.
+  Connections that still hang on after 5 s (a client that never finished its request) are dropped, and a second signal
+  exits at once (status 130). When the async runtime is torn down it waits at most 3 s for blocking work (a name lookup
+  stuck in the OS, a slow disk) instead of for ever. Running downloads need no step of their own: offsets are persisted
+  every tick and whatever was running is re-queued at the next start (see "Crash safety"); at most one tick of progress
+  is fetched again.
+
 ## 7. Dependencies (Rust)
 
 `tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix). Later: `librqbit`.
