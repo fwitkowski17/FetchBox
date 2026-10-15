@@ -4,6 +4,7 @@
   import { setUnauthorizedHandler } from './lib/api/client';
   import AddDownloadDialog from './lib/components/AddDownloadDialog.svelte';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
+  import ConnectionOverlay from './lib/components/ConnectionOverlay.svelte';
   import DeleteDownloadDialog from './lib/components/DeleteDownloadDialog.svelte';
   import Icon from './lib/components/Icon.svelte';
   import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
@@ -102,14 +103,7 @@
     if (media.desktop) untrack(() => (menuOpen = false));
   });
 
-  const DOT: Record<string, string> = {
-    live: 'bg-success',
-    connecting: 'animate-pulse bg-warning',
-    offline: 'bg-danger',
-  };
-
   const drawerOpen = $derived(menuOpen && !media.desktop);
-  const connectionLabel = $derived(t(`connection.${downloads.connection}`));
 </script>
 
 <svelte:window onhashchange={openLegacyAddLink} onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeMenu()} />
@@ -175,11 +169,6 @@
             ↓ {i18n.speed(summary.speed)}
           </span>
         {/if}
-        <!-- Normally just a dot; the words appear when something is wrong. -->
-        <span class="mr-2 flex items-center gap-1.5 text-sm text-muted" title={connectionLabel}>
-          <span class={['size-2.5 rounded-full', DOT[downloads.connection]]} aria-hidden="true"></span>
-          <span class={[downloads.connection === 'live' && 'sr-only']}>{connectionLabel}</span>
-        </span>
       </header>
 
       <main class="mx-auto max-w-[76rem] px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-8 lg:pt-6 lg:pb-12">
@@ -213,6 +202,7 @@
   <AddDownloadDialog />
   <DeleteDownloadDialog />
   <SpeedLimitDialog />
+  <ConnectionOverlay />
 {/if}
 
 <ConfirmHost />

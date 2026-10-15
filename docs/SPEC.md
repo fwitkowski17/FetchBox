@@ -260,8 +260,8 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
   respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
   their duration from `util/motion.ts`, which is 0 then.
-- Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
-  state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
+- Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, theme
+  switch, disk ring); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
   Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
 - First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
@@ -286,6 +286,14 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   first keep-alive. The client retries with 0.5, 1, 2, 4, then 5 s steps, reconnects at once when the tab becomes
   visible or the network comes back (and refreshes the list when the stream looked alive, since a background tab may
   have frozen it), and the "server unreachable" screen tries again by itself with the same steps.
+- Lost connection: there is no status line for the connection (when everything works there is nothing to show). Once the
+  event stream has been open, a stream that is not live covers the whole app with a modal dialog that cannot be dismissed
+  (no Escape, no backdrop click; the page behind is inert): a spinner, "Connection lost", "Trying to reconnect to the
+  server..." and "Downloads keep running on the server." It appears only after 1.5 s without a connection, so a quick
+  restart or a network hiccup does not flash it, and goes away by itself when the stream is back (or when the session
+  ended and the login screen takes over). The spinner is the one animation kept under `prefers-reduced-motion` (slower,
+  not frozen): it says "still trying". Before the stream has ever been open (the app starting) there is no dialog; an
+  unreachable server at start shows the full-page "server unreachable" screen, which retries by itself.
 - SSE store keeps list in sync; REST for commands. Command responses are not patched into the list (they can be older
   than the event that followed); the stream is the single source of truth, and the list is re-fetched on every
   (re)connect and on `resync`.

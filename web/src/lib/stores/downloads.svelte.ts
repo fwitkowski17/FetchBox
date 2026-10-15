@@ -23,6 +23,9 @@ class DownloadsStore {
   items = $state.raw<Download[]>([]);
   loaded = $state(false);
   connection = $state<Connection>('connecting');
+  /** The stream has been open at least once since sign-in: from then on a stream that is not
+   *  `live` means the connection was lost (before that it is just the app starting up). */
+  everLive = $state(false);
   /** The error from the last failed load (shown through `i18n.errorText`). */
   loadError = $state.raw<unknown>(null);
   /** Id of a download whose resume was refused because the disk is still full. A dialog with the
@@ -50,6 +53,7 @@ class DownloadsStore {
 
     es.onopen = () => {
       this.connection = 'live';
+      this.everLive = true;
       this.#attempt = 0;
       // Also after a reconnect: events sent while we were away are gone, the list is not.
       void this.reload();
@@ -81,6 +85,7 @@ class DownloadsStore {
     this.items = [];
     this.noSpaceFor = null;
     this.loaded = false;
+    this.everLive = false;
     this.connection = 'connecting';
   }
 
