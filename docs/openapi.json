@@ -496,7 +496,7 @@
         "tags": [
           "downloads"
         ],
-        "summary": "Change the category of a download and/or archive it (hide it from the main list).",
+        "summary": "Change the category of a download, archive it (hide it from the main list) and/or set its own\nspeed limit.",
         "operationId": "update",
         "parameters": [
           {
@@ -562,7 +562,7 @@
             }
           },
           "409": {
-            "description": "Only finished downloads can be archived",
+            "description": "Not possible in the download's current status (archiving needs a finished one, a speed limit an unfinished or failed one)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1215,6 +1215,12 @@
             "description": "Current speed in bytes/s. Not persisted: filled in for running downloads.",
             "minimum": 0
           },
+          "speed_limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Speed limit of this download alone, bytes/s (`0` = none). The global limit applies on top:\nthe stricter of the two wins.",
+            "minimum": 0
+          },
           "status": {
             "$ref": "#/components/schemas/Status"
           },
@@ -1414,11 +1420,10 @@
       },
       "Settings": {
         "type": "object",
-        "description": "Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.",
+        "description": "Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. A limit for one\ndownload is not a setting: it belongs to the download (`Download::speed_limit`).",
         "required": [
           "connections",
           "max_concurrent",
-          "speed_per_download",
           "speed_global"
         ],
         "properties": {
@@ -1442,12 +1447,6 @@
             "type": "integer",
             "format": "int64",
             "description": "Global speed limit, bytes/s.",
-            "minimum": 0
-          },
-          "speed_per_download": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Speed limit per download, bytes/s.",
             "minimum": 0
           }
         }
@@ -1546,6 +1545,15 @@
                 "description": "New category (manual override of the detected one)."
               }
             ]
+          },
+          "speed_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Speed limit of this download alone, bytes per second; `0` removes it. The global limit\nstill applies, the stricter wins. Only for queued, running, paused and failed downloads\n(`409` otherwise). Applied live to a running download.",
+            "minimum": 0
           }
         }
       }

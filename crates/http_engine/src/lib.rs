@@ -180,9 +180,10 @@ impl HttpDownloader {
         probe(&self.inner.client, &url).await
     }
 
-    /// Apply a new per-download speed limit to every active download.
-    pub fn set_speed_per_download(&self, rate: u64) {
-        for e in self.inner.entries().values() {
+    /// Change the speed limit of one active download live (`0` = none). A download that is not
+    /// running has nothing to change: its stored limit is used when it starts.
+    pub fn set_speed_limit(&self, id: Id, rate: u64) {
+        if let Some(e) = self.inner.entries().get(&id) {
             e.limiter.set_rate(rate);
         }
     }

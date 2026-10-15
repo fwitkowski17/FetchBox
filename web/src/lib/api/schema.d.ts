@@ -156,7 +156,10 @@ export interface paths {
         delete: operations["remove"];
         options?: never;
         head?: never;
-        /** Change the category of a download and/or archive it (hide it from the main list). */
+        /**
+         * Change the category of a download, archive it (hide it from the main list) and/or set its own
+         *     speed limit.
+         */
         patch: operations["update"];
         trace?: never;
     };
@@ -397,6 +400,12 @@ export interface components {
              * @description Current speed in bytes/s. Not persisted: filled in for running downloads.
              */
             speed?: number;
+            /**
+             * Format: int64
+             * @description Speed limit of this download alone, bytes/s (`0` = none). The global limit applies on top:
+             *     the stricter of the two wins.
+             */
+            speed_limit?: number;
             status: components["schemas"]["Status"];
             /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
             subdir?: string;
@@ -465,7 +474,10 @@ export interface components {
          * @enum {string}
          */
         OnConflict: "reject" | "rename" | "overwrite";
-        /** @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. */
+        /**
+         * @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. A limit for one
+         *     download is not a setting: it belongs to the download (`Download::speed_limit`).
+         */
         Settings: {
             /**
              * @description Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).
@@ -487,11 +499,6 @@ export interface components {
              * @description Global speed limit, bytes/s.
              */
             speed_global: number;
-            /**
-             * Format: int64
-             * @description Speed limit per download, bytes/s.
-             */
-            speed_per_download: number;
         };
         /** @description First-run account creation. */
         SetupRequest: {
@@ -542,6 +549,13 @@ export interface components {
              */
             archived?: boolean | null;
             category?: null | components["schemas"]["Category"];
+            /**
+             * Format: int64
+             * @description Speed limit of this download alone, bytes per second; `0` removes it. The global limit
+             *     still applies, the stricter wins. Only for queued, running, paused and failed downloads
+             *     (`409` otherwise). Applied live to a running download.
+             */
+            speed_limit?: number | null;
         };
     };
     responses: never;
@@ -987,7 +1001,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Only finished downloads can be archived */
+            /** @description Not possible in the download's current status (archiving needs a finished one, a speed limit an unfinished or failed one) */
             409: {
                 headers: {
                     [name: string]: unknown;

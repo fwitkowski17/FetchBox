@@ -152,6 +152,10 @@ pub struct Download {
     /// The file, if any, stays where it is.
     #[serde(default)]
     pub archived: bool,
+    /// Speed limit of this download alone, bytes/s (`0` = none). The global limit applies on top:
+    /// the stricter of the two wins.
+    #[serde(default)]
+    pub speed_limit: u64,
 }
 
 /// Free space on the file system that holds the download directory.
@@ -177,7 +181,8 @@ impl DiskSpace {
     }
 }
 
-/// Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.
+/// Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. A limit for one
+/// download is not a setting: it belongs to the download (`Download::speed_limit`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Settings {
@@ -185,8 +190,6 @@ pub struct Settings {
     pub connections: u32,
     /// Max simultaneously running downloads; extra ones are `Queued`.
     pub max_concurrent: u32,
-    /// Speed limit per download, bytes/s.
-    pub speed_per_download: u64,
     /// Global speed limit, bytes/s.
     pub speed_global: u64,
     /// Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).
@@ -200,7 +203,6 @@ impl Default for Settings {
         Self {
             connections: 4,
             max_concurrent: 3,
-            speed_per_download: 0,
             speed_global: 0,
             category_subdirs: false,
         }

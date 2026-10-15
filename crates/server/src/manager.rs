@@ -193,7 +193,7 @@ impl Manager {
             filename: d.filename,
             subdir: d.subdir,
             connections: s.connections,
-            speed_limit: s.speed_per_download,
+            speed_limit: d.speed_limit,
             etag: d.etag,
             segments: if d.downloaded > 0 { segs } else { Vec::new() },
             overwrite,
@@ -669,6 +669,23 @@ impl Service for Manager {
         Ok(())
     }
 
+    async fn set_speed_limit(&self, id: Id, rate: u64) -> Result<Download> {
+        let d = self.get(id)?;
+        if !matches!(
+            d.status,
+            Status::Queued | Status::Downloading | Status::Paused | Status::Failed
+        ) {
+            return Err(Error::InvalidState(format!(
+                "a {} download has no speed to limit",
+                d.status.as_str()
+            )));
+        }
+        self.with_db(|c| downloads::set_speed_limit(c, id, rate))?;
+        self.engine.set_speed_limit(id, rate); // live, if it is running
+        self.publish_download(id);
+        self.get(id).map(|d| self.view(d))
+    }
+
     async fn set_archived(&self, id: Id, archived: bool) -> Result<Download> {
         let d = self.get(id)?;
         if archived && !d.status.is_terminal() {
@@ -707,7 +724,6 @@ impl Service for Manager {
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
         // Live: limits touch running downloads, the slot limit only gates new ones.
         self.engine.limiter().set_global(new.speed_global);
-        self.engine.set_speed_per_download(new.speed_per_download);
         let start = self.sched().set_max_concurrent(new.max_concurrent);
         self.publish(Event::Settings {
             settings: new.clone(),

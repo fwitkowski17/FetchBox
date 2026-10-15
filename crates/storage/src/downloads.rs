@@ -21,7 +21,7 @@ pub struct NewDownload {
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
@@ -80,6 +80,17 @@ pub fn set_status(conn: &Connection, id: Id, status: Status, error: Option<&str>
                 waiting_space = CASE WHEN ?2 = 'paused' THEN waiting_space ELSE 0 END
           WHERE id = ?1",
         params![id, status.as_str(), error, status.is_terminal()],
+    )?;
+    Ok(n > 0)
+}
+
+/// Set the speed limit of one download (bytes/s, 0 = none). Returns whether the id exists.
+pub fn set_speed_limit(conn: &Connection, id: Id, rate: u64) -> Result<bool> {
+    // SQLite integers are signed 64-bit; no real limit comes anywhere near that.
+    let rate = i64::try_from(rate).unwrap_or(i64::MAX);
+    let n = conn.execute(
+        "UPDATE downloads SET speed_limit = ?2 WHERE id = ?1",
+        params![id, rate],
     )?;
     Ok(n > 0)
 }
@@ -260,6 +271,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let subdir = row.get(11)?;
     let waiting_space = row.get(12)?;
     let archived = row.get(13)?;
+    let speed_limit: i64 = row.get(14)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -281,6 +293,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             speed: 0,
             waiting_space,
             archived,
+            speed_limit: u64::try_from(speed_limit).unwrap_or(0),
         })
     })();
     Ok(mapped)
@@ -434,6 +447,27 @@ mod tests {
             .is_none());
         set_status(&conn, a, Status::Cancelled, None).expect("s");
         assert!(find_by_url(&conn, "http://x/a").expect("f").is_empty());
+    }
+
+    #[test]
+    fn speed_limit_roundtrip() {
+        let conn = open_in_memory().expect("db");
+        let id = insert(&conn, &new("http://x/a")).expect("insert");
+        assert_eq!(get(&conn, id).expect("get").expect("row").speed_limit, 0);
+        assert!(set_speed_limit(&conn, id, 500_000).expect("set"));
+        assert_eq!(
+            get(&conn, id).expect("get").expect("row").speed_limit,
+            500_000
+        );
+        // It survives status changes and can be removed again.
+        set_status(&conn, id, Status::Paused, None).expect("pause");
+        assert_eq!(
+            get(&conn, id).expect("get").expect("row").speed_limit,
+            500_000
+        );
+        assert!(set_speed_limit(&conn, id, 0).expect("clear"));
+        assert_eq!(get(&conn, id).expect("get").expect("row").speed_limit, 0);
+        assert!(!set_speed_limit(&conn, 999, 1).expect("unknown id"));
     }
 
     #[test]

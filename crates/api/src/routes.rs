@@ -61,6 +61,10 @@ pub struct UpdateDownload {
     /// Hide the download from the main list (`true`) or bring it back (`false`). Only finished,
     /// failed or cancelled downloads can be archived (`409` otherwise).
     pub archived: Option<bool>,
+    /// Speed limit of this download alone, bytes per second; `0` removes it. The global limit
+    /// still applies, the stricter wins. Only for queued, running, paused and failed downloads
+    /// (`409` otherwise). Applied live to a running download.
+    pub speed_limit: Option<u64>,
 }
 
 /// Liveness probe (public).
@@ -135,7 +139,8 @@ pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
     Ok(Json(svc.disk_space().await?))
 }
 
-/// Change the category of a download and/or archive it (hide it from the main list).
+/// Change the category of a download, archive it (hide it from the main list) and/or set its own
+/// speed limit.
 #[utoipa::path(
     patch,
     path = "/api/downloads/{id}",
@@ -148,7 +153,7 @@ pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
         (status = 400, description = "Nothing to update", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "Unknown id", body = ErrorBody),
-        (status = 409, description = "Only finished downloads can be archived", body = ErrorBody),
+        (status = 409, description = "Not possible in the download's current status (archiving needs a finished one, a speed limit an unfinished or failed one)", body = ErrorBody),
     )
 )]
 pub(crate) async fn update(
@@ -156,10 +161,13 @@ pub(crate) async fn update(
     Path(id): Path<Id>,
     Json(body): Json<UpdateDownload>,
 ) -> ApiResult<Json<Download>> {
-    if body.category.is_none() && body.archived.is_none() {
+    if body.category.is_none() && body.archived.is_none() && body.speed_limit.is_none() {
         return Err(Error::InvalidInput("nothing to update".into()).into());
     }
     let mut updated = None;
+    if let Some(rate) = body.speed_limit {
+        updated = Some(svc.set_speed_limit(id, rate).await?);
+    }
     if let Some(category) = body.category {
         updated = Some(svc.set_category(id, category).await?);
     }

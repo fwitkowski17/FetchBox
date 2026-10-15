@@ -7,7 +7,6 @@ use crate::Result;
 
 const CONNECTIONS: &str = "connections";
 const MAX_CONCURRENT: &str = "max_concurrent";
-const SPEED_PER_DOWNLOAD: &str = "speed_per_download";
 const SPEED_GLOBAL: &str = "speed_global";
 const CATEGORY_SUBDIRS: &str = "category_subdirs";
 
@@ -42,7 +41,6 @@ pub fn load(conn: &Connection) -> Result<Settings> {
     Ok(Settings {
         connections: get_num(conn, CONNECTIONS)?.unwrap_or(d.connections),
         max_concurrent: get_num(conn, MAX_CONCURRENT)?.unwrap_or(d.max_concurrent),
-        speed_per_download: get_num(conn, SPEED_PER_DOWNLOAD)?.unwrap_or(d.speed_per_download),
         speed_global: get_num(conn, SPEED_GLOBAL)?.unwrap_or(d.speed_global),
         category_subdirs: get_num(conn, CATEGORY_SUBDIRS)?.unwrap_or(d.category_subdirs),
     })
@@ -58,10 +56,6 @@ pub fn save(conn: &mut Connection, s: &Settings) -> Result<()> {
         )?;
         stmt.execute(params![CONNECTIONS, s.connections.to_string()])?;
         stmt.execute(params![MAX_CONCURRENT, s.max_concurrent.to_string()])?;
-        stmt.execute(params![
-            SPEED_PER_DOWNLOAD,
-            s.speed_per_download.to_string()
-        ])?;
         stmt.execute(params![SPEED_GLOBAL, s.speed_global.to_string()])?;
         stmt.execute(params![CATEGORY_SUBDIRS, s.category_subdirs.to_string()])?;
     }
@@ -95,7 +89,6 @@ mod tests {
         let s = Settings {
             connections: 8,
             max_concurrent: 5,
-            speed_per_download: 1_000_000,
             speed_global: 5_000_000,
             category_subdirs: true,
         };

@@ -532,6 +532,112 @@ async fn delete_file_is_ignored_for_unfinished_downloads() {
 }
 
 #[tokio::test]
+async fn a_download_has_a_speed_limit_of_its_own_that_applies_live() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "limited.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    // 2 KiB/s with a one-second burst: the 40 KiB file cannot finish within a couple of seconds
+    // (unthrottled it takes about one).
+    let limited = h.mgr.set_speed_limit(d.id, 2048).await.expect("limit");
+    assert_eq!(limited.speed_limit, 2048);
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(now.status, Status::Downloading, "throttled, not finished");
+    assert!(now.downloaded < BODY_LEN as u64, "{}", now.downloaded);
+    assert_eq!(now.speed_limit, 2048, "and the limit is stored");
+
+    // Taking the limit off lets it run at full speed again.
+    h.mgr.set_speed_limit(d.id, 0).await.expect("unlimit");
+    h.wait_status(d.id, Status::Completed).await;
+    assert_eq!(file(&h.path("limited.bin")), body());
+}
+
+#[tokio::test]
+async fn a_limit_set_while_queued_is_used_when_the_download_starts() {
+    let h = Harness::new().await;
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.max_concurrent = 1;
+    h.mgr.update_settings(s).await.expect("update");
+    let first = h
+        .mgr
+        .add(h.req("slow", "first.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let second = h
+        .mgr
+        .add(h.req("slow", "second.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(second.status, Status::Queued);
+    h.mgr.set_speed_limit(second.id, 2048).await.expect("limit");
+
+    h.wait_status(first.id, Status::Completed).await;
+    h.wait_status(second.id, Status::Downloading).await;
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h
+        .mgr
+        .list()
+        .await
+        .expect("list")
+        .into_iter()
+        .find(|d| d.id == second.id)
+        .expect("row");
+    assert_eq!(
+        now.status,
+        Status::Downloading,
+        "its own limit applies from the start"
+    );
+    assert!(now.downloaded < BODY_LEN as u64, "{}", now.downloaded);
+}
+
+#[tokio::test]
+async fn finished_downloads_have_no_speed_to_limit() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("fast", "done.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+    assert!(matches!(
+        h.mgr.set_speed_limit(d.id, 1000).await,
+        Err(Error::InvalidState(_))
+    ));
+    assert!(matches!(
+        h.mgr.set_speed_limit(9999, 1000).await,
+        Err(Error::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn patch_sets_the_speed_limit_with_the_other_fields() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let d = h
+        .mgr
+        .add(h.req("claim", "50000", OnConflict::Reject))
+        .await
+        .expect("add");
+    let patch = |body: &'static str| {
+        let (c, url) = (c.clone(), format!("{api}/downloads/{}", d.id));
+        async move { raw(&c, reqwest::Method::PATCH, url, Some(body), None).await }
+    };
+    let r = patch(r#"{"speed_limit":1500000,"category":"video"}"#).await;
+    assert_eq!(r.status().as_u16(), 200);
+    let text = r.text().await.expect("body");
+    assert!(
+        text.contains(r#""speed_limit":1500000"#) && text.contains(r#""category":"video""#),
+        "{text}"
+    );
+    let r = patch(r#"{"speed_limit":0}"#).await;
+    assert!(r.text().await.expect("body").contains(r#""speed_limit":0"#));
+}
+
+#[tokio::test]
 async fn finished_downloads_can_be_archived_and_restored() {
     let h = Harness::new().await;
     let d = h
@@ -785,7 +891,7 @@ async fn rest_errors_and_settings() {
 
     let (status, v) = send(&c, reqwest::Method::GET, format!("{api}/settings"), None).await;
     assert_eq!((status, v["connections"].as_u64()), (200, Some(4)));
-    let bad = r#"{"connections":0,"max_concurrent":3,"speed_per_download":0,"speed_global":0}"#;
+    let bad = r#"{"connections":0,"max_concurrent":3,"speed_global":0}"#;
     let (status, _) = send(
         &c,
         reqwest::Method::PUT,
@@ -794,6 +900,7 @@ async fn rest_errors_and_settings() {
     )
     .await;
     assert_eq!(status, 400);
+    // (An older client may still send the removed `speed_per_download`; it is ignored.)
     let ok = r#"{"connections":8,"max_concurrent":2,"speed_per_download":0,"speed_global":0}"#;
     let (status, v) = send(
         &c,
