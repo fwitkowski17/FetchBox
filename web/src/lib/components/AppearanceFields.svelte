@@ -1,19 +1,13 @@
 <script lang="ts">
-  // Theme, accent colour and language: shared by Settings and the first-run setup.
-  import { t } from '../i18n';
-  import AccentPicker from './AccentPicker.svelte';
+  // Everything about how the app looks and reads, as in Settings: theme, accent colour, language and
+  // the unit speeds are written in. (The first-run setup asks for the language and the look in
+  // separate steps and leaves the speed unit at its default.)
   import LanguageSelect from './LanguageSelect.svelte';
+  import LookFields from './LookFields.svelte';
   import SpeedUnitSelect from './SpeedUnitSelect.svelte';
-  import ThemePicker from './ThemePicker.svelte';
 </script>
 
-<ThemePicker />
-<p class="hint">{t('settings.theme.hint')}</p>
-
-<div class="field">
-  <span class="label">{t('settings.accent')}</span>
-  <AccentPicker />
-</div>
+<LookFields />
 
 <LanguageSelect />
 

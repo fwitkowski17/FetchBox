@@ -80,7 +80,7 @@ The API is protected by a single shared password. There are three ways to set it
    WARN fetchbox: first run: open the web UI and enter the setup code K7QM2XPD to create your account ...
    ```
 
-   Open the UI (`docker compose logs fetchbox` shows the line in Docker), walk through the setup wizard (look, account, download defaults) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
+   Open the UI (`docker compose logs fetchbox` shows the line in Docker), walk through the short setup wizard (language, look, password) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
 3. **No authentication**, only on a fully trusted network: `--no-auth`.
 
 **Change the password** under *Settings > Password* (current, new, new again). It signs out your other devices.
