@@ -731,39 +731,38 @@ fn share(available: u64, tenths: u64) -> u64 {
     available / 10 * tenths
 }
 
+/// Percent of the free space (finer than `share`).
+fn pct(available: u64, percent: u64) -> u64 {
+    available / 100 * percent
+}
+
 #[tokio::test]
-async fn unfinished_downloads_reserve_space_for_the_next_ones() {
+async fn running_downloads_reserve_space_for_the_next_ones() {
     let h = Harness::new().await;
     let free = h.mgr.disk_space().await.expect("space").available;
-    let claim = |tenths: u64| {
-        h.req(
-            "claim",
-            &share(free, tenths).to_string(),
-            OnConflict::Reject,
-        )
-    };
+    let claim = |percent: u64| h.req("claim", &pct(free, percent).to_string(), OnConflict::Reject);
 
-    // 60 % of the free space is claimed by the first download...
-    let first = h.mgr.add(claim(6)).await.expect("first fits");
+    // 60 % of the free space is claimed by the first, running download...
+    let first = h.mgr.add(claim(60)).await.expect("first fits");
     let space = h.mgr.disk_space().await.expect("space");
     assert!(
-        space.reserved > share(free, 5) && space.reserved <= share(free, 6),
+        space.reserved > pct(free, 50) && space.reserved <= pct(free, 60),
         "{space:?}"
     );
 
-    // ...so a second one of that size is refused even though the disk itself is still empty.
+    // ...so one of 61 % is refused even though the disk itself is still empty.
     let Err(Error::InsufficientSpace {
         needed,
         free: seen_free,
         reserved,
-    }) = h.mgr.add(claim(6)).await
+    }) = h.mgr.add(claim(61)).await
     else {
-        panic!("a second 60 % must not fit");
+        panic!("61 % must not fit next to the running 60 %");
     };
-    assert_eq!(needed, share(free, 6));
-    // The error lets the UI explain itself: plenty free, but mostly promised to the first one.
+    assert_eq!(needed, pct(free, 61));
+    // The error lets the UI explain itself: plenty free, but mostly claimed by the first one.
     assert!(seen_free > needed, "the disk itself has room: {seen_free}");
-    assert!(reserved > share(free, 5), "{reserved}");
+    assert!(reserved > pct(free, 50), "{reserved}");
     assert!(seen_free - reserved < needed);
     assert_eq!(
         h.mgr.list().await.expect("list").len(),
@@ -771,18 +770,46 @@ async fn unfinished_downloads_reserve_space_for_the_next_ones() {
         "nothing was stored"
     );
 
-    // A smaller one still fits next to it (60 + 30 < 100) and reserves its share too.
-    let third = h.mgr.add(claim(3)).await.expect("30 % fits");
-    assert!(h.mgr.disk_space().await.expect("space").reserved > share(free, 8));
+    // A smaller one still fits next to it (60 + 30 < 100) and is running too.
+    let third = h.mgr.add(claim(30)).await.expect("30 % fits");
+    assert!(h.mgr.disk_space().await.expect("space").reserved > pct(free, 80));
 
-    // Pausing keeps the reservation: the download will want its space back on resume.
+    // Pausing gives the reservation back: a paused download is not writing anything.
     h.mgr.pause(third.id).await.expect("pause");
-    assert!(h.mgr.add(claim(5)).await.is_err());
+    h.wait_status(third.id, Status::Paused).await;
+    let space = h.mgr.disk_space().await.expect("space");
+    assert!(space.reserved <= pct(free, 60), "{space:?}");
+    h.mgr
+        .add(claim(35))
+        .await
+        .expect("fits now that the 30 % is paused");
 
-    // Cancelling gives it back, and then the big one fits.
+    // Cancelling the big one gives its share back as well.
     h.mgr.cancel(first.id).await.expect("cancel");
-    assert!(h.mgr.disk_space().await.expect("space").reserved < share(free, 4));
-    h.mgr.add(claim(6)).await.expect("fits after the cancel");
+    assert!(h.mgr.disk_space().await.expect("space").reserved < pct(free, 40));
+}
+
+#[tokio::test]
+async fn queued_downloads_reserve_nothing() {
+    let h = Harness::new().await;
+    // One slot: the second download has to wait.
+    let mut settings = h.mgr.settings().await.expect("settings");
+    settings.max_concurrent = 1;
+    h.mgr.update_settings(settings).await.expect("update");
+
+    let free = h.mgr.disk_space().await.expect("space").available;
+    let claim = |percent: u64| h.req("claim", &pct(free, percent).to_string(), OnConflict::Reject);
+    h.mgr.add(claim(60)).await.expect("running");
+    let waiting = h.mgr.add(claim(30)).await.expect("queued");
+    assert_eq!(waiting.status, Status::Queued);
+
+    // Only the running one counts, so the queued 30 % does not stand in the way of a 35 %.
+    let space = h.mgr.disk_space().await.expect("space");
+    assert!(space.reserved <= pct(free, 60), "{space:?}");
+    h.mgr
+        .add(claim(35))
+        .await
+        .expect("fits: the queued download holds no space yet");
 }
 
 #[tokio::test]

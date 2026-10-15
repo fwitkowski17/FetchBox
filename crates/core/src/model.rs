@@ -159,8 +159,8 @@ pub struct DiskSpace {
     pub total: u64,
     /// Bytes available for new files.
     pub available: u64,
-    /// Bytes reserved for unfinished downloads: what queued, running and paused downloads on this
-    /// file system still have to write (size known). New downloads must fit into
+    /// Bytes reserved by running downloads: what they still have to write on this file system
+    /// (size known). Queued, paused and held downloads reserve nothing. New downloads must fit into
     /// `available - reserved`; when `reserved` exceeds `available` (something else filled the disk)
     /// the queue will not fit.
     pub reserved: u64,
@@ -251,7 +251,7 @@ pub struct AddRequest {
     #[serde(default)]
     pub on_conflict: OnConflict,
     /// Add the download even though it does not fit into the free space left after the space
-    /// reserved for other downloads (`507` otherwise). The user's call: files may be moved away
+    /// reserved by running downloads (`507` otherwise). The user's call: files may be moved away
     /// or deleted before it starts. If it still does not fit when it starts, it fails then.
     #[serde(default)]
     pub ignore_space: bool,

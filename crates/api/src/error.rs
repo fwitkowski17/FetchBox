@@ -34,8 +34,8 @@ pub struct SpaceBody {
     pub needed: u64,
     /// Bytes free on the disk.
     pub free: u64,
-    /// Part of `free` that other unfinished downloads (queued, running, paused) still have to
-    /// write. The download fits when `needed <= free - reserved`.
+    /// Part of `free` that the running downloads still have to write. The download fits when
+    /// `needed <= free - reserved`.
     pub reserved: u64,
 }
 

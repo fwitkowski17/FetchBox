@@ -182,7 +182,7 @@ export const en = {
   // ---- not enough space for a new download
   'nospace.title': 'Not enough free space',
   'nospace.reserved':
-    'The file needs {needed}. The disk has {free} free, but {reserved} of it is reserved for other downloads, which leaves {left}.',
+    'The file needs {needed}. The disk has {free} free, but running downloads still have to write {reserved} of it, which leaves {left}.',
   'nospace.plain': 'The file needs {needed}, but only {free} is free on the disk.',
   'nospace.hint':
     'You can still add it, for example if you are about to delete or move files. It is added and started like any download. If the disk really fills up, it fails with an error and you can resume it later.',
@@ -258,8 +258,8 @@ export const en = {
   'disk.free': '{size} free',
   'disk.of': 'of {size}',
   'disk.summary': 'Disk space: {free} free of {total} ({percent} used)',
-  'disk.reserved': '{size} reserved for downloads',
-  'disk.short': 'The queue needs {size} more than is free.',
+  'disk.reserved': '{size} still to be written by running downloads',
+  'disk.short': 'Running downloads need {size} more than is free.',
 
   // ---- a download held back for lack of space
   'status.waitingSpace': 'Waiting for space',

@@ -92,27 +92,29 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 - No `Accept-Ranges`: single connection, mark download as non-resumable in the UI.
 - On completion rename `.part` to final name, handle name collisions.
 - Disk space: files are pre-sized with `set_len` (sparse on ext4, xfs, btrfs, apfs, tmpfs), so free space only shrinks
-  as bytes are written. Room is reserved virtually: as soon as the size is known (the probe of `POST /api/downloads`)
-  the rest of the file counts against the free space of its disk. The reservation of a download is what it still
-  has to write (size minus what it has stored), held while it is queued, running or paused and given back when it
-  completes (the bytes are on the disk by then), fails, is cancelled or removed. A new download is refused (`507`) when
-  it does not fit into `available - reserved by the others`, so five 50 GB files cannot all be queued on a 100 GB disk.
-  Two cases are told apart. *Virtually* short (fits into the free space, but not next to the other reservations): the
+  as bytes are written. What a *running* download still has to write (size minus what it has stored) is reserved: it
+  counts against the free space of its disk until the download completes (the bytes are on the disk by then), pauses,
+  fails or is cancelled. "Running" means holding a download slot, whether or not the engine has reported its start yet,
+  so two downloads added in quick succession see each other. Queued downloads waiting for a slot, paused ones and held
+  ones (below) reserve nothing: they are not writing anything, and a forgotten paused entry must not block the disk.
+  A new download is refused (`507`) when it does not fit into `available - reserved`. Two cases are told apart.
+  *Virtually* short (fits into the free space, but not next to what the running downloads still have to write): the
   request is refused with `507` and the user may repeat it with `ignore_space`. *Really* short (larger than the space
   that is free right now): the entry is added but not started; it is stored as `paused` with `waiting_space` set, nothing
   is written for it, and resuming it is refused (`507`, state unchanged) until the free space covers what is left.
-  Leaving `paused` ends the hold. The virtual refusal is advisory: the same request with `ignore_space: true` is accepted ("add anyway", the user's call: files
-  may be moved or deleted before the space is needed). Such a download is flagged in the database (`downloads.ignore_space`)
-  and the engine skips its own free-space check for it, also after a restart or a resume; if the disk really fills up it
-  fails with the write error. The ring then shows the over-commitment.
+  Leaving `paused` ends the hold. The virtual refusal is advisory: the same request with `ignore_space: true` is accepted
+  ("add anyway", the user's call: files may be moved or deleted before the space is needed). Such a download is flagged in
+  the database (`downloads.ignore_space`) and the engine skips its own free-space check for it, also after a restart or a
+  resume; if the disk really fills up it fails with the write error. The ring then shows the over-commitment.
+  Several big files can thus be queued on a small disk; each is checked when it gets its slot (see the engine check below).
   Reservations are kept per file system (device id): a category subdirectory can be a mount point on another disk, and
-  a path that does not exist yet is judged by its nearest existing parent. A failed download reserves nothing; it counts
-  again as soon as it is resumed. Resuming (paused or failed) checks only the space that is really free (not the
-  reservations): if what is left does not fit, the request is refused with `507` and nothing changes, unless the
-  download was added with `ignore_space`. As a safety net the engine
+  a path that does not exist yet is judged by its nearest existing parent. Resuming (paused or failed) checks only the
+  space that is really free (not what the running downloads still have to write): if what is left does not fit, the
+  request is refused with `507` and nothing changes, unless the download was added with `ignore_space`. As a safety net
+  the engine
   checks once more when a download actually starts (the disk may have been filled by something else, or the size was
   unknown at add time): the rest of the file plus what the other running downloads on that disk still have to write
-  must fit, otherwise it fails with `not enough disk space: X needed, Y free (Z of it reserved for other downloads)`
+  must fit, otherwise it fails with `not enough disk space: X needed, Y free (Z of it still to be written by running downloads)`
   before anything is created. No safety margin is kept: the data directory may be on another disk, and the download
   directory is the user's to fill.
   Unknown sizes (no `Content-Length`) cannot be reserved or checked, and a platform without `statvfs` skips the checks
@@ -161,9 +163,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   The engine never overwrites on its own: an unexpected collision at finalize picks the next free name.
 - `GET /api/disk` answers `{total, available, reserved}` for the file system of the download directory: `total` is used
   plus available (blocks reserved for root are not counted, so the share matches `df`'s `Use%`), `reserved` is what
-  queued, running and paused downloads on that file system with a known size still have to write (see 6.2).
+  the running downloads on that file system with a known size still have to write (see 6.2).
   `POST /api/downloads` answers `507 {"error":"insufficient storage","needed","free","reserved"}` when the file does not
-  fit next to the other reservations (`needed > free - reserved`) while it still fits into the free space; nothing is
+  fit next to what the running downloads still have to write (`needed > free - reserved`) while it still fits into the free space; nothing is
   stored then. Sending the request again with `ignore_space: true` adds it anyway. A file larger than the free space is
   answered with `201` and a download that is `paused` with `waiting_space: true`; `POST .../resume` on it answers `507`
   until there is room.
@@ -187,12 +189,12 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   the table. A test derives the contrast of every accent in every theme from the CSS and requires WCAG AA (4.5:1 for text on the
   accent and accent text on cards, 4.2:1 on the tint). Status filters carry icons coloured by state.
 - Disk ring: at the bottom of the side menu (left bottom corner, also in the drawer) a ring shows the used share of the
-  download disk, a lighter arc the space reserved for unfinished downloads, "N free of M" next to it, the reserved amount and, when
-  the reservations exceed the free space (something else filled the disk), how much is missing. It shows the disk of
+  download disk, a lighter arc the space the running downloads still have to write, "N free of M" next to it, that amount and, when
+  it exceeds the free space (something else filled the disk), how much is missing. It shows the disk of
   the download directory; a category subdirectory on another disk is covered by the checks but not drawn. Accent colour up to 85 % used, amber from 85 %, red from 95 % or when the queue does
   not fit. Polled every 10 s (not while the tab is hidden) and refreshed when a download finishes; hidden if the server
-  cannot tell. The add form turns the `507` into a dialog: what the file needs, what is free, how much of it other downloads have reserved
-  and what is left, with "Add anyway" (resends with `ignore_space`) and "Cancel"; a conflict dialog after it does not ask again.
+  cannot tell. The add form turns the `507` into a dialog: what the file needs, what is free, how much of it the running downloads
+  still have to write and what is left, with "Add anyway" (resends with `ignore_space`) and "Cancel"; a conflict dialog after it does not ask again.
 - Held download: a card with `waiting_space` shows the badge "Waiting for space" and, instead of the progress bar, a gauge:
   one bar that is the whole need, filled with what the free space covers (follows the disk figures, so it fills while the
   user frees space), the missing part striped, with "Free / Needs / Missing" below. Once the free space covers the need the

@@ -72,8 +72,8 @@ fn space(_path: &Path) -> io::Result<DiskSpace> {
     ))
 }
 
-/// Does a download needing `needed` more bytes fit, once the space promised to other unfinished
-/// downloads (`others`) is set aside? Unknown sizes are the caller's to skip: nothing can be said
+/// Does a download needing `needed` more bytes fit, once what the running downloads still have to
+/// write (`others`) is set aside? Unknown sizes are the caller's to skip: nothing can be said
 /// about them. The error carries the raw free space and the share reserved by the others, so the
 /// user can see why a file that is smaller than the free space still does not fit.
 pub fn ensure_fits(needed: u64, others: u64, free: u64) -> Result<(), EngineError> {

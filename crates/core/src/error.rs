@@ -17,7 +17,7 @@ pub enum Error {
     /// The new download collides with an existing one; the user must choose.
     #[error("conflict: {0:?}")]
     Conflict(Box<crate::model::Conflict>),
-    /// The file will not fit on the disk next to what other unfinished downloads have reserved.
+    /// The file will not fit on the disk next to what running downloads still have to write.
     #[error("{}", no_space_message(*.needed, *.free, *.reserved))]
     InsufficientSpace {
         /// Bytes the download needs.
@@ -47,7 +47,7 @@ pub fn no_space_message(needed: u64, free: u64, reserved: u64) -> String {
     );
     if reserved > 0 {
         m.push_str(&format!(
-            " ({} of it reserved for other downloads)",
+            " ({} of it still to be written by running downloads)",
             human_bytes(reserved)
         ));
     }
@@ -106,7 +106,7 @@ mod tests {
         };
         assert_eq!(
             e.to_string(),
-            "not enough disk space: 4.0 GB needed, 20 GB free (18 GB of it reserved for other downloads)"
+            "not enough disk space: 4.0 GB needed, 20 GB free (18 GB of it still to be written by running downloads)"
         );
     }
 }

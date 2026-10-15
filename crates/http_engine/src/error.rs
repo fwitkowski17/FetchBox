@@ -17,7 +17,7 @@ pub enum EngineError {
     NoSpace {
         needed: u64,
         free: u64,
-        /// Part of `free` that other unfinished downloads still have to write.
+        /// Part of `free` that the other running downloads still have to write.
         reserved: u64,
     },
     #[error("connection closed before the full body arrived")]

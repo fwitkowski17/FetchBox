@@ -179,7 +179,7 @@ const pl: Messages = {
   // ---- not enough space for a new download
   'nospace.title': 'Za mało wolnego miejsca',
   'nospace.reserved':
-    'Plik potrzebuje {needed}. Na dysku jest {free} wolnego, ale {reserved} z tego jest zarezerwowane dla innych pobrań, więc zostaje {left}.',
+    'Plik potrzebuje {needed}. Na dysku jest {free} wolnego, ale trwające pobrania jeszcze zapiszą {reserved}, więc zostaje {left}.',
   'nospace.plain': 'Plik potrzebuje {needed}, a na dysku jest tylko {free} wolnego.',
   'nospace.hint':
     'Możesz go mimo to dodać, na przykład jeśli zaraz usuniesz lub przeniesiesz pliki. Zostanie dodane i uruchomione jak każde pobranie. Jeśli dysk faktycznie się zapełni, zakończy się błędem i będzie można je wznowić później.',
@@ -255,8 +255,8 @@ const pl: Messages = {
   'disk.free': '{size} wolne',
   'disk.of': 'z {size}',
   'disk.summary': 'Miejsce na dysku: wolne {free} z {total} (zajęte {percent})',
-  'disk.reserved': 'Zarezerwowane na pobieranie: {size}',
-  'disk.short': 'Kolejka potrzebuje o {size} więcej, niż jest wolne.',
+  'disk.reserved': 'Trwające pobrania jeszcze zapiszą {size}',
+  'disk.short': 'Trwające pobrania potrzebują o {size} więcej, niż jest wolne.',
 
   // ---- a download held back for lack of space
   'status.waitingSpace': 'Czeka na miejsce',

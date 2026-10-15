@@ -425,19 +425,20 @@ impl Manager {
 }
 
 impl Manager {
-    /// Bytes that queued, running and paused downloads still have to write on
-    /// file system `dev`: the space virtually reserved for them. Finished, failed and cancelled
-    /// downloads reserve nothing, and a running one's reservation shrinks as the disk fills.
+    /// Bytes that the running downloads still have to write on file system `dev`: the space
+    /// reserved for them. "Running" means holding a download slot, whether or not the engine has
+    /// reported its start yet, so two downloads added in quick succession see each other.
+    /// Queued downloads waiting for a slot, paused and held ones, and finished, failed and
+    /// cancelled ones reserve nothing. A running download's reservation shrinks as the disk fills.
     fn reserved_on(&self, dev: u64) -> Result<u64> {
         let all = self.with_db(|c| downloads::list(c))?;
         // Category subdirectories may sit on other disks; look each directory up once.
         let mut same_disk: HashMap<String, bool> = HashMap::new();
         let mut total = 0u64;
         for d in all {
-            if !matches!(
-                d.status,
-                Status::Queued | Status::Downloading | Status::Paused
-            ) {
+            let running = d.status == Status::Downloading
+                || (d.status == Status::Queued && self.sched().is_running(d.id));
+            if !running {
                 continue;
             }
             let d = self.view(d);
@@ -454,11 +455,11 @@ impl Manager {
     }
 
     /// Where does a new download of `needed` bytes stand on its disk?
-    /// - `Ok(false)`: it fits, next to what other unfinished downloads have reserved.
+    /// - `Ok(false)`: it fits, next to what the running downloads still have to write.
     /// - `Ok(true)`: it does not fit even into the space that is really free; it should be added
     ///   but held back, not started.
-    /// - `Err(InsufficientSpace)`: it fits into the free space but not next to the reservations
-    ///   of other downloads; the user decides (`ignore_space`).
+    /// - `Err(InsufficientSpace)`: it fits into the free space but not next to what the running
+    ///   downloads still have to write; the user decides (`ignore_space`).
     ///
     /// A disk whose space cannot be read is not checked: that must not stop downloads.
     fn check_room(&self, subdir: &str, needed: u64) -> Result<bool> {
