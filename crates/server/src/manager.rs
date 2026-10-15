@@ -175,11 +175,12 @@ impl Manager {
     /// Build the job from persisted state and hand it to the engine.
     /// `Ok(false)` means the download is no longer waiting (its slot must be released).
     async fn try_start(&self, id: Id) -> Result<bool> {
-        let (d, segs, overwrite) = self.with_db(|c| {
+        let (d, segs, overwrite, ignore_space) = self.with_db(|c| {
             let d = downloads::get(c, id)?;
             let segs = segments::list(c, id)?;
             let overwrite = downloads::overwrite_flag(c, id)?;
-            Ok((d, segs, overwrite))
+            let ignore_space = downloads::ignore_space_flag(c, id)?;
+            Ok((d, segs, overwrite, ignore_space))
         })?;
         let Some(d) = d else { return Ok(false) };
         if d.status != Status::Queued {
@@ -196,6 +197,7 @@ impl Manager {
             etag: d.etag,
             segments: if d.downloaded > 0 { segs } else { Vec::new() },
             overwrite,
+            ignore_space,
         };
         self.engine.start(&job).await?;
         Ok(true)
@@ -422,31 +424,20 @@ impl Manager {
     }
 }
 
-#[cfg(test)]
 impl Manager {
-    /// Mark a (paused) download failed without going through the engine.
-    pub(crate) fn mark_failed_for_test(&self, id: Id) {
-        self.with_db(|c| downloads::set_status(c, id, Status::Failed, Some("test")).map(|_| ()))
-            .expect("set status");
-    }
-}
-
-impl Manager {
-    /// Bytes that queued, running and paused downloads (all but `except`) still have to write on
+    /// Bytes that queued, running and paused downloads still have to write on
     /// file system `dev`: the space virtually reserved for them. Finished, failed and cancelled
     /// downloads reserve nothing, and a running one's reservation shrinks as the disk fills.
-    fn reserved_on(&self, dev: u64, except: Option<Id>) -> Result<u64> {
+    fn reserved_on(&self, dev: u64) -> Result<u64> {
         let all = self.with_db(|c| downloads::list(c))?;
         // Category subdirectories may sit on other disks; look each directory up once.
         let mut same_disk: HashMap<String, bool> = HashMap::new();
         let mut total = 0u64;
         for d in all {
-            if Some(d.id) == except
-                || !matches!(
-                    d.status,
-                    Status::Queued | Status::Downloading | Status::Paused
-                )
-            {
+            if !matches!(
+                d.status,
+                Status::Queued | Status::Downloading | Status::Paused
+            ) {
                 continue;
             }
             let d = self.view(d);
@@ -465,7 +456,7 @@ impl Manager {
     /// Refuse (`InsufficientSpace`) when `needed` more bytes do not fit next to what the other
     /// unfinished downloads on the same disk have reserved. A disk whose space cannot be read is
     /// not checked: that must not stop downloads.
-    fn ensure_room(&self, subdir: &str, needed: u64, except: Option<Id>) -> Result<()> {
+    fn ensure_room(&self, subdir: &str, needed: u64) -> Result<()> {
         let vol = match dlm_http_engine::disk::volume(&self.engine.dir_for(subdir)) {
             Ok(v) => v,
             Err(e) => {
@@ -473,7 +464,7 @@ impl Manager {
                 return Ok(());
             }
         };
-        let others = self.reserved_on(vol.dev, except)?;
+        let others = self.reserved_on(vol.dev)?;
         dlm_http_engine::disk::ensure_fits(needed, others, vol.space.available)?;
         Ok(())
     }
@@ -511,8 +502,9 @@ impl Service for Manager {
             let _guard = self.add_lock.lock().await;
             // Reserve room for it: tell the user now, not when the download dies halfway. Inside
             // the lock, so two adds cannot both claim the last free gigabytes.
-            if let Some(size) = info.size {
-                self.ensure_room(&subdir, size, None)?;
+            // `ignore_space`: the user knows better (files may be moved away before it starts).
+            if let (Some(size), false) = (info.size, req.ignore_space) {
+                self.ensure_room(&subdir, size)?;
             }
             let found = self.detect_conflict(&url, &subdir, &name).await?;
             let (filename, overwrite) = match (found.conflict, req.on_conflict) {
@@ -538,6 +530,7 @@ impl Service for Manager {
                         category,
                         source_kind: SourceKind::Http,
                         overwrite,
+                        ignore_space: req.ignore_space,
                         subdir,
                     },
                 )?;
@@ -580,16 +573,7 @@ impl Service for Manager {
                 d.status.as_str()
             )));
         }
-        // A failed download gave its reservation back; take it again or say it no longer fits.
-        // (A paused one kept it.) Serialized with `add` so both see one consistent picture.
-        let guard = self.add_lock.lock().await;
-        if d.status == Status::Failed {
-            if let Some(size) = d.size {
-                self.ensure_room(&d.subdir, size.saturating_sub(d.downloaded), Some(id))?;
-            }
-        }
         self.with_db(|c| downloads::set_status(c, id, Status::Queued, None).map(|_| ()))?;
-        drop(guard); // it counts as reserved from here on
         let start = self.sched().enqueue(id);
         self.publish_download(id);
         self.launch(start).await;
@@ -629,7 +613,7 @@ impl Service for Manager {
     async fn disk_space(&self) -> Result<DiskSpace> {
         let vol = dlm_http_engine::disk::volume(&self.dir).map_err(io_err)?;
         let mut space = vol.space;
-        space.reserved = self.reserved_on(vol.dev, None)?;
+        space.reserved = self.reserved_on(vol.dev)?;
         Ok(space)
     }
 

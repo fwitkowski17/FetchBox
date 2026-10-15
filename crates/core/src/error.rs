@@ -17,9 +17,16 @@ pub enum Error {
     /// The new download collides with an existing one; the user must choose.
     #[error("conflict: {0:?}")]
     Conflict(Box<crate::model::Conflict>),
-    /// The file will not fit on the disk (with what other running downloads still need).
-    #[error("not enough disk space: {} needed, {} available", human_bytes(*.needed), human_bytes(*.available))]
-    InsufficientSpace { needed: u64, available: u64 },
+    /// The file will not fit on the disk next to what other unfinished downloads have reserved.
+    #[error("{}", no_space_message(*.needed, *.free, *.reserved))]
+    InsufficientSpace {
+        /// Bytes the download needs.
+        needed: u64,
+        /// Bytes free on the disk.
+        free: u64,
+        /// Bytes of `free` that other unfinished downloads still have to write.
+        reserved: u64,
+    },
     /// Unexpected internal failure (database, ...).
     #[error("internal error: {0}")]
     Internal(String),
@@ -30,6 +37,22 @@ pub enum Error {
 
 /// Result alias for core operations.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// The text of [`Error::InsufficientSpace`], also used by the engine's own error.
+pub fn no_space_message(needed: u64, free: u64, reserved: u64) -> String {
+    let mut m = format!(
+        "not enough disk space: {} needed, {} free",
+        human_bytes(needed),
+        human_bytes(free)
+    );
+    if reserved > 0 {
+        m.push_str(&format!(
+            " ({} of it reserved for other downloads)",
+            human_bytes(reserved)
+        ));
+    }
+    m
+}
 
 /// `1.5 GB`-style size for messages. Binary steps (1024) and the same rounding as the web UI
 /// (one decimal below 10, none above), so a message and the screen next to it agree.
@@ -69,11 +92,21 @@ mod tests {
     fn insufficient_space_message_names_both_sizes() {
         let e = Error::InsufficientSpace {
             needed: 4 * 1024 * 1024 * 1024,
-            available: 1536 * 1024 * 1024,
+            free: 3 * 1024 * 1024 * 1024,
+            reserved: 0,
         };
         assert_eq!(
             e.to_string(),
-            "not enough disk space: 4.0 GB needed, 1.5 GB available"
+            "not enough disk space: 4.0 GB needed, 3.0 GB free"
+        );
+        let e = Error::InsufficientSpace {
+            needed: 4 * 1024 * 1024 * 1024,
+            free: 20 * 1024 * 1024 * 1024,
+            reserved: 18 * 1024 * 1024 * 1024,
+        };
+        assert_eq!(
+            e.to_string(),
+            "not enough disk space: 4.0 GB needed, 20 GB free (18 GB of it reserved for other downloads)"
         );
     }
 }

@@ -16,6 +16,8 @@ pub struct NewDownload {
     pub overwrite: bool,
     /// Subdirectory below the download directory; empty = none.
     pub subdir: String,
+    /// The user added it although it did not fit; the engine does not check free space for it.
+    pub ignore_space: bool,
 }
 
 const COLUMNS: &str =
@@ -24,15 +26,16 @@ const COLUMNS: &str =
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             new.url,
             new.filename,
             new.category.as_str(),
             new.source_kind.as_str(),
             new.overwrite,
-            new.subdir
+            new.subdir,
+            new.ignore_space
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -103,6 +106,18 @@ pub fn overwrite_flag(conn: &Connection, id: Id) -> Result<bool> {
         .query_row("SELECT overwrite FROM downloads WHERE id = ?1", [id], |r| {
             r.get(0)
         })
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// Whether the user chose to add this download although it did not fit.
+pub fn ignore_space_flag(conn: &Connection, id: Id) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT ignore_space FROM downloads WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
         .optional()?
         .unwrap_or(false))
 }
@@ -259,6 +274,7 @@ mod tests {
             category: Category::Other,
             source_kind: SourceKind::Http,
             overwrite: false,
+            ignore_space: false,
             subdir: String::new(),
         }
     }
@@ -394,6 +410,21 @@ mod tests {
             .is_none());
         set_status(&conn, a, Status::Cancelled, None).expect("s");
         assert!(find_by_url(&conn, "http://x/a").expect("f").is_empty());
+    }
+
+    #[test]
+    fn ignore_space_flag_is_stored() {
+        let conn = open_in_memory().expect("db");
+        let mut n = new("http://x/a");
+        n.ignore_space = true;
+        let id = insert(&conn, &n).expect("insert");
+        assert!(ignore_space_flag(&conn, id).expect("flag"));
+        let id2 = insert(&conn, &new("http://x/b")).expect("insert");
+        assert!(!ignore_space_flag(&conn, id2).expect("flag"));
+        assert!(
+            !ignore_space_flag(&conn, 999).expect("flag"),
+            "unknown id: false"
+        );
     }
 
     #[test]

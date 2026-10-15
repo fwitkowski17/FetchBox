@@ -48,12 +48,13 @@
 
   const summary = $derived(summarize(downloads.items));
 
-  // A download finished, failed or was removed: its size now counts (or stops counting) on the disk.
-  const finishedCount = $derived(
-    downloads.items.filter((d) => d.status !== 'downloading' && d.status !== 'queued').length,
+  // The disk figures depend on which downloads exist and which are still unfinished: refresh when a
+  // download is added, finishes, fails or is removed (not on every progress tick).
+  const diskKey = $derived(
+    `${downloads.items.length}/${downloads.items.filter((d) => d.status !== 'downloading' && d.status !== 'queued').length}`,
   );
   $effect(() => {
-    void finishedCount;
+    void diskKey;
     if (auth.state === 'ready') untrack(() => void disk.refresh());
   });
 

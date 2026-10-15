@@ -400,7 +400,7 @@
             }
           },
           "507": {
-            "description": "The file does not fit into the free disk space that other unfinished downloads have not reserved",
+            "description": "The file does not fit into the free disk space that other unfinished downloads have not reserved. Send the request again with `ignore_space` to add it anyway.",
             "content": {
               "application/json": {
                 "schema": {
@@ -951,6 +951,10 @@
             ],
             "description": "Override the file name suggested by the server."
           },
+          "ignore_space": {
+            "type": "boolean",
+            "description": "Add the download even though it does not fit into the free space left after the space\nreserved for other downloads (`507` otherwise). The user's call: files may be moved away\nor deleted before it starts. If it still does not fit when it starts, it fails then."
+          },
           "on_conflict": {
             "$ref": "#/components/schemas/OnConflict"
           },
@@ -1440,27 +1444,34 @@
       },
       "SpaceBody": {
         "type": "object",
-        "description": "`507` body of `POST /downloads` when the file will not fit on the disk.",
+        "description": "`507` body of `POST /downloads` when the file does not fit. The UI explains the numbers and\noffers to add the download anyway (`ignore_space`).",
         "required": [
           "error",
           "needed",
-          "available"
+          "free",
+          "reserved"
         ],
         "properties": {
-          "available": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Bytes still free for it: the free space of the disk minus what other unfinished downloads\nhave reserved.",
-            "minimum": 0
-          },
           "error": {
             "type": "string",
             "description": "Always `\"insufficient storage\"`."
+          },
+          "free": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes free on the disk.",
+            "minimum": 0
           },
           "needed": {
             "type": "integer",
             "format": "int64",
             "description": "Bytes the download needs.",
+            "minimum": 0
+          },
+          "reserved": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Part of `free` that other unfinished downloads (queued, running, paused) still have to\nwrite. The download fits when `needed <= free - reserved`.",
             "minimum": 0
           }
         }

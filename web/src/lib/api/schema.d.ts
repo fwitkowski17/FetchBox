@@ -281,6 +281,12 @@ export interface components {
             category?: null | components["schemas"]["Category"];
             /** @description Override the file name suggested by the server. */
             filename?: string | null;
+            /**
+             * @description Add the download even though it does not fit into the free space left after the space
+             *     reserved for other downloads (`507` otherwise). The user's call: files may be moved away
+             *     or deleted before it starts. If it still does not fit when it starts, it fails then.
+             */
+            ignore_space?: boolean;
             on_conflict?: components["schemas"]["OnConflict"];
             url: string;
         };
@@ -489,21 +495,29 @@ export interface components {
          * @enum {string}
          */
         SourceKind: "http" | "magnet" | "torrent_file";
-        /** @description `507` body of `POST /downloads` when the file will not fit on the disk. */
+        /**
+         * @description `507` body of `POST /downloads` when the file does not fit. The UI explains the numbers and
+         *     offers to add the download anyway (`ignore_space`).
+         */
         SpaceBody: {
-            /**
-             * Format: int64
-             * @description Bytes still free for it: the free space of the disk minus what other unfinished downloads
-             *     have reserved.
-             */
-            available: number;
             /** @description Always `"insufficient storage"`. */
             error: string;
+            /**
+             * Format: int64
+             * @description Bytes free on the disk.
+             */
+            free: number;
             /**
              * Format: int64
              * @description Bytes the download needs.
              */
             needed: number;
+            /**
+             * Format: int64
+             * @description Part of `free` that other unfinished downloads (queued, running, paused) still have to
+             *     write. The download fits when `needed <= free - reserved`.
+             */
+            reserved: number;
         };
         /**
          * @description Lifecycle status of a download.
@@ -843,7 +857,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description The file does not fit into the free disk space that other unfinished downloads have not reserved */
+            /** @description The file does not fit into the free disk space that other unfinished downloads have not reserved. Send the request again with `ignore_space` to add it anyway. */
             507: {
                 headers: {
                     [name: string]: unknown;

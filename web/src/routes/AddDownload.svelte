@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { ApiError, api } from '../lib/api/client';
+  import { ApiError, api, type SpaceInfo } from '../lib/api/client';
   import type { Category, Conflict, OnConflict } from '../lib/api/types';
   import { CATEGORIES } from '../lib/api/types';
   import ConflictDialog from '../lib/components/ConflictDialog.svelte';
   import Icon from '../lib/components/Icon.svelte';
+  import NoSpaceDialog from '../lib/components/NoSpaceDialog.svelte';
   import { i18n, t } from '../lib/i18n';
   import { toast } from '../lib/stores/toast.svelte';
   import { isHttpUrl } from '../lib/util/format';
@@ -14,6 +15,10 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let conflict = $state<Conflict | null>(null);
+  /** Set while the user is asked about a file that does not fit; kept once they said "add anyway"
+   *  so a conflict dialog after it does not ask again. */
+  let noSpace = $state<SpaceInfo | null>(null);
+  let ignoreSpace = false;
 
   const urlOk = $derived(isHttpUrl(url));
   const showUrlHint = $derived(url.trim() !== '' && !urlOk);
@@ -27,8 +32,10 @@
         filename: filename.trim() || undefined,
         category: category === 'auto' ? undefined : category,
         on_conflict: onConflict,
+        ignore_space: ignoreSpace || undefined,
       });
       conflict = null;
+      ignoreSpace = false;
       toast.success(t('add.added', { name: added.filename }));
       url = '';
       filename = '';
@@ -37,17 +44,12 @@
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.conflict) {
         conflict = e.conflict; // the dialog lets the user choose, then we send again
+      } else if (e instanceof ApiError && e.status === 507 && e.space) {
+        conflict = null;
+        noSpace = e.space; // the dialog explains the numbers and lets the user decide
       } else {
         conflict = null;
-        error =
-          e instanceof ApiError && e.status === 507 && e.space
-            ? t('add.noSpace', {
-                needed: i18n.bytes(e.space.needed),
-                available: i18n.bytes(e.space.available),
-              })
-            : e instanceof ApiError
-              ? i18n.errorText(e)
-              : t('add.failed');
+        error = e instanceof ApiError ? i18n.errorText(e) : t('add.failed');
       }
     } finally {
       busy = false;
@@ -56,12 +58,23 @@
 
   function onSubmit(e: SubmitEvent): void {
     e.preventDefault();
-    if (urlOk && !busy) void submit();
+    if (!urlOk || busy) return;
+    ignoreSpace = false; // a new attempt starts from the safe default
+    void submit();
+  }
+
+  function chooseSpace(addAnyway: boolean): void {
+    noSpace = null;
+    if (addAnyway) {
+      ignoreSpace = true;
+      void submit();
+    }
   }
 
   function choose(choice: OnConflict | null): void {
     if (choice === null) {
       conflict = null; // backing out simply does not send the request again
+      ignoreSpace = false;
     } else {
       void submit(choice);
     }
@@ -137,3 +150,4 @@
 </div>
 
 <ConflictDialog {conflict} {busy} onchoose={choose} />
+<NoSpaceDialog space={noSpace} {busy} onchoose={chooseSpace} />

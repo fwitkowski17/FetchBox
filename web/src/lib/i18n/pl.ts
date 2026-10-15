@@ -175,8 +175,15 @@ const pl: Messages = {
   'add.submit': 'Rozpocznij pobieranie',
   'add.submitting': 'Dodawanie…',
   'add.failed': 'Nie udało się dodać pobrania.',
-  'add.noSpace':
-    'Za mało miejsca na dysku: plik potrzebuje {needed}, a wolne jest tylko {available} po uwzględnieniu miejsca zarezerwowanego dla innych pobrań.',
+
+  // ---- not enough space for a new download
+  'nospace.title': 'Za mało wolnego miejsca',
+  'nospace.reserved':
+    'Plik potrzebuje {needed}. Na dysku jest {free} wolnego, ale {reserved} z tego jest zarezerwowane dla innych pobrań, więc zostaje {left}.',
+  'nospace.plain': 'Plik potrzebuje {needed}, a na dysku jest tylko {free} wolnego.',
+  'nospace.hint':
+    'Możesz go mimo to dodać, na przykład jeśli zaraz usuniesz lub przeniesiesz pliki. Zostanie dodane i uruchomione jak każde pobranie. Jeśli dysk faktycznie się zapełni, zakończy się błędem i będzie można je wznowić później.',
+  'nospace.add': 'Dodaj mimo to',
   'add.added': 'Dodano „{name}”',
 
   // ---- name conflict dialog

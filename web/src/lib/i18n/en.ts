@@ -178,8 +178,15 @@ export const en = {
   'add.submit': 'Start download',
   'add.submitting': 'Adding…',
   'add.failed': 'Could not add the download.',
-  'add.noSpace':
-    'Not enough disk space: the file needs {needed}, but only {available} is free after the space reserved for other downloads.',
+
+  // ---- not enough space for a new download
+  'nospace.title': 'Not enough free space',
+  'nospace.reserved':
+    'The file needs {needed}. The disk has {free} free, but {reserved} of it is reserved for other downloads, which leaves {left}.',
+  'nospace.plain': 'The file needs {needed}, but only {free} is free on the disk.',
+  'nospace.hint':
+    'You can still add it, for example if you are about to delete or move files. It is added and started like any download. If the disk really fills up, it fails with an error and you can resume it later.',
+  'nospace.add': 'Add anyway',
   'add.added': 'Added “{name}”',
 
   // ---- name conflict dialog

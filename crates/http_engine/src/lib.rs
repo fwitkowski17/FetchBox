@@ -360,10 +360,12 @@ async fn download(
         && plan_end == info.size
         && tokio::fs::metadata(&part).await.is_ok();
 
-    // Refuse early when the rest of the file (plus what other running downloads on the same disk
-    // still have to write) cannot fit; the server reserves room for queued ones when they are added; otherwise the disk would fill up halfway and the download would die
-    // with a bare write error. Without a known size nothing can be checked.
-    if let Some(size) = info.size {
+    // Refuse early when the rest of the file, plus what the other running downloads on the same
+    // disk still have to write, cannot fit: otherwise the disk would fill up halfway and the
+    // download would die with a bare write error. (The server reserves room for queued ones when
+    // they are added.) Nothing can be checked without a known size, and a download the user added
+    // anyway is left alone: they know better, and if the disk really fills up the write fails.
+    if let (Some(size), false) = (info.size, job.ignore_space) {
         let have: u64 = if reuse {
             job.segments.iter().map(|s| s.downloaded).sum()
         } else {
@@ -622,6 +624,7 @@ mod tests {
             etag: None,
             segments: Vec::new(),
             overwrite: false,
+            ignore_space: false,
             subdir: String::new(),
         }
     }
@@ -843,6 +846,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_download_added_anyway_skips_the_space_check() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let free = disk::volume(dir.path()).expect("volume").space.available;
+        // Twice the free space (sparse, so nothing is really taken): would be refused otherwise.
+        let server = TestServer::claiming(free.saturating_mul(2)).await;
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+
+        dl.start(&job(1, &server, 1)).await.expect("start");
+        let refused = next_terminal(&mut rx).await;
+        assert!(
+            matches!(&refused, Event::Failed { error, .. } if error.starts_with("not enough disk space")),
+            "{refused:?}"
+        );
+
+        let mut anyway = job(2, &server, 1);
+        anyway.ignore_space = true;
+        dl.start(&anyway).await.expect("start");
+        loop {
+            match rx.recv().await.expect("closed") {
+                Event::Started { id: 2, .. } => break, // got past the check
+                Event::Failed { id: 2, error } => {
+                    assert!(!error.starts_with("not enough disk space"), "{error}");
+                    break; // failed for another reason (the fake server), but not for space
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn running_remaining_follows_running_downloads() {
         let server = TestServer::spawn(256 * 1024, true, Duration::from_millis(40)).await;
         let dir = tempfile::tempdir().expect("tmp");
@@ -910,6 +944,7 @@ mod tests {
             etag: None,
             segments: Vec::new(),
             overwrite: false,
+            ignore_space: false,
             subdir: String::new(),
         };
         assert!(matches!(

@@ -9,6 +9,12 @@ import type {
   Settings,
 } from './types';
 
+export interface SpaceInfo {
+  needed: number;
+  free: number;
+  reserved: number;
+}
+
 /** A failed API call. `status` is 0 when the server could not be reached at all. */
 export class ApiError extends Error {
   readonly status: number;
@@ -18,8 +24,9 @@ export class ApiError extends Error {
   readonly conflict: Conflict | undefined;
   /** Seconds until logins are allowed again (`429`). */
   readonly retryAfter: number | undefined;
-  /** Set on `507` when a file will not fit on the disk. */
-  readonly space: { needed: number; available: number } | undefined;
+  /** Set on `507` when a file does not fit: what it needs, what is free, and how much of that
+   *  other unfinished downloads have reserved. */
+  readonly space: SpaceInfo | undefined;
 
   constructor(
     status: number,
@@ -27,7 +34,7 @@ export class ApiError extends Error {
     extra: {
       conflict?: Conflict;
       retryAfter?: number;
-      space?: { needed: number; available: number };
+      space?: SpaceInfo;
     } = {},
   ) {
     // `message` is for logs and tests; the UI builds its own text (see `errorText`).
@@ -59,8 +66,11 @@ function parseError(status: number, body: unknown): ApiError {
   const retryAfter =
     isRecord(body) && typeof body.retry_after === 'number' ? body.retry_after : undefined;
   const space =
-    isRecord(body) && typeof body.needed === 'number' && typeof body.available === 'number'
-      ? { needed: body.needed, available: body.available }
+    isRecord(body) &&
+    typeof body.needed === 'number' &&
+    typeof body.free === 'number' &&
+    typeof body.reserved === 'number'
+      ? { needed: body.needed, free: body.free, reserved: body.reserved }
       : undefined;
   return new ApiError(status, message, { conflict, retryAfter, space });
 }

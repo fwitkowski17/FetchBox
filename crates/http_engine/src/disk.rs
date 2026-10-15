@@ -74,15 +74,16 @@ fn space(_path: &Path) -> io::Result<DiskSpace> {
 
 /// Does a download needing `needed` more bytes fit, once the space promised to other unfinished
 /// downloads (`others`) is set aside? Unknown sizes are the caller's to skip: nothing can be said
-/// about them. The error reports what is really free for this download.
-pub fn ensure_fits(needed: u64, others: u64, available: u64) -> Result<(), EngineError> {
-    let free = available.saturating_sub(others);
-    if needed <= free {
+/// about them. The error carries the raw free space and the share reserved by the others, so the
+/// user can see why a file that is smaller than the free space still does not fit.
+pub fn ensure_fits(needed: u64, others: u64, free: u64) -> Result<(), EngineError> {
+    if needed <= free.saturating_sub(others) {
         Ok(())
     } else {
         Err(EngineError::NoSpace {
             needed,
-            available: free,
+            free,
+            reserved: others,
         })
     }
 }
@@ -98,7 +99,8 @@ mod tests {
             ensure_fits(101, 0, 100),
             Err(EngineError::NoSpace {
                 needed: 101,
-                available: 100
+                free: 100,
+                reserved: 0
             })
         ));
     }
@@ -106,12 +108,13 @@ mod tests {
     #[test]
     fn space_promised_to_other_downloads_is_not_free() {
         assert!(ensure_fits(60, 40, 100).is_ok());
-        // The error reports the free space left after the others' share, not the raw figure.
+        // The error says both the raw free space and how much of it the others hold.
         assert!(matches!(
             ensure_fits(60, 41, 100),
             Err(EngineError::NoSpace {
                 needed: 60,
-                available: 59
+                free: 100,
+                reserved: 41
             })
         ));
     }
@@ -120,7 +123,11 @@ mod tests {
     fn over_committed_disks_have_nothing_free_and_sizes_do_not_overflow() {
         assert!(matches!(
             ensure_fits(1, 500, 100),
-            Err(EngineError::NoSpace { available: 0, .. })
+            Err(EngineError::NoSpace {
+                free: 100,
+                reserved: 500,
+                ..
+            })
         ));
         assert!(ensure_fits(u64::MAX, u64::MAX, 1).is_err());
         assert!(ensure_fits(0, u64::MAX, 0).is_ok());

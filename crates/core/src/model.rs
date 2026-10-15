@@ -246,6 +246,11 @@ pub struct AddRequest {
     pub category: Option<Category>,
     #[serde(default)]
     pub on_conflict: OnConflict,
+    /// Add the download even though it does not fit into the free space left after the space
+    /// reserved for other downloads (`507` otherwise). The user's call: files may be moved away
+    /// or deleted before it starts. If it still does not fit when it starts, it fails then.
+    #[serde(default)]
+    pub ignore_space: bool,
 }
 
 /// Why an add request collided with something.
@@ -345,6 +350,9 @@ pub struct Job {
     /// The user explicitly chose to replace an existing file with the same name.
     /// When `false` the engine never overwrites: it picks a free name instead.
     pub overwrite: bool,
+    /// The user added it although it did not fit: skip the free-space check at start. If the disk
+    /// really fills up, the download fails with the write error.
+    pub ignore_space: bool,
 }
 
 /// Opaque reference to a started job.
