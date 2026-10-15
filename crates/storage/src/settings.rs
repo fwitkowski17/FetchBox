@@ -10,6 +10,7 @@ const MAX_CONCURRENT: &str = "max_concurrent";
 const SPEED_PER_DOWNLOAD: &str = "speed_per_download";
 const SPEED_GLOBAL: &str = "speed_global";
 const CATEGORY_SUBDIRS: &str = "category_subdirs";
+const CHECK_UPDATES: &str = "check_updates";
 
 /// Key of the Argon2 hash of the password created in the first-run setup. It lives in the
 /// same table as the settings but is not part of `Settings`, so it never reaches the API.
@@ -52,6 +53,7 @@ pub fn load(conn: &Connection) -> Result<Settings> {
         speed_per_download: get_num(conn, SPEED_PER_DOWNLOAD)?.unwrap_or(d.speed_per_download),
         speed_global: get_num(conn, SPEED_GLOBAL)?.unwrap_or(d.speed_global),
         category_subdirs: get_num(conn, CATEGORY_SUBDIRS)?.unwrap_or(d.category_subdirs),
+        check_updates: get_num(conn, CHECK_UPDATES)?.unwrap_or(d.check_updates),
     })
 }
 
@@ -71,6 +73,7 @@ pub fn save(conn: &mut Connection, s: &Settings) -> Result<()> {
         ])?;
         stmt.execute(params![SPEED_GLOBAL, s.speed_global.to_string()])?;
         stmt.execute(params![CATEGORY_SUBDIRS, s.category_subdirs.to_string()])?;
+        stmt.execute(params![CHECK_UPDATES, s.check_updates.to_string()])?;
     }
     tx.commit()?;
     Ok(())
@@ -105,6 +108,7 @@ mod tests {
             speed_per_download: 1_000_000,
             speed_global: 5_000_000,
             category_subdirs: true,
+            check_updates: false,
         };
         save(&mut conn, &s).expect("save");
         assert_eq!(load(&conn).expect("load"), s);

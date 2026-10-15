@@ -7,7 +7,7 @@
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "0.1.0"
+    "version": "0.6.1"
   },
   "paths": {
     "/api/auth/login": {
@@ -1090,6 +1090,84 @@
           }
         ]
       }
+    },
+    "/api/version": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The running version and, unless update checks are switched off in the settings, whether a newer\nrelease has been published on GitHub (looked up at most every six hours and kept meanwhile).",
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/version/check": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Look for a newer release now instead of using the kept answer (not more often than every 30 seconds).",
+        "operationId": "check_version",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1691,6 +1769,10 @@
             "type": "boolean",
             "description": "Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).\nExisting downloads keep the directory they were created with."
           },
+          "check_updates": {
+            "type": "boolean",
+            "description": "Ask GitHub now and then whether a newer release exists (`GET /api/version`). Nothing is\nsent but the request itself (address of the server, program name and version)."
+          },
           "connections": {
             "type": "integer",
             "format": "int32",
@@ -1990,6 +2072,56 @@
           "file",
           "listing"
         ]
+      },
+      "VersionInfo": {
+        "type": "object",
+        "description": "The version of the running program and what is known about newer ones.",
+        "required": [
+          "current",
+          "enabled",
+          "update_available",
+          "check_failed"
+        ],
+        "properties": {
+          "check_failed": {
+            "type": "boolean",
+            "description": "The last attempt did not get an answer (offline, rate limited, ...)."
+          },
+          "checked_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the answer was obtained (unix seconds); `None` if no check has succeeded yet."
+          },
+          "current": {
+            "type": "string",
+            "description": "Version of this program (`0.6.1`)."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Update checks are switched on (`Settings::check_updates`). When off, nothing else is set."
+          },
+          "latest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Version of the newest published release, without a leading `v`."
+          },
+          "release_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Page of the newest release."
+          },
+          "update_available": {
+            "type": "boolean",
+            "description": "`latest` is newer than `current`."
+          }
+        }
       }
     },
     "securitySchemes": {

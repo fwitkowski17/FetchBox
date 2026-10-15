@@ -199,6 +199,14 @@ pub struct Settings {
     /// Existing downloads keep the directory they were created with.
     #[serde(default)]
     pub category_subdirs: bool,
+    /// Ask GitHub now and then whether a newer release exists (`GET /api/version`). Nothing is
+    /// sent but the request itself (address of the server, program name and version).
+    #[serde(default = "default_check_updates")]
+    pub check_updates: bool,
+}
+
+fn default_check_updates() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -209,6 +217,7 @@ impl Default for Settings {
             speed_per_download: 0,
             speed_global: 0,
             category_subdirs: false,
+            check_updates: true,
         }
     }
 }
@@ -265,6 +274,26 @@ pub struct AddRequest {
     /// or deleted before it starts. If it still does not fit when it starts, it fails then.
     #[serde(default)]
     pub ignore_space: bool,
+}
+
+/// The version of the running program and what is known about newer ones.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct VersionInfo {
+    /// Version of this program (`0.6.1`).
+    pub current: String,
+    /// Update checks are switched on (`Settings::check_updates`). When off, nothing else is set.
+    pub enabled: bool,
+    /// Version of the newest published release, without a leading `v`.
+    pub latest: Option<String>,
+    /// `latest` is newer than `current`.
+    pub update_available: bool,
+    /// Page of the newest release.
+    pub release_url: Option<String>,
+    /// When the answer was obtained (unix seconds); `None` if no check has succeeded yet.
+    pub checked_at: Option<i64>,
+    /// The last attempt did not get an answer (offline, rate limited, ...).
+    pub check_failed: bool,
 }
 
 /// Request to look at a URL before adding it.

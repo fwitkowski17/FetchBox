@@ -2432,3 +2432,103 @@ async fn the_private_url_policy_also_covers_reading_a_listing() {
     let r = h.mgr.probe(&format!("{site}/pub/")).await;
     assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
 }
+
+#[tokio::test]
+async fn the_version_endpoint_reports_a_newer_release_unless_checks_are_off() {
+    use axum::routing::get;
+    let release = axum::Router::new().route(
+        "/latest",
+        get(|| async {
+            r#"{"tag_name":"v99.0.0","html_url":"https://github.com/o/r/releases/tag/v99.0.0"}"#
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let source = format!("http://{}/latest", listener.local_addr().expect("addr"));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, release).await;
+    });
+
+    let dir = tempfile::tempdir().expect("tmp");
+    let db = fetchbox_storage::open_in_memory().expect("db");
+    let mgr = Manager::start_with(
+        db,
+        dir.path().to_owned(),
+        fetchbox_http_engine::UrlPolicy::default(),
+        Some(source),
+    )
+    .await
+    .expect("start");
+    let api = {
+        let app = fetchbox_api::router(mgr.clone(), fetchbox_api::Auth::disabled());
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = l.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(l, app).await;
+        });
+        format!("http://{addr}/api")
+    };
+    let c = reqwest::Client::new();
+
+    let (status, v) = send(&c, reqwest::Method::GET, format!("{api}/version"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["current"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["enabled"], true);
+    assert_eq!(v["latest"], "99.0.0");
+    assert_eq!(v["update_available"], true);
+    assert_eq!(
+        v["release_url"],
+        "https://github.com/o/r/releases/tag/v99.0.0"
+    );
+    let (status, v) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/version/check"),
+        None,
+    )
+    .await;
+    assert_eq!((status, v["update_available"].as_bool()), (200, Some(true)));
+
+    // Switched off in the settings: nothing is asked, nothing is reported.
+    let mut settings = mgr.settings().await.expect("settings");
+    assert!(settings.check_updates, "on by default");
+    settings.check_updates = false;
+    mgr.update_settings(settings).await.expect("save");
+    let (_, v) = send(&c, reqwest::Method::GET, format!("{api}/version"), None).await;
+    assert_eq!(v["enabled"], false);
+    assert_eq!(v["latest"], serde_json::Value::Null);
+    assert_eq!(v["update_available"], false);
+
+    // Signed-in users only.
+    let locked = {
+        let app = fetchbox_api::router(
+            mgr.clone(),
+            fetchbox_api::Auth::with_password("correct-horse".to_owned()),
+        );
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = l.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(l, app).await;
+        });
+        format!("http://{addr}/api")
+    };
+    let (status, _) = send(&c, reqwest::Method::GET, format!("{locked}/version"), None).await;
+    assert_eq!(status, 401);
+}
+
+#[test]
+fn update_checks_are_on_unless_switched_off() {
+    // A client that does not know the field (an older UI, a script) must not switch checks off.
+    let body = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0}"#;
+    let s: Settings = serde_json::from_str(body).expect("settings");
+    assert!(s.check_updates);
+    assert!(Settings::default().check_updates);
+    let off = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0,"check_updates":false}"#;
+    let s: Settings = serde_json::from_str(off).expect("settings");
+    assert!(!s.check_updates);
+}

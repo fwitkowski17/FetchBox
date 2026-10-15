@@ -4,6 +4,7 @@ mod assets;
 mod manager;
 #[cfg(test)]
 mod tests;
+mod update;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};

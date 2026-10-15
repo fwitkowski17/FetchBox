@@ -15,7 +15,7 @@ use crate::sse;
 use fetchbox_core::{
     AddRequest, Category, CategoryStat, Conflict, ConflictKind, DayStat, DiskSpace, Download,
     Event, LargestFile, ListingEntry, OnConflict, ProbeRequest, Settings, SourceKind, Stats,
-    StatsRange, Status, UrlInfo, UrlKind,
+    StatsRange, Status, UrlInfo, UrlKind, VersionInfo,
 };
 
 #[derive(OpenApi)]
@@ -41,6 +41,8 @@ token as `Authorization: Bearer`.",
         routes::put_settings,
         routes::disk,
         routes::stats,
+        routes::version,
+        routes::check_version,
         sse::events,
         auth::login,
         auth::logout,
@@ -52,7 +54,7 @@ token as `Authorization: Bearer`.",
         Download, Status, Category, SourceKind, Settings, AddRequest, OnConflict, Conflict,
         ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, LoginRequest,
         LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest, Stats, StatsRange,
-        LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry,
+        LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry, VersionInfo,
     )),
     modifiers(&Runtime),
     tags(
@@ -120,6 +122,8 @@ mod tests {
             ("/api/settings", "get"),
             ("/api/settings", "put"),
             ("/api/disk", "get"),
+            ("/api/version", "get"),
+            ("/api/version/check", "post"),
             ("/api/events", "get"),
             ("/api/auth/login", "post"),
             ("/api/auth/logout", "post"),

@@ -317,6 +317,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The running version and, unless update checks are switched off in the settings, whether a newer
+         *     release has been published on GitHub (looked up at most every six hours and kept meanwhile).
+         */
+        get: operations["version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/version/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Look for a newer release now instead of using the kept answer (not more often than every 30 seconds). */
+        post: operations["check_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -582,6 +619,11 @@ export interface components {
              */
             category_subdirs?: boolean;
             /**
+             * @description Ask GitHub now and then whether a newer release exists (`GET /api/version`). Nothing is
+             *     sent but the request itself (address of the server, program name and version).
+             */
+            check_updates?: boolean;
+            /**
              * Format: int32
              * @description Connections (segments) per download.
              */
@@ -744,6 +786,26 @@ export interface components {
          * @enum {string}
          */
         UrlKind: "file" | "listing";
+        /** @description The version of the running program and what is known about newer ones. */
+        VersionInfo: {
+            /** @description The last attempt did not get an answer (offline, rate limited, ...). */
+            check_failed: boolean;
+            /**
+             * Format: int64
+             * @description When the answer was obtained (unix seconds); `None` if no check has succeeded yet.
+             */
+            checked_at?: number | null;
+            /** @description Version of this program (`0.6.1`). */
+            current: string;
+            /** @description Update checks are switched on (`Settings::check_updates`). When off, nothing else is set. */
+            enabled: boolean;
+            /** @description Version of the newest published release, without a leading `v`. */
+            latest?: string | null;
+            /** @description Page of the newest release. */
+            release_url?: string | null;
+            /** @description `latest` is newer than `current`. */
+            update_available: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -1536,6 +1598,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Stats"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionInfo"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    check_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionInfo"];
                 };
             };
             /** @description Not logged in */

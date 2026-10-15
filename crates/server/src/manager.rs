@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Instant, UNIX_EPOCH};
 
+use crate::update::{self, UpdateChecker};
 use async_trait::async_trait;
 use fetchbox_api::service::Service;
 use fetchbox_core::category::detect as detect_category;
@@ -20,6 +21,7 @@ use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
     Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo, UrlKind,
+    VersionInfo,
 };
 use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
@@ -56,6 +58,8 @@ pub struct Manager {
     active: Mutex<HashMap<Id, Instant>>,
     /// The highest speed seen so far (bytes/s), also kept in the database.
     peak_speed: AtomicU64,
+    /// Looks for a newer release (see `update`).
+    updates: Arc<UpdateChecker>,
 }
 
 impl Manager {
@@ -64,6 +68,20 @@ impl Manager {
         conn: Connection,
         dir: PathBuf,
         policy: UrlPolicy,
+    ) -> anyhow::Result<Arc<Self>> {
+        // `FETCHBOX_UPDATE_URL` points the update check somewhere else (a mirror, a fork).
+        let source = std::env::var("FETCHBOX_UPDATE_URL")
+            .ok()
+            .filter(|u| !u.is_empty());
+        Self::start_with(conn, dir, policy, source).await
+    }
+
+    /// Like `start`, with the address of the releases API given (`None`: GitHub).
+    pub async fn start_with(
+        conn: Connection,
+        dir: PathBuf,
+        policy: UrlPolicy,
+        update_source: Option<String>,
     ) -> anyhow::Result<Arc<Self>> {
         let current = settings::load(&conn)?;
         let peak_speed = stats::peak_speed(&conn)?;
@@ -88,6 +106,7 @@ impl Manager {
             closing: watch::channel(false).0,
             active: Mutex::new(HashMap::new()),
             peak_speed: AtomicU64::new(peak_speed),
+            updates: UpdateChecker::new(update_source)?,
         });
 
         tokio::spawn(Arc::clone(&me).run_events(rx));
@@ -612,6 +631,13 @@ impl Service for Manager {
     async fn list(&self) -> Result<Vec<Download>> {
         let all = self.with_db(|c| downloads::list(c))?;
         Ok(all.into_iter().map(|d| self.view(d)).collect())
+    }
+
+    async fn version(&self, refresh: bool) -> Result<VersionInfo> {
+        if !self.current_settings().check_updates {
+            return Ok(update::disabled());
+        }
+        Ok(self.updates.info(refresh).await)
     }
 
     async fn probe(&self, url: &str) -> Result<UrlInfo> {

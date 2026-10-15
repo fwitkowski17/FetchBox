@@ -15,7 +15,7 @@ pub use error::{Error, Result};
 pub use model::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, Handle, Id, Job,
     ListingEntry, OnConflict, ProbeRequest, Progress, SegmentState, Settings, SourceKind, Status,
-    UrlInfo, UrlKind,
+    UrlInfo, UrlKind, VersionInfo,
 };
 pub use stats::{CategoryStat, DayStat, LargestFile, Stats, StatsRange};
 
