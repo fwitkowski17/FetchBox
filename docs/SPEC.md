@@ -46,16 +46,16 @@ FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── core/src/{lib,model,category,scheduler,limiter,error}.rs
+│   ├── core/src/{lib,model,category,scheduler,limiter,stats,error}.rs
 │   ├── http_engine/src/{lib,segments,worker}.rs
 │   ├── torrent_engine/src/lib.rs        # stub, later librqbit
-│   ├── storage/{migrations/,src/{lib,downloads,segments,settings}.rs}
+│   ├── storage/{migrations/,src/{lib,downloads,segments,settings,stats}.rs}
 │   ├── api/src/{lib,routes,sse,auth,openapi}.rs
 │   └── server/src/main.rs
 ├── web/
 │   ├── src/
 │   │   ├── lib/{api/,components/,stores/}
-│   │   ├── routes/            # Downloads, Settings (+ Setup wizard); adding is a dialog
+│   │   ├── routes/            # Downloads, Statistics, Settings (+ Setup wizard); adding is a dialog
 │   │   └── main.ts
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
@@ -147,8 +147,14 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, active_ms, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
+- `history`: download_id, added_at, finished_at, outcome (`completed` | `failed` | `cancelled`), name, category, size, bytes,
+  active_ms. One row per download that ended, written by a trigger on `downloads.status`, so whichever code path ends a
+  download (also a removal while it runs) is recorded, and a retried download replaces its earlier row. It has no foreign
+  key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
+  summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
+  ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
 - `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
@@ -164,6 +170,12 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   checks)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/disk` (free space of the download disk)
+- `GET /api/stats?range=today|7d|30d|all&offset=<minutes east of UTC>` (a summary of the downloads of a period, in the
+  caller's days: `completed`, `failed`, `cancelled`, `in_progress` (not tied to the period), `bytes` fetched (plus what
+  unfinished downloads have fetched so far), `completed_bytes`, `active_seconds`, `average_speed` (bytes over the time
+  spent transferring, timed rows only), `peak_speed` (all time), `largest`, `categories` of the completed ones biggest
+  first, and `days`: the last 14 days oldest first with the empty ones, whatever the period. Cancelling counts as neither
+  success nor failure.)
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -326,6 +338,16 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   Kbit, Mbit, Gbit...) or one fixed unit (KB/s, MB/s, Kbit/s, Mbit/s). It applies to every speed the UI writes (list header,
   side panel, cards, limits on cards and in menus); the limit fields keep the unit of their own field. Fixed and bit units
   show three significant figures (123, 12.3, 1.23).
+- Statistics page (`routes/Stats.svelte`, "Statistics" in the side menu, `#/stats`): a period switch (today, 7 days, 30 days,
+  all time; remembered in `localStorage`, `fetchbox.statsRange`), a headline figure (the data downloaded, >= 48 px) with the
+  number of downloads, tiles (downloads, completed with the success rate = completed / (completed + failed), failed,
+  cancelled, average speed, peak speed, time spent downloading, largest file), the completed downloads per category as
+  horizontal bars (one hue; the label and icon carry the identity; size and count at the tip) and the last 14 days as
+  columns of data per day (one series, so no legend; a hairline grid with a clean top in the unit it is written in, columns
+  <= 24 px with a rounded top, a tooltip per column, a hit target the width of the day, a table for screen readers). Speeds
+  follow the speed unit of the app. The numbers reload every 10 s while the page is open (not in a hidden tab) and as soon
+  as a download ends. Nothing to count yet shows an explanation instead of zeroes. Because the numbers come from the
+  history, they stay when downloads are removed from the list.
 - Select boxes (language, speed unit, category, sort, field units) are drawn like the text inputs: same height, border, font
   and hover/focus, no native arrow but one chevron in every theme. Number inputs have no native spin buttons.
 - Settings form works in KB/s, MB/s, Kbit/s and Mbit/s and "limit on/off"; the API stays in bytes/s with `0` = unlimited.

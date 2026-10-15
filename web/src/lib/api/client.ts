@@ -8,6 +8,8 @@ import type {
   DiskSpace,
   Download,
   Settings,
+  Stats,
+  StatsRange,
 } from './types';
 
 export interface SpaceInfo {
@@ -140,6 +142,9 @@ export const api = {
     request<Download>('PATCH', `/downloads/${id}`, { category }),
 
   getDisk: () => request<DiskSpace>('GET', '/disk'),
+  /** `offsetMinutes`: the caller's distance from UTC, east positive; it decides where a day begins. */
+  getStats: (range: StatsRange, offsetMinutes: number) =>
+    request<Stats>('GET', `/stats?range=${range}&offset=${offsetMinutes}`),
   getSettings: () => request<Settings>('GET', '/settings'),
   putSettings: (settings: Settings) => request<Settings>('PUT', '/settings', settings),
 };
