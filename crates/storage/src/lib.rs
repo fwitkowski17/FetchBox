@@ -34,6 +34,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0003_subdir.sql"),
     include_str!("../migrations/0004_ignore_space.sql"),
     include_str!("../migrations/0005_waiting_space.sql"),
+    include_str!("../migrations/0006_archived.sql"),
+    include_str!("../migrations/0007_speed_limit.sql"),
 ];
 
 /// Open (creating if needed) the database at `path` and run pending migrations.

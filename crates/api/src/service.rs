@@ -15,9 +15,14 @@ pub trait Service: Send + Sync + 'static {
     async fn pause(&self, id: Id) -> Result<Download>;
     async fn resume(&self, id: Id) -> Result<Download>;
     async fn cancel(&self, id: Id) -> Result<Download>;
-    /// Remove from the list (cancels first when still active). Finished files stay on disk.
-    async fn remove(&self, id: Id) -> Result<()>;
+    /// Remove from the list (cancels first when still active). A finished file stays on disk
+    /// unless `delete_file` is set.
+    async fn remove(&self, id: Id, delete_file: bool) -> Result<()>;
     async fn set_category(&self, id: Id, category: Category) -> Result<Download>;
+    /// Limit the speed of one download (bytes/s, `0` = none); applied live when it is running.
+    async fn set_speed_limit(&self, id: Id, rate: u64) -> Result<Download>;
+    /// Hide a finished download from the main list, or bring it back.
+    async fn set_archived(&self, id: Id, archived: bool) -> Result<Download>;
     async fn settings(&self) -> Result<Settings>;
     async fn update_settings(&self, settings: Settings) -> Result<Settings>;
     /// Free space where downloads are written.

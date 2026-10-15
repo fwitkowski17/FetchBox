@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { Category, Download } from '../api/types';
-  import { CATEGORIES } from '../api/types';
+  import type { Download } from '../api/types';
   import { i18n, t } from '../i18n';
   import { confirmAction } from '../stores/confirm.svelte';
   import { downloads } from '../stores/downloads.svelte';
+  import { selection } from '../stores/selection.svelte';
   import { speedOf } from '../util/downloads';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
+  import CardMenu from './CardMenu.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
   import Icon from './Icon.svelte';
   import ProgressBar from './ProgressBar.svelte';
@@ -21,6 +22,8 @@
   const speed = $derived(speedOf(d));
   const eta = $derived(etaSeconds(d.downloaded, d.size, speed));
   const live = $derived(d.status === 'downloading');
+  const selecting = $derived(selection.active);
+  const selected = $derived(selection.has(d.id));
   /** Held back because the disk is full; the gauge below says by how much. */
   const heldForSpace = $derived(d.status === 'paused' && d.waiting_space === true && d.size != null);
   const unfinished = $derived(d.status === 'queued' || d.status === 'downloading' || d.status === 'paused');
@@ -61,18 +64,33 @@
   }
 
   const remove = () => act(() => downloads.remove(d.id));
-
-  function changeCategory(e: Event): void {
-    const value = (e.currentTarget as HTMLSelectElement).value as Category;
-    void act(() => downloads.setCategory(d.id, value));
-  }
 </script>
 
+<!-- In selection mode the whole card is the target; the checkbox is for keyboards and screen readers. -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 <article
-  class="grid gap-3 rounded-2xl border border-border bg-surface p-4 shadow-card"
+  class={[
+    'grid gap-3 rounded-2xl border bg-surface p-4 shadow-card transition-colors',
+    selected ? 'border-accent bg-accent-soft' : 'border-border',
+    selecting && 'cursor-pointer',
+  ]}
   aria-label={d.filename}
+  data-selected={selecting ? String(selected) : undefined}
+  onclick={(e) => {
+    if (selecting && !(e.target instanceof HTMLInputElement)) selection.toggle(d.id);
+  }}
 >
   <div class="flex items-center gap-3">
+    {#if selecting}
+      <input
+        type="checkbox"
+        class="size-5 shrink-0 accent-[var(--accent)]"
+        checked={selected}
+        onchange={() => selection.toggle(d.id)}
+        aria-label={t('selection.card', { name: d.filename })}
+        data-part="select"
+      />
+    {/if}
     <CategoryIcon category={d.category} tile />
     <div class="min-w-0 flex-1">
       <h3 class="truncate font-semibold tracking-tight" title={d.filename}>{d.filename}</h3>
@@ -100,6 +118,7 @@
     <p data-part="stats" class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted tabular-nums">
       {#if d.status === 'queued'}
         <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
+        {#if d.speed_limit}<span>{t('card.limit', { speed: i18n.speed(d.speed_limit) })}</span>{/if}
       {:else if d.status === 'completed'}
         <span>{i18n.bytes(d.size ?? d.downloaded)}</span>
       {:else if d.status === 'cancelled'}
@@ -114,6 +133,9 @@
         {#if live}
           <span>{i18n.speed(speed)}</span>
           {#if eta !== null}<span>{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
+        {/if}
+        {#if d.speed_limit && d.status !== 'failed'}
+          <span>{t('card.limit', { speed: i18n.speed(d.speed_limit) })}</span>
         {/if}
       {/if}
     </p>
@@ -131,42 +153,37 @@
     <p class="text-sm text-warning">{t('card.noResume')}</p>
   {/if}
 
-  <div class="flex items-center gap-2">
-    {#if primary}
-      <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
-        <Icon name={primary.icon} size={18} />{primary.label}
-      </button>
-    {/if}
+  {#if !selecting}
+    <div class="flex items-center gap-2">
+      {#if primary}
+        <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
+          <Icon name={primary.icon} size={18} />{primary.label}
+        </button>
+      {/if}
 
-    <label class="min-w-0 flex-[0_1_10rem]">
-      <span class="sr-only">{t('card.categoryOf', { name: d.filename })}</span>
-      <select class="select" value={d.category} disabled={busy} onchange={changeCategory}>
-        {#each CATEGORIES as c (c)}
-          <option value={c}>{t(`category.${c}`)}</option>
-        {/each}
-      </select>
-    </label>
+      <CardMenu download={d} disabled={busy} />
 
-    {#if unfinished}
-      <button
-        class={['btn icon', !primary && 'ml-auto']}
-        disabled={busy}
-        aria-label={t('card.cancel.label', { name: d.filename })}
-        title={t('card.cancel.title')}
-        onclick={cancel}
-      >
-        <Icon name="x" />
-      </button>
-    {:else}
-      <button
-        class="btn icon ml-auto"
-        disabled={busy}
-        aria-label={t('card.remove.label', { name: d.filename })}
-        title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
-        onclick={remove}
-      >
-        <Icon name="trash" />
-      </button>
-    {/if}
-  </div>
+      {#if unfinished}
+        <button
+          class={['btn icon', !primary && 'ml-auto']}
+          disabled={busy}
+          aria-label={t('card.cancel.label', { name: d.filename })}
+          title={t('card.cancel.title')}
+          onclick={cancel}
+        >
+          <Icon name="x" />
+        </button>
+      {:else}
+        <button
+          class="btn icon ml-auto"
+          disabled={busy}
+          aria-label={t('card.remove.label', { name: d.filename })}
+          title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
+          onclick={remove}
+        >
+          <Icon name="trash" />
+        </button>
+      {/if}
+    </div>
+  {/if}
 </article>

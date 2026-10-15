@@ -151,12 +151,15 @@ export interface paths {
         post?: never;
         /**
          * Remove a download from the list (cancels it first when still active).
-         *     A finished file stays on disk.
+         *     A finished file stays on disk unless `delete_file=true`.
          */
         delete: operations["remove"];
         options?: never;
         head?: never;
-        /** Change the category of a download. */
+        /**
+         * Change the category of a download, archive it (hide it from the main list) and/or set its own
+         *     speed limit.
+         */
         patch: operations["update"];
         trace?: never;
     };
@@ -372,6 +375,11 @@ export interface components {
         };
         /** @description A download as stored and shown to the user. */
         Download: {
+            /**
+             * @description Hidden from the main list (only finished, failed or cancelled downloads can be archived).
+             *     The file, if any, stays where it is.
+             */
+            archived?: boolean;
             category: components["schemas"]["Category"];
             /** Format: int64 */
             downloaded: number;
@@ -392,6 +400,13 @@ export interface components {
              * @description Current speed in bytes/s. Not persisted: filled in for running downloads.
              */
             speed?: number;
+            /**
+             * Format: int64
+             * @description Speed limit of this download alone, bytes/s. Set, it replaces the default per-download
+             *     limit of the settings (so it may be higher or lower); `0` means "use the default". The
+             *     total limit of all downloads (`Settings::speed_global`) caps the sum either way.
+             */
+            speed_limit?: number;
             status: components["schemas"]["Status"];
             /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
             subdir?: string;
@@ -479,12 +494,13 @@ export interface components {
             max_concurrent: number;
             /**
              * Format: int64
-             * @description Global speed limit, bytes/s.
+             * @description Total speed limit of all downloads together, bytes/s.
              */
             speed_global: number;
             /**
              * Format: int64
-             * @description Speed limit per download, bytes/s.
+             * @description Default speed limit of every download, bytes/s. A download with a limit of its own
+             *     (`Download::speed_limit`) ignores it.
              */
             speed_per_download: number;
         };
@@ -531,7 +547,20 @@ export interface components {
         Status: "queued" | "downloading" | "paused" | "completed" | "failed" | "cancelled";
         /** @description Body of `PATCH /downloads/{id}`. */
         UpdateDownload: {
+            /**
+             * @description Hide the download from the main list (`true`) or bring it back (`false`). Only finished,
+             *     failed or cancelled downloads can be archived (`409` otherwise).
+             */
+            archived?: boolean | null;
             category?: null | components["schemas"]["Category"];
+            /**
+             * Format: int64
+             * @description Speed of this download alone, bytes per second. It replaces the default speed of each
+             *     download (it may be faster or slower); `0` removes it, so the default applies again. The
+             *     total limit of all downloads still caps the sum. Only for queued, running, paused and
+             *     failed downloads (`409` otherwise). Applied live to a running download.
+             */
+            speed_limit?: number | null;
         };
     };
     responses: never;
@@ -880,6 +909,11 @@ export interface operations {
             path: {
                 /** @description Download id */
                 id: number;
+                /**
+                 * @description Also delete the finished file from the disk. Ignored for downloads that have not
+                 *     completed (their partial file is always removed).
+                 */
+                delete_file: boolean;
             };
             cookie?: never;
         };
@@ -903,6 +937,15 @@ export interface operations {
             };
             /** @description Unknown id */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The file could not be deleted; the entry is kept so it can be retried */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -956,6 +999,15 @@ export interface operations {
             };
             /** @description Unknown id */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not possible in the download's current status (archiving needs a finished one, a speed limit an unfinished or failed one) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -425,7 +425,7 @@
         "tags": [
           "downloads"
         ],
-        "summary": "Remove a download from the list (cancels it first when still active).\nA finished file stays on disk.",
+        "summary": "Remove a download from the list (cancels it first when still active).\nA finished file stays on disk unless `delete_file=true`.",
         "operationId": "remove",
         "parameters": [
           {
@@ -436,6 +436,15 @@
             "schema": {
               "type": "integer",
               "format": "int64"
+            }
+          },
+          {
+            "name": "delete_file",
+            "in": "path",
+            "description": "Also delete the finished file from the disk. Ignored for downloads that have not\ncompleted (their partial file is always removed).",
+            "required": true,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -462,6 +471,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "The file could not be deleted; the entry is kept so it can be retried",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -477,7 +496,7 @@
         "tags": [
           "downloads"
         ],
-        "summary": "Change the category of a download.",
+        "summary": "Change the category of a download, archive it (hide it from the main list) and/or set its own\nspeed limit.",
         "operationId": "update",
         "parameters": [
           {
@@ -534,6 +553,16 @@
           },
           "404": {
             "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not possible in the download's current status (archiving needs a finished one, a speed limit an unfinished or failed one)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1134,6 +1163,10 @@
           "resumable"
         ],
         "properties": {
+          "archived": {
+            "type": "boolean",
+            "description": "Hidden from the main list (only finished, failed or cancelled downloads can be archived).\nThe file, if any, stays where it is."
+          },
           "category": {
             "$ref": "#/components/schemas/Category"
           },
@@ -1180,6 +1213,12 @@
             "type": "integer",
             "format": "int64",
             "description": "Current speed in bytes/s. Not persisted: filled in for running downloads.",
+            "minimum": 0
+          },
+          "speed_limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Speed limit of this download alone, bytes/s. Set, it replaces the default per-download\nlimit of the settings (so it may be higher or lower); `0` means \"use the default\". The\ntotal limit of all downloads (`Settings::speed_global`) caps the sum either way.",
             "minimum": 0
           },
           "status": {
@@ -1408,13 +1447,13 @@
           "speed_global": {
             "type": "integer",
             "format": "int64",
-            "description": "Global speed limit, bytes/s.",
+            "description": "Total speed limit of all downloads together, bytes/s.",
             "minimum": 0
           },
           "speed_per_download": {
             "type": "integer",
             "format": "int64",
-            "description": "Speed limit per download, bytes/s.",
+            "description": "Default speed limit of every download, bytes/s. A download with a limit of its own\n(`Download::speed_limit`) ignores it.",
             "minimum": 0
           }
         }
@@ -1496,6 +1535,13 @@
         "type": "object",
         "description": "Body of `PATCH /downloads/{id}`.",
         "properties": {
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Hide the download from the main list (`true`) or bring it back (`false`). Only finished,\nfailed or cancelled downloads can be archived (`409` otherwise)."
+          },
           "category": {
             "oneOf": [
               {
@@ -1506,6 +1552,15 @@
                 "description": "New category (manual override of the detected one)."
               }
             ]
+          },
+          "speed_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Speed of this download alone, bytes per second. It replaces the default speed of each\ndownload (it may be faster or slower); `0` removes it, so the default applies again. The\ntotal limit of all downloads still caps the sum. Only for queued, running, paused and\nfailed downloads (`409` otherwise). Applied live to a running download.",
+            "minimum": 0
           }
         }
       }

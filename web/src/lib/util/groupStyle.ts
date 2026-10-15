@@ -8,6 +8,7 @@ export const GROUP_ICON: Record<Group, IconName> = {
   paused: 'pauseCircle',
   completed: 'checkCircle',
   stopped: 'xCircle',
+  archived: 'archive',
 };
 
 /** Full class names, so Tailwind can see them. */
@@ -17,4 +18,5 @@ export const GROUP_COLOR: Record<Group, string> = {
   paused: 'text-warning',
   completed: 'text-success',
   stopped: 'text-danger',
+  archived: 'text-muted',
 };

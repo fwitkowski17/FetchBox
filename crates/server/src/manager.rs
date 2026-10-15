@@ -59,6 +59,7 @@ impl Manager {
         let current = settings::load(&conn)?;
         let limiter = RateLimiter::with_global(current.speed_global);
         let (engine, rx) = HttpDownloader::new(&dir, limiter, policy)?;
+        engine.set_default_speed(current.speed_per_download);
         let requeued = downloads::requeue_interrupted(&conn)?;
         if requeued > 0 {
             tracing::info!(count = requeued, "re-queued interrupted downloads");
@@ -193,7 +194,7 @@ impl Manager {
             filename: d.filename,
             subdir: d.subdir,
             connections: s.connections,
-            speed_limit: s.speed_per_download,
+            speed_limit: d.speed_limit,
             etag: d.etag,
             segments: if d.downloaded > 0 { segs } else { Vec::new() },
             overwrite,
@@ -393,6 +394,31 @@ impl Manager {
             name_taken,
             name_reserved,
         })
+    }
+
+    /// Delete the finished file of a completed download. Only a plain file name directly inside
+    /// the download's own directory is ever touched; a file that is already gone is fine.
+    async fn delete_finished_file(&self, d: &Download) -> Result<()> {
+        // Names are sanitized when added and again by the engine; this is the last line of defence
+        // against a path that points anywhere else.
+        if d.filename.is_empty() || sanitize(&d.filename) != d.filename {
+            return Err(Error::InvalidState(format!(
+                "refusing to delete a file with an unsafe name: {:?}",
+                d.filename
+            )));
+        }
+        let path = self.engine.dir_for(&d.subdir).join(&d.filename);
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => {
+                tracing::info!(id = d.id, path = %path.display(), "deleted the downloaded file");
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => {
+                tracing::warn!(id = d.id, path = %path.display(), error = %e, "cannot delete the file");
+                Err(io_err(e))
+            }
+        }
     }
 
     /// Remove the `.part` file of a download, ignoring "not there".
@@ -630,14 +656,48 @@ impl Service for Manager {
         self.get(id)
     }
 
-    async fn remove(&self, id: Id) -> Result<()> {
+    async fn remove(&self, id: Id, delete_file: bool) -> Result<()> {
         let d = self.get(id)?;
         if !d.status.is_terminal() {
             self.do_cancel(&d).await?;
         }
+        // The file first: if it cannot be deleted the entry stays, so the user can try again.
+        if delete_file && d.status == Status::Completed {
+            self.delete_finished_file(&d).await?;
+        }
         self.with_db(|c| downloads::delete(c, id).map(|_| ()))?;
         self.publish(Event::Removed { id });
         Ok(())
+    }
+
+    async fn set_speed_limit(&self, id: Id, rate: u64) -> Result<Download> {
+        let d = self.get(id)?;
+        if !matches!(
+            d.status,
+            Status::Queued | Status::Downloading | Status::Paused | Status::Failed
+        ) {
+            return Err(Error::InvalidState(format!(
+                "a {} download has no speed to limit",
+                d.status.as_str()
+            )));
+        }
+        self.with_db(|c| downloads::set_speed_limit(c, id, rate))?;
+        self.engine.set_speed_limit(id, rate); // live, if it is running
+        self.publish_download(id);
+        self.get(id).map(|d| self.view(d))
+    }
+
+    async fn set_archived(&self, id: Id, archived: bool) -> Result<Download> {
+        let d = self.get(id)?;
+        if archived && !d.status.is_terminal() {
+            return Err(Error::InvalidState(format!(
+                "cannot archive a {} download",
+                d.status.as_str()
+            )));
+        }
+        self.with_db(|c| downloads::set_archived(c, id, archived))?;
+        self.publish_download(id);
+        self.get(id).map(|d| self.view(d))
     }
 
     async fn set_category(&self, id: Id, category: Category) -> Result<Download> {
@@ -665,7 +725,7 @@ impl Service for Manager {
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
         // Live: limits touch running downloads, the slot limit only gates new ones.
         self.engine.limiter().set_global(new.speed_global);
-        self.engine.set_speed_per_download(new.speed_per_download);
+        self.engine.set_default_speed(new.speed_per_download);
         let start = self.sched().set_max_concurrent(new.max_concurrent);
         self.publish(Event::Settings {
             settings: new.clone(),

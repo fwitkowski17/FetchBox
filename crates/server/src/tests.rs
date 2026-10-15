@@ -438,9 +438,12 @@ async fn cancel_removes_part_file_and_remove_drops_the_row() {
         Err(Error::InvalidState(_))
     ));
 
-    h.mgr.remove(d.id).await.expect("remove");
+    h.mgr.remove(d.id, false).await.expect("remove");
     assert!(h.mgr.list().await.expect("l").is_empty());
-    assert!(matches!(h.mgr.remove(d.id).await, Err(Error::NotFound(_))));
+    assert!(matches!(
+        h.mgr.remove(d.id, false).await,
+        Err(Error::NotFound(_))
+    ));
 }
 
 #[tokio::test]
@@ -452,8 +455,358 @@ async fn removing_a_finished_download_keeps_the_file() {
         .await
         .expect("add");
     h.wait_status(d.id, Status::Completed).await;
-    h.mgr.remove(d.id).await.expect("remove");
+    h.mgr.remove(d.id, false).await.expect("remove");
     assert_eq!(file(&h.path("keep.bin")), body());
+}
+
+#[tokio::test]
+async fn removing_with_delete_file_deletes_the_finished_file() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("fast", "gone.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+    assert!(h.path("gone.bin").exists());
+    h.mgr.remove(d.id, true).await.expect("remove");
+    assert!(!h.path("gone.bin").exists(), "the file is deleted");
+    assert!(
+        h.mgr.list().await.expect("list").is_empty(),
+        "and the entry too"
+    );
+
+    // A file that is already gone (the user deleted it by hand) is not an error.
+    let again = h
+        .mgr
+        .add(h.req("fast", "vanished.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(again.id, Status::Completed).await;
+    std::fs::remove_file(h.path("vanished.bin")).expect("manual delete");
+    h.mgr.remove(again.id, true).await.expect("still removable");
+}
+
+#[tokio::test]
+async fn delete_file_removes_the_renamed_file_in_the_category_directory_only() {
+    let h = Harness::new().await;
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.category_subdirs = true;
+    h.mgr.update_settings(s).await.expect("update");
+    // A file with the same name that is not ours: it must survive.
+    std::fs::create_dir_all(h.path("other")).expect("mkdir");
+    std::fs::write(h.path("other/mine.bin"), b"precious").expect("write");
+    std::fs::write(h.path("mine.bin"), b"also precious").expect("write");
+
+    let d = h
+        .mgr
+        .add(h.req("fast", "mine.bin", OnConflict::Rename))
+        .await
+        .expect("add");
+    let done = h.wait_status(d.id, Status::Completed).await;
+    assert_eq!(
+        done.filename, "mine (1).bin",
+        "the engine picked a free name"
+    );
+    assert!(h.path("other/mine (1).bin").exists());
+
+    h.mgr.remove(d.id, true).await.expect("remove");
+    assert!(!h.path("other/mine (1).bin").exists());
+    assert_eq!(file(&h.path("other/mine.bin")), b"precious");
+    assert_eq!(file(&h.path("mine.bin")), b"also precious");
+}
+
+#[tokio::test]
+async fn delete_file_is_ignored_for_unfinished_downloads() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "later.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Downloading).await;
+    h.mgr.remove(d.id, true).await.expect("cancel and remove");
+    h.mgr.list().await.expect("list");
+    assert!(!h.path("later.bin").exists(), "nothing was finished");
+    assert!(h.mgr.list().await.expect("list").is_empty());
+}
+
+#[tokio::test]
+async fn a_download_has_a_speed_limit_of_its_own_that_applies_live() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "limited.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    // 2 KiB/s with a one-second burst: the 40 KiB file cannot finish within a couple of seconds
+    // (unthrottled it takes about one).
+    let limited = h.mgr.set_speed_limit(d.id, 2048).await.expect("limit");
+    assert_eq!(limited.speed_limit, 2048);
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(now.status, Status::Downloading, "throttled, not finished");
+    assert!(now.downloaded < BODY_LEN as u64, "{}", now.downloaded);
+    assert_eq!(now.speed_limit, 2048, "and the limit is stored");
+
+    // Taking the limit off lets it run at full speed again.
+    h.mgr.set_speed_limit(d.id, 0).await.expect("unlimit");
+    h.wait_status(d.id, Status::Completed).await;
+    assert_eq!(file(&h.path("limited.bin")), body());
+}
+
+#[tokio::test]
+async fn a_limit_set_while_queued_is_used_when_the_download_starts() {
+    let h = Harness::new().await;
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.max_concurrent = 1;
+    h.mgr.update_settings(s).await.expect("update");
+    let first = h
+        .mgr
+        .add(h.req("slow", "first.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let second = h
+        .mgr
+        .add(h.req("slow", "second.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(second.status, Status::Queued);
+    h.mgr.set_speed_limit(second.id, 2048).await.expect("limit");
+
+    h.wait_status(first.id, Status::Completed).await;
+    h.wait_status(second.id, Status::Downloading).await;
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h
+        .mgr
+        .list()
+        .await
+        .expect("list")
+        .into_iter()
+        .find(|d| d.id == second.id)
+        .expect("row");
+    assert_eq!(
+        now.status,
+        Status::Downloading,
+        "its own limit applies from the start"
+    );
+    assert!(now.downloaded < BODY_LEN as u64, "{}", now.downloaded);
+}
+
+#[tokio::test]
+async fn the_default_limit_applies_live_to_downloads_without_a_limit_of_their_own() {
+    let h = Harness::new().await;
+    let slow = h
+        .mgr
+        .add(h.req("slow", "default.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.speed_per_download = 2048;
+    h.mgr.update_settings(s.clone()).await.expect("default");
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(now.status, Status::Downloading, "the default throttles it");
+    assert_eq!(now.speed_limit, 0, "without storing a limit of its own");
+
+    // A limit of its own replaces the default, here with a higher one: it may be faster.
+    h.mgr
+        .set_speed_limit(slow.id, 50_000_000)
+        .await
+        .expect("own limit");
+    h.wait_status(slow.id, Status::Completed).await;
+    assert_eq!(file(&h.path("default.bin")), body());
+}
+
+#[tokio::test]
+async fn a_limit_of_its_own_ignores_later_changes_of_the_default() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "own.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.mgr.set_speed_limit(d.id, 2048).await.expect("own limit");
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.speed_per_download = 50_000_000; // a faster default must not lift its own limit
+    h.mgr.update_settings(s.clone()).await.expect("default");
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(now.status, Status::Downloading, "still on its own limit");
+
+    // Taking its limit off hands it back to the default (fast here).
+    h.mgr.set_speed_limit(d.id, 0).await.expect("unlimit");
+    h.wait_status(d.id, Status::Completed).await;
+}
+
+#[tokio::test]
+async fn the_total_limit_caps_the_sum_of_all_downloads() {
+    let h = Harness::new().await;
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.speed_global = 4096; // far below what two downloads would reach
+    h.mgr.update_settings(s).await.expect("total limit");
+    let a = h
+        .mgr
+        .add(h.req("slow", "sum-a.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let b = h
+        .mgr
+        .add(h.req("slow", "sum-b.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    // A fast limit of its own does not lift the total cap.
+    h.mgr.set_speed_limit(a.id, 50_000_000).await.expect("fast");
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let rows = h.mgr.list().await.expect("list");
+    let written: u64 = rows.iter().map(|d| d.downloaded).sum();
+    assert!(
+        rows.iter().all(|d| d.status == Status::Downloading),
+        "{rows:?}"
+    );
+    assert!(
+        written < BODY_LEN as u64,
+        "{written} bytes for two downloads (a {} byte file each) under a 4 KiB/s total",
+        BODY_LEN
+    );
+    let _ = b;
+}
+
+#[tokio::test]
+async fn finished_downloads_have_no_speed_to_limit() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("fast", "done.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+    assert!(matches!(
+        h.mgr.set_speed_limit(d.id, 1000).await,
+        Err(Error::InvalidState(_))
+    ));
+    assert!(matches!(
+        h.mgr.set_speed_limit(9999, 1000).await,
+        Err(Error::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn patch_sets_the_speed_limit_with_the_other_fields() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let d = h
+        .mgr
+        .add(h.req("claim", "50000", OnConflict::Reject))
+        .await
+        .expect("add");
+    let patch = |body: &'static str| {
+        let (c, url) = (c.clone(), format!("{api}/downloads/{}", d.id));
+        async move { raw(&c, reqwest::Method::PATCH, url, Some(body), None).await }
+    };
+    let r = patch(r#"{"speed_limit":1500000,"category":"video"}"#).await;
+    assert_eq!(r.status().as_u16(), 200);
+    let text = r.text().await.expect("body");
+    assert!(
+        text.contains(r#""speed_limit":1500000"#) && text.contains(r#""category":"video""#),
+        "{text}"
+    );
+    let r = patch(r#"{"speed_limit":0}"#).await;
+    assert!(r.text().await.expect("body").contains(r#""speed_limit":0"#));
+}
+
+#[tokio::test]
+async fn finished_downloads_can_be_archived_and_restored() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("fast", "old.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+    assert!(!d.archived);
+
+    let archived = h.mgr.set_archived(d.id, true).await.expect("archive");
+    assert!(archived.archived);
+    assert_eq!(
+        archived.status,
+        Status::Completed,
+        "the status is untouched"
+    );
+    assert!(h.path("old.bin").exists(), "and so is the file");
+    assert!(h.mgr.list().await.expect("list")[0].archived);
+
+    // Archived entries still count: the same URL is a duplicate, the name is taken.
+    assert_eq!(
+        conflict_kind(
+            h.mgr
+                .add(h.req("fast", "old.bin", OnConflict::Reject))
+                .await
+        ),
+        ConflictKind::DuplicateUrl
+    );
+
+    let back = h.mgr.set_archived(d.id, false).await.expect("restore");
+    assert!(!back.archived);
+}
+
+#[tokio::test]
+async fn unfinished_downloads_cannot_be_archived() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "busy.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Downloading).await;
+    assert!(matches!(
+        h.mgr.set_archived(d.id, true).await,
+        Err(Error::InvalidState(_))
+    ));
+    // Restoring is always harmless, and an unknown id is a 404.
+    assert!(h.mgr.set_archived(d.id, false).await.is_ok());
+    assert!(matches!(
+        h.mgr.set_archived(9999, true).await,
+        Err(Error::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn patch_changes_category_and_archive_flag_together() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let d = h
+        .mgr
+        .add(h.req("fast", "both.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+
+    let patch = |body: &'static str| {
+        let (c, url) = (c.clone(), format!("{api}/downloads/{}", d.id));
+        async move { raw(&c, reqwest::Method::PATCH, url, Some(body), None).await }
+    };
+    let both = patch(r#"{"category":"video","archived":true}"#).await;
+    assert_eq!(both.status().as_u16(), 200);
+    let text = both.text().await.expect("body");
+    assert!(
+        text.contains(r#""category":"video""#) && text.contains(r#""archived":true"#),
+        "{text}"
+    );
+
+    assert_eq!(
+        patch("{}").await.status().as_u16(),
+        400,
+        "nothing to update"
+    );
+    let again = patch(r#"{"archived":false}"#).await;
+    assert!(again
+        .text()
+        .await
+        .expect("body")
+        .contains(r#""archived":false"#));
 }
 
 #[tokio::test]
@@ -1163,6 +1516,44 @@ async fn apost(
         header,
     )
     .await
+}
+
+#[tokio::test]
+async fn delete_over_http_takes_the_file_only_when_asked() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let mut ids = Vec::new();
+    for name in ["keep.bin", "drop.bin"] {
+        let d = h
+            .mgr
+            .add(h.req("fast", name, OnConflict::Reject))
+            .await
+            .expect("add");
+        h.wait_status(d.id, Status::Completed).await;
+        ids.push(d.id);
+    }
+    let plain = raw(
+        &c,
+        reqwest::Method::DELETE,
+        format!("{api}/downloads/{}", ids[0]),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(plain.status().as_u16(), 204);
+    assert!(h.path("keep.bin").exists(), "the file stays by default");
+
+    let with_file = raw(
+        &c,
+        reqwest::Method::DELETE,
+        format!("{api}/downloads/{}?delete_file=true", ids[1]),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(with_file.status().as_u16(), 204);
+    assert!(!h.path("drop.bin").exists(), "delete_file=true deletes it");
 }
 
 #[tokio::test]

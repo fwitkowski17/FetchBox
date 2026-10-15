@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../i18n';
+  import { SPEED_UNITS, SPEED_UNIT_LABEL } from '../util/format';
   import type { SpeedDraft } from '../util/settingsForm';
   import Toggle from './Toggle.svelte';
 
@@ -8,9 +9,11 @@
     hint: string;
     value: SpeedDraft;
     error?: string | undefined;
+    /** What the field says while the limit is off (default: "Unlimited"). */
+    offText?: string | undefined;
   }
 
-  let { label, hint, value = $bindable(), error }: Props = $props();
+  let { label, hint, value = $bindable(), error, offText }: Props = $props();
   const id = `speed-${Math.random().toString(36).slice(2, 8)}`;
 </script>
 
@@ -30,13 +33,14 @@
         aria-invalid={error ? 'true' : undefined}
       />
       <label class="sr-only" for={`${id}-unit`}>{t('settings.speed.unit')}</label>
-      <select id={`${id}-unit`} class="select w-28 shrink-0" bind:value={value.unit}>
-        <option value="KB">KB/s</option>
-        <option value="MB">MB/s</option>
+      <select id={`${id}-unit`} class="select w-36 shrink-0" bind:value={value.unit}>
+        {#each SPEED_UNITS as unit (unit)}
+          <option value={unit}>{SPEED_UNIT_LABEL[unit]}</option>
+        {/each}
       </select>
     </div>
   {:else}
-    <p class="hint">{t('settings.speed.unlimited')}</p>
+    <p class="hint">{offText ?? t('settings.speed.unlimited')}</p>
   {/if}
   {#if error}<p class="text-sm text-danger" role="alert">{error}</p>{/if}
 </div>

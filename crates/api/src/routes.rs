@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     middleware,
     routing::{get, patch, post},
@@ -11,7 +11,7 @@ use axum::{
 };
 use dlm_core::{AddRequest, Category, DiskSpace, Download, Error, Id, Settings};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::{self, Auth};
 use crate::error::{ApiError, ConflictBody, ErrorBody, SpaceBody};
@@ -58,6 +58,14 @@ pub struct Health {
 pub struct UpdateDownload {
     /// New category (manual override of the detected one).
     pub category: Option<Category>,
+    /// Hide the download from the main list (`true`) or bring it back (`false`). Only finished,
+    /// failed or cancelled downloads can be archived (`409` otherwise).
+    pub archived: Option<bool>,
+    /// Speed of this download alone, bytes per second. It replaces the default speed of each
+    /// download (it may be faster or slower); `0` removes it, so the default applies again. The
+    /// total limit of all downloads still caps the sum. Only for queued, running, paused and
+    /// failed downloads (`409` otherwise). Applied live to a running download.
+    pub speed_limit: Option<u64>,
 }
 
 /// Liveness probe (public).
@@ -132,7 +140,8 @@ pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
     Ok(Json(svc.disk_space().await?))
 }
 
-/// Change the category of a download.
+/// Change the category of a download, archive it (hide it from the main list) and/or set its own
+/// speed limit.
 #[utoipa::path(
     patch,
     path = "/api/downloads/{id}",
@@ -145,6 +154,7 @@ pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
         (status = 400, description = "Nothing to update", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "Unknown id", body = ErrorBody),
+        (status = 409, description = "Not possible in the download's current status (archiving needs a finished one, a speed limit an unfinished or failed one)", body = ErrorBody),
     )
 )]
 pub(crate) async fn update(
@@ -152,28 +162,52 @@ pub(crate) async fn update(
     Path(id): Path<Id>,
     Json(body): Json<UpdateDownload>,
 ) -> ApiResult<Json<Download>> {
-    let category = body
-        .category
-        .ok_or_else(|| Error::InvalidInput("nothing to update".into()))?;
-    Ok(Json(svc.set_category(id, category).await?))
+    if body.category.is_none() && body.archived.is_none() && body.speed_limit.is_none() {
+        return Err(Error::InvalidInput("nothing to update".into()).into());
+    }
+    let mut updated = None;
+    if let Some(rate) = body.speed_limit {
+        updated = Some(svc.set_speed_limit(id, rate).await?);
+    }
+    if let Some(category) = body.category {
+        updated = Some(svc.set_category(id, category).await?);
+    }
+    if let Some(archived) = body.archived {
+        updated = Some(svc.set_archived(id, archived).await?);
+    }
+    updated.map(Json).ok_or_else(|| Error::NotFound(id).into())
+}
+
+/// Query of `DELETE /downloads/{id}`.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct RemoveQuery {
+    /// Also delete the finished file from the disk. Ignored for downloads that have not
+    /// completed (their partial file is always removed).
+    #[serde(default)]
+    pub delete_file: bool,
 }
 
 /// Remove a download from the list (cancels it first when still active).
-/// A finished file stays on disk.
+/// A finished file stays on disk unless `delete_file=true`.
 #[utoipa::path(
     delete,
     path = "/api/downloads/{id}",
     tag = "downloads",
     security(("session" = []), ("bearer" = [])),
-    params(("id" = i64, Path, description = "Download id")),
+    params(("id" = i64, Path, description = "Download id"), RemoveQuery),
     responses(
         (status = 204, description = "Removed"),
+        (status = 500, description = "The file could not be deleted; the entry is kept so it can be retried", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "Unknown id", body = ErrorBody),
     )
 )]
-pub(crate) async fn remove(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<StatusCode> {
-    svc.remove(id).await?;
+pub(crate) async fn remove(
+    State(svc): Svc,
+    Path(id): Path<Id>,
+    Query(q): Query<RemoveQuery>,
+) -> ApiResult<StatusCode> {
+    svc.remove(id, q.delete_file).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

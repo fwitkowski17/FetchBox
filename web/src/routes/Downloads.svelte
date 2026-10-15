@@ -1,12 +1,18 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { fly } from 'svelte/transition';
   import CategoryIcon from '../lib/components/CategoryIcon.svelte';
   import DownloadCard from '../lib/components/DownloadCard.svelte';
+  import SelectionBar from '../lib/components/SelectionBar.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import { i18n, t } from '../lib/i18n';
+  import { addDialog } from '../lib/stores/addDialog.svelte';
   import { downloads } from '../lib/stores/downloads.svelte';
+  import { selection } from '../lib/stores/selection.svelte';
   import { prefs } from '../lib/stores/prefs.svelte';
   import { toast } from '../lib/stores/toast.svelte';
   import { GROUP_COLOR, GROUP_ICON } from '../lib/util/groupStyle';
+  import { motion } from '../lib/util/motion';
   import {
     SORT_OPTIONS,
     filterDownloads,
@@ -24,6 +30,16 @@
     downloads.items.filter((d) => d.status === 'completed' || d.status === 'failed' || d.status === 'cancelled').length,
   );
   const filtering = $derived(prefs.group !== 'all' || prefs.category !== 'all' || prefs.query.trim() !== '');
+
+  /** Only what is on screen can be selected: a filter that hides a download deselects it. */
+  $effect(() => {
+    const shown = new Set(visible.map((d) => d.id));
+    untrack(() => selection.keepOnly(shown));
+  });
+  // Leaving the page ends the selection mode.
+  $effect(() => () => selection.exit());
+
+  const archivedCount = $derived(downloads.items.filter((d) => d.archived).length);
 
   const sortLabel = $derived(t(`sort.${prefs.sort.dir}`));
 
@@ -58,11 +74,28 @@
       {/if}
     </p>
   </div>
-  {#if finished > 0}
-    <button class="btn whitespace-nowrap" onclick={clearFinished}>
-      <Icon name="trash" size={17} />{t('downloads.clearFinished', { n: finished })}
-    </button>
-  {/if}
+  <div class="flex flex-wrap items-center gap-2">
+    {#if downloads.items.length > 0 && !selection.active}
+      <button class="btn whitespace-nowrap" onclick={() => selection.enter()} data-part="select-mode">
+        <Icon name="select" size={17} />{t('downloads.select')}
+      </button>
+    {/if}
+    {#if finished > 0 && !selection.active}
+      <button class="btn whitespace-nowrap" onclick={clearFinished}>
+        <Icon name="trash" size={17} />{t('downloads.clearFinished', { n: finished })}
+      </button>
+    {/if}
+    <!-- With an empty list the big button below does this; on narrow screens the floating one. -->
+    {#if downloads.items.length > 0 && !selection.active}
+      <button
+        class="btn primary whitespace-nowrap max-lg:hidden"
+        data-part="add"
+        onclick={() => addDialog.show()}
+      >
+        <Icon name="plus" size={18} />{t('downloads.add')}
+      </button>
+    {/if}
+  </div>
 </header>
 
 <div class="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -138,17 +171,30 @@
   <div class="mt-12 grid justify-items-center gap-3 text-center text-muted">
     <span class="grid size-16 place-items-center rounded-full bg-surface-2"><Icon name="down" size={28} /></span>
     <p>{t('downloads.empty')}</p>
-    <a class="btn primary" href="#/add"><Icon name="plus" size={18} />{t('downloads.empty.add')}</a>
+    <button class="btn primary" onclick={() => addDialog.show()}>
+      <Icon name="plus" size={18} />{t('downloads.empty.add')}
+    </button>
   </div>
 {:else if visible.length === 0}
   <div class="mt-12 grid justify-items-center gap-3 text-center text-muted">
-    <p>{t('downloads.noMatch')}</p>
-    {#if filtering}<button class="btn" onclick={resetFilters}>{t('downloads.clearFilters')}</button>{/if}
+    {#if prefs.group === 'all' && archivedCount > 0 && prefs.category === 'all' && prefs.query.trim() === ''}
+      <p>{t('downloads.allArchived')}</p>
+      <button class="btn" onclick={() => prefs.setGroup('archived')}>{t('downloads.showArchived')}</button>
+    {:else}
+      <p>{t('downloads.noMatch')}</p>
+      {#if filtering}<button class="btn" onclick={resetFilters}>{t('downloads.clearFilters')}</button>{/if}
+    {/if}
   </div>
 {:else}
   <ul class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,25rem),1fr))] gap-3">
     {#each visible as d (d.id)}
-      <li><DownloadCard download={d} /></li>
+      <li in:fly={{ y: 10, duration: motion(220) }}><DownloadCard download={d} /></li>
     {/each}
   </ul>
+{/if}
+
+{#if selection.active}
+  <SelectionBar {visible} />
+  <!-- Room for the bar, so the last card is not hidden behind it. -->
+  <div class="h-20" aria-hidden="true"></div>
 {/if}

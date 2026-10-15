@@ -7,6 +7,7 @@ import {
   defaultDir,
   filterDownloads,
   groupOf,
+  groupOfDownload,
   sortDownloads,
   summarize,
   type Filter,
@@ -58,7 +59,7 @@ describe('groups and filters', () => {
 
   it('counts each chip ignoring its own dimension', () => {
     const f: Filter = { group: 'completed', category: 'video', query: '' };
-    expect(countGroups(items, f)).toEqual({ all: 2, active: 1, paused: 0, completed: 1, stopped: 0 });
+    expect(countGroups(items, f)).toEqual({ all: 2, active: 1, paused: 0, completed: 1, stopped: 0, archived: 0 });
     expect(countCategories(items, f)).toEqual({
       all: 1,
       photo: 0,
@@ -201,5 +202,42 @@ describe('summarize', () => {
       dl(4, { status: 'paused', speed: 999 }),
     ];
     expect(summarize(items)).toEqual({ active: 2, queued: 1, speed: 150 });
+  });
+});
+
+describe('archived downloads', () => {
+  const items = [
+    dl(1),
+    dl(2, { archived: true }),
+    dl(3, { status: 'failed', archived: true, category: 'music' }),
+    dl(4, { status: 'downloading' }),
+  ];
+
+  it('are out of the main list and have their own tab', () => {
+    expect(groupOfDownload(items[1] as Download)).toBe('archived');
+    expect(groupOfDownload(items[3] as Download)).toBe('active');
+    expect(ids(filterDownloads(items, all))).toEqual([1, 4]);
+    expect(ids(filterDownloads(items, { ...all, group: 'archived' }))).toEqual([2, 3]);
+    // The status tabs never show them.
+    expect(ids(filterDownloads(items, { ...all, group: 'completed' }))).toEqual([1]);
+    expect(ids(filterDownloads(items, { ...all, group: 'stopped' }))).toEqual([]);
+  });
+
+  it('are counted in their tab and not in "all"', () => {
+    expect(countGroups(items, all)).toEqual({
+      all: 2,
+      active: 1,
+      paused: 0,
+      completed: 1,
+      stopped: 0,
+      archived: 2,
+    });
+    // Category and search still narrow every tab.
+    expect(countGroups(items, { ...all, category: 'music' }).archived).toBe(1);
+  });
+
+  it('keep the category counts of the tab being viewed', () => {
+    expect(countCategories(items, { ...all, group: 'archived' }).music).toBe(1);
+    expect(countCategories(items, all).music).toBe(0);
   });
 });

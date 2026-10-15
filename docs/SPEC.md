@@ -14,8 +14,8 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 - Settings:
   - connections (segments) per download
   - max simultaneous downloads (extra ones are `Queued`)
-  - speed limit per download
-  - global speed limit
+  - default speed of each download (a single download can get its own speed from its menu, which replaces the default, see 6.6)
+  - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
@@ -55,7 +55,7 @@ dlmanager/
 ├── web/
 │   ├── src/
 │   │   ├── lib/{api/,components/,stores/}
-│   │   ├── routes/            # Downloads, AddDownload, Settings
+│   │   ├── routes/            # Downloads, Settings (+ Setup wizard); adding is a dialog
 │   │   └── main.ts
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
@@ -124,7 +124,15 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 ### 6.3 Scheduler and limits
 
 - `Semaphore` limits concurrent downloads; overflow = `Queued`.
-- Two-level token bucket: global and per-download. Every segment acquires tokens before reading from the socket.
+- Two-level token bucket: total and per-download. Every segment acquires tokens before reading from the socket. Three
+  limits, in this order: (1) the download's own speed (`downloads.speed_limit`, bytes/s, `0` = none set), else (2) the
+  default speed of each download (`speed_per_download`, `0` = none), which sets the rate of the per-download bucket; (3) the
+  total limit (`speed_global`), the shared bucket that caps the sum of all downloads whatever their own rates are. An own
+  speed replaces the default instead of being capped by it, so a download can be faster than the others (but never above
+  the total). The own speed is changed with `PATCH` and applies live to a running download (and when a queued, paused or
+  failed one starts); clearing it hands the download back to the default. Changing the default applies live to the running
+  downloads without an own speed. The engine holds the default and reads it under the same lock that registers a download,
+  so a start cannot miss a change. Finished and cancelled downloads have nothing to limit (`409`).
 - Settings changes are propagated live (watch channel).
 
 ### 6.3.1 Categories and directories
@@ -139,7 +147,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
 - `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
 
@@ -148,8 +156,12 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 ### 6.5 API (draft)
 
 - `GET /api/downloads`, `POST /api/downloads`
-- `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id`
-- `PATCH /api/downloads/:id` (e.g. change category)
+- `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id[?delete_file=true]` (removes the entry; with
+  `delete_file` also the finished file, only for a completed download and only the plain file name the engine finally
+  chose, inside the download's own directory; a file that is already gone is fine, any other failure keeps the entry)
+- `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
+  the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
+  checks)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/disk` (free space of the download disk)
 - `GET /api/events` (SSE: progress, status changes)
@@ -202,6 +214,52 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   Pressing "Resume" while the disk is still too full (`507`, also for a failed download) opens a dialog with the same gauge
   instead of a toast: it follows the disk figures, "Try again" retries, and once there is room the button reads "Resume" and
   starts the download (the dialog closes when the resume works or the download is gone).
+- Adding from the list: with at least one download on the list the page header has a primary "Add download" button at its
+  right end (next to "Clear finished"); an empty list has the big button in the middle instead, and below 64rem the floating
+  button takes over (the header one is hidden there, so there is one add button per layout). The side menu has no "Add"
+  item: it lists the pages and the filters. Toasts sit at the bottom right on wide screens (so they never cover the header
+  buttons) and under the top bar on narrow ones (the floating button is at the bottom there).
+- Selecting several downloads: a "Select" button in the list header switches the list to selection mode. Cards get a checkbox
+  and become click targets (their own buttons are hidden meanwhile), the header buttons step aside and an action bar appears
+  at the bottom (next to the side panel on wide screens; on a phone the count on top and four evenly spread buttons below).
+  The bar has "Select all" (everything visible, toggling back to "Clear selection"), "Category", "Archive" / "Restore",
+  "Delete" and "Done"; Escape also leaves the mode (unless a dialog is open) as does leaving the page. Only downloads that are
+  on screen can be selected: a filter or search that hides a selected card deselects it. All actions are the per-download
+  requests sent in parallel, with one summary toast (and the first error when some failed). "Category" opens a dialog with the
+  six categories and only sets the category (the files stay where they are). "Archive" takes the finished, failed and
+  cancelled ones among the selected and says how many unfinished ones it left alone; when only archived ones are selected
+  the same button reads "Restore". "Delete" opens the delete dialog for all of them: the count, a note about the unfinished
+  ones (stopped, partial files deleted) and, when completed ones are included, "Also delete the N downloaded files" (off by
+  default). The cards' menu also has "Archive" / "Restore from archive".
+- Archived: a status tab of its own ("Archived", in the side panel). "All" and the other status tabs show only what is not
+  archived, so archiving really hides an entry; "Clear finished" leaves archived entries alone; a list where everything is
+  archived says so and offers to show them.
+- Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel
+  (unfinished) or "remove from list, the file stays" (finished). The "more" menu (replacing the old category select) has
+  "Copy link" (the clipboard API where the page is a secure context, a selection fallback on plain-HTTP LAN pages),
+  "Change category" (a second level with the current one checked), "Speed limit..." (only for a download that can still run;
+  it shows the current limit) and "Delete...". It opens towards the side that has room
+  (up or down, left- or right-aligned), closes on Escape / outside click / Tab, and works with the arrow keys, Home and End.
+  "Delete..." opens a dialog (`stores/deleteDialog`): for a finished download it offers "Also delete the file from the disk"
+  (off by default, with a warning when ticked, and a button that then reads "Delete with file"); for an unfinished one it
+  says that the download is stopped and the partial file goes too, and has no such option.
+  "Speed limit..." opens a dialog (`stores/speedDialog`, `SpeedLimitDialog`) with the same on/off + KB/MB field as Settings;
+  switched off it says which default the download uses, switched on the value replaces that default. It saves with `PATCH`
+  and takes effect at once. A card with an own speed shows "Limit N MB/s" in its stats line. Settings has the default speed
+  of each download and the total limit.
+- Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
+  floating button, the empty list and the end of the setup wizard (all through `stores/addDialog`), mounted once in the app
+  shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
+  success clears it), the name-conflict and "does not fit" dialogs open on top of it, and a success closes everything and
+  shows the list. Old `#/add` links still work: they open the dialog and the hash goes back to `#/`.
+- Motion: short and functional (about 150-250 ms), never decorative loops. Dialogs fade and rise in and fade and sink out
+  (the native `<dialog>` is closed only after the exit has played; reopening during the exit cancels it); toasts fly in,
+  fade out and the rest glide into place; the drawer scrim fades; the floating button pops in; a card added to an existing
+  list rises in (the first card of an empty list and the cards of a freshly opened page do not animate, and the list is
+  never re-ordered with animation because sorting by speed would make it jump every second); pages fade in on navigation;
+  progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
+  respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
+  their duration from `util/motion.ts`, which is 0 then.
 - Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
@@ -217,8 +275,20 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Sorting (date added, name, size, progress, speed, status; unknown sizes always last), status tabs, category filter,
   search; remembered in `localStorage`. System / light / dark / black theme via CSS tokens (`[data-theme]` plus
   `prefers-color-scheme`; black is dark with a pure black background for OLED), applied before first paint.
-- Settings form works in KB/MB and "limit on/off"; the API stays in bytes/s with `0` = unlimited. The form follows
-  server changes made by other clients unless the user has unsaved edits.
+- Speed unit shown in the app: a display choice in Settings > Appearance (and the setup wizard), kept per browser in
+  `localStorage` (`dlm.speedUnit`), not a server setting. `Automatic` (B, KB, MB... as before), `Automatic in bits` (bit,
+  Kbit, Mbit, Gbit...) or one fixed unit (KB/s, MB/s, Kbit/s, Mbit/s). It applies to every speed the UI writes (list header,
+  side panel, cards, limits on cards and in menus); the limit fields keep the unit of their own field. Fixed and bit units
+  show three significant figures (123, 12.3, 1.23).
+- Select boxes (language, speed unit, category, sort, field units) are drawn like the text inputs: same height, border, font
+  and hover/focus, no native arrow but one chevron in every theme. Number inputs have no native spin buttons.
+- Settings form works in KB/s, MB/s, Kbit/s and Mbit/s and "limit on/off"; the API stays in bytes/s with `0` = unlimited.
+  Bytes are binary (1 KB = 1024 B), bits decimal as network speeds are quoted (1 Mbit/s = 125 000 B/s). The server does
+  not store the unit: a stored speed is shown in the first unit (MB, KB, Mbit, Kbit) that gives a whole number, so
+  100 Mbit/s comes back as 100 Mbit/s. The same unit picker is in the speed dialog of a download. The form follows server
+  changes made by other clients unless the user has unsaved edits. While there are unsaved edits a bar is fixed to the
+  bottom of the viewport (next to the side panel on wide screens) with "Discard" and "Save changes" and a failed save's
+  message, wherever the page is scrolled; the page gets room below so nothing hides behind it.
 - i18n without a library: `web/src/lib/i18n/` holds one typed dictionary per language (`en.ts` is the source of truth for
   the keys, other languages must provide all of them), `{name}` placeholders, plural forms via `Intl.PluralRules`
   (Polish needs one/few/many/other), and a registry (`locales.ts`) where each language is one line and a lazily loaded

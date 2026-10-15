@@ -1,27 +1,41 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import { fade, fly, scale } from 'svelte/transition';
   import { setUnauthorizedHandler } from './lib/api/client';
+  import AddDownloadDialog from './lib/components/AddDownloadDialog.svelte';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
+  import DeleteDownloadDialog from './lib/components/DeleteDownloadDialog.svelte';
   import Icon from './lib/components/Icon.svelte';
   import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
+  import SpeedLimitDialog from './lib/components/SpeedLimitDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import { i18n, t } from './lib/i18n';
+  import { addDialog } from './lib/stores/addDialog.svelte';
   import { auth } from './lib/stores/auth.svelte';
   import { disk } from './lib/stores/disk.svelte';
   import { downloads } from './lib/stores/downloads.svelte';
   import { media } from './lib/stores/media.svelte';
   import { route } from './lib/stores/route';
+  import { selection } from './lib/stores/selection.svelte';
   import { settings } from './lib/stores/settings.svelte';
   import { theme } from './lib/stores/theme.svelte';
   import { summarize } from './lib/util/downloads';
-  import AddDownload from './routes/AddDownload.svelte';
+  import { motion } from './lib/util/motion';
   import Downloads from './routes/Downloads.svelte';
   import Login from './routes/Login.svelte';
   import Settings from './routes/Settings.svelte';
   import Setup from './routes/Setup.svelte';
 
+  /** Old links and bookmarks to `#/add` now open the dialog over the list. */
+  function openLegacyAddLink(): void {
+    if (location.hash !== '#/add') return;
+    history.replaceState(null, '', '#/');
+    addDialog.show();
+  }
+
   onMount(() => {
+    openLegacyAddLink();
     theme.init();
     setUnauthorizedHandler(() => auth.expire());
     void auth.check();
@@ -99,7 +113,7 @@
   const connectionLabel = $derived(t(`connection.${downloads.connection}`));
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeMenu()} />
+<svelte:window onhashchange={openLegacyAddLink} onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeMenu()} />
 
 {#if auth.state === 'loading'}
   <p class="grid min-h-dvh place-content-center text-muted" role="status">{t('common.loading')}</p>
@@ -124,6 +138,7 @@
     />
     {#if drawerOpen}
       <button
+        transition:fade={{ duration: motion(160) }}
         class="fixed inset-0 z-30 cursor-default bg-backdrop"
         tabindex="-1"
         aria-label={t('nav.close')}
@@ -169,28 +184,36 @@
       </header>
 
       <main class="mx-auto max-w-[76rem] px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-8 lg:pt-6 lg:pb-12">
-        {#if $route === 'downloads'}
-          <Downloads />
-        {:else if $route === 'add'}
-          <AddDownload />
-        {:else}
-          <Settings />
-        {/if}
+        {#key $route}
+          <div in:fly={{ y: 8, duration: motion(180) }}>
+            {#if $route === 'downloads'}
+              <Downloads />
+            {:else}
+              <Settings />
+            {/if}
+          </div>
+        {/key}
       </main>
     </div>
 
-    {#if !media.desktop && $route === 'downloads'}
-      <a
-        class="fixed right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-10 grid size-14 place-items-center rounded-full bg-accent text-accent-contrast shadow-lg"
-        href="#/add"
+    {#if !media.desktop && $route === 'downloads' && !selection.active}
+      <button
+        in:scale={{ start: 0.6, duration: motion(200) }}
+        out:fade={{ duration: motion(120) }}
+        class="fixed right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-10 grid size-14 place-items-center rounded-full bg-accent text-accent-contrast shadow-lg transition-transform active:scale-90"
         aria-label={t('nav.add')}
         title={t('nav.add')}
         data-part="fab"
+        onclick={() => addDialog.show()}
       >
         <Icon name="plus" size={26} />
-      </a>
+      </button>
     {/if}
   </div>
+
+  <AddDownloadDialog />
+  <DeleteDownloadDialog />
+  <SpeedLimitDialog />
 {/if}
 
 <ConfirmHost />

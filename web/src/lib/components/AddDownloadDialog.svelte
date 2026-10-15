@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { ApiError, api, type SpaceInfo } from '../lib/api/client';
-  import type { Category, Conflict, OnConflict } from '../lib/api/types';
-  import { CATEGORIES } from '../lib/api/types';
-  import ConflictDialog from '../lib/components/ConflictDialog.svelte';
-  import Icon from '../lib/components/Icon.svelte';
-  import NoSpaceDialog from '../lib/components/NoSpaceDialog.svelte';
-  import { i18n, t } from '../lib/i18n';
-  import { toast } from '../lib/stores/toast.svelte';
-  import { isHttpUrl } from '../lib/util/format';
+  import { ApiError, api, type SpaceInfo } from '../api/client';
+  import type { Category, Conflict, OnConflict } from '../api/types';
+  import { CATEGORIES } from '../api/types';
+  import ConflictDialog from './ConflictDialog.svelte';
+  import Icon from './Icon.svelte';
+  import Modal from './Modal.svelte';
+  import NoSpaceDialog from './NoSpaceDialog.svelte';
+  import { i18n, t } from '../i18n';
+  import { addDialog } from '../stores/addDialog.svelte';
+  import { toast } from '../stores/toast.svelte';
+  import { isHttpUrl } from '../util/format';
 
   let url = $state('');
   let filename = $state('');
@@ -41,6 +43,7 @@
       url = '';
       filename = '';
       category = 'auto';
+      addDialog.hide();
       location.hash = '#/';
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.conflict) {
@@ -80,15 +83,20 @@
       void submit(choice);
     }
   }
+
+  /** Closing (button, Escape, backdrop) keeps what was typed but drops any pending question. */
+  function close(): void {
+    if (busy) return;
+    addDialog.hide();
+    error = null;
+    conflict = null;
+    noSpace = null;
+    ignoreSpace = false;
+  }
 </script>
 
-<div class="page-narrow">
-  <header class="mb-4"><h1 class="text-2xl font-bold tracking-tight">{t('add.title')}</h1></header>
-
-  <form
-    class="grid gap-4 rounded-2xl border border-border bg-surface p-5 shadow-card"
-    onsubmit={onSubmit}
-  >
+<Modal open={addDialog.open} title={t('add.title')} size="lg" onclose={close}>
+  <form id="add-form" class="grid gap-4" onsubmit={onSubmit}>
     <div class="field">
       <label for="url">{t('add.address')}</label>
       <!-- svelte-ignore a11y_autofocus -->
@@ -144,11 +152,15 @@
       </p>
     {/if}
 
-    <button class="btn primary" type="submit" disabled={!urlOk || busy}>
+  </form>
+
+  {#snippet footer()}
+    <button class="btn" type="button" disabled={busy} onclick={close}>{t('common.cancel')}</button>
+    <button class="btn primary" type="submit" form="add-form" disabled={!urlOk || busy}>
       <Icon name="down" size={18} />{busy && !conflict ? t('add.submitting') : t('add.submit')}
     </button>
-  </form>
-</div>
+  {/snippet}
+</Modal>
 
 <ConflictDialog {conflict} {busy} onchoose={choose} />
 <NoSpaceDialog space={noSpace} {busy} onchoose={chooseSpace} />

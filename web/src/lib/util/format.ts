@@ -38,8 +38,40 @@ export function formatBytes(bytes: number, locale = 'en'): string {
   return `${decimals(locale, digits).format(value)} ${UNITS[unit]}`;
 }
 
-export function formatSpeed(bytesPerSecond: number, locale = 'en'): string {
-  return `${formatBytes(bytesPerSecond, locale)}/s`;
+/** How speeds are shown in the app: `auto` picks B, KB, MB... itself, `bits` picks bit, Kbit, Mbit...
+ *  itself, anything else is one fixed unit. */
+export type SpeedDisplay = 'auto' | 'bits' | SpeedUnit;
+
+export const SPEED_DISPLAYS: readonly SpeedDisplay[] = ['auto', 'bits', 'KB', 'MB', 'Kbit', 'Mbit'];
+
+const BIT_UNITS = ['bit', 'Kbit', 'Mbit', 'Gbit', 'Tbit'] as const;
+
+/** Three significant figures at most: 123, 12.3, 1.23. */
+function speedDigits(value: number): number {
+  return value >= 100 ? 0 : value >= 10 ? 1 : 2;
+}
+
+export function formatSpeed(bytesPerSecond: number, locale = 'en', display: SpeedDisplay = 'auto'): string {
+  if (display === 'auto') return `${formatBytes(bytesPerSecond, locale)}/s`;
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return '—';
+  if (display === 'bits') {
+    let value = bytesPerSecond * 8;
+    let unit = 0;
+    while (value >= 1000 && unit < BIT_UNITS.length - 1) {
+      value /= 1000;
+      unit++;
+    }
+    let digits = unit === 0 ? 0 : speedDigits(value);
+    // Rounding can land on 1000 (999.96 Kbit): step up instead of showing it.
+    if (unit > 0 && unit < BIT_UNITS.length - 1 && Number(value.toFixed(digits)) >= 1000) {
+      value /= 1000;
+      unit++;
+      digits = 2;
+    }
+    return `${decimals(locale, digits).format(value)} ${BIT_UNITS[unit]}/s`;
+  }
+  const value = bytesPerSecond / SPEED_FACTOR[display];
+  return `${decimals(locale, speedDigits(value)).format(value)} ${SPEED_UNIT_LABEL[display]}`;
 }
 
 /** A duration split into the pieces of one unit pattern; the words around them are translated
@@ -113,14 +145,38 @@ export function isHttpUrl(text: string): boolean {
 
 // ---- speed limits in the settings form -------------------------------------------
 
-export type SpeedUnit = 'KB' | 'MB';
+/** Bytes (binary: 1 KB = 1024 B) and bits (decimal, as network speeds are quoted: 1 Mbit = 10^6 bit). */
+export type SpeedUnit = 'KB' | 'MB' | 'Kbit' | 'Mbit';
 
-const SPEED_FACTOR: Record<SpeedUnit, number> = { KB: 1024, MB: 1024 * 1024 };
+/** In the order the unit pickers show them. */
+export const SPEED_UNITS: readonly SpeedUnit[] = ['KB', 'MB', 'Kbit', 'Mbit'];
+
+export const SPEED_UNIT_LABEL: Record<SpeedUnit, string> = {
+  KB: 'KB/s',
+  MB: 'MB/s',
+  Kbit: 'Kbit/s',
+  Mbit: 'Mbit/s',
+};
+
+/** Bytes per second in one unit. */
+const SPEED_FACTOR: Record<SpeedUnit, number> = {
+  KB: 1024,
+  MB: 1024 * 1024,
+  Kbit: 1000 / 8,
+  Mbit: 1_000_000 / 8,
+};
+
+/** Units tried in this order: the first one that shows the speed as a whole number wins, so what
+ *  the user typed (100 Mbit/s) comes back as typed, not as 11.92 MB/s. */
+const SPLIT_ORDER: readonly SpeedUnit[] = ['MB', 'KB', 'Mbit', 'Kbit'];
 
 /** Bytes/s -> a number and the unit that shows it best; `0` means unlimited. */
 export function splitSpeed(bytesPerSecond: number): { value: number; unit: SpeedUnit } {
-  if (bytesPerSecond >= SPEED_FACTOR.MB && bytesPerSecond % SPEED_FACTOR.MB === 0) {
-    return { value: bytesPerSecond / SPEED_FACTOR.MB, unit: 'MB' };
+  for (const unit of SPLIT_ORDER) {
+    const factor = SPEED_FACTOR[unit];
+    if (bytesPerSecond >= factor && bytesPerSecond % factor === 0) {
+      return { value: bytesPerSecond / factor, unit };
+    }
   }
   return { value: Math.round((bytesPerSecond / SPEED_FACTOR.KB) * 100) / 100, unit: 'KB' };
 }

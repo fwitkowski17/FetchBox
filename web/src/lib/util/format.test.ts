@@ -103,6 +103,17 @@ describe('speed limit fields', () => {
     expect(splitSpeed(512 * 1024)).toEqual({ value: 512, unit: 'KB' });
     expect(splitSpeed(5 * 1024 * 1024)).toEqual({ value: 5, unit: 'MB' });
     expect(splitSpeed(1536 * 1024)).toEqual({ value: 1536, unit: 'KB' });
+    // Bits are decimal: 1 Mbit/s = 125 000 B/s. What was typed in bits comes back in bits.
+    expect(joinSpeed(8, 'Mbit')).toBe(1_000_000);
+    expect(joinSpeed(512, 'Kbit')).toBe(64_000);
+    expect(splitSpeed(12_500_000)).toEqual({ value: 100, unit: 'Mbit' });
+    expect(splitSpeed(187_500)).toEqual({ value: 1500, unit: 'Kbit' });
+    expect(splitSpeed(250_000)).toEqual({ value: 2, unit: 'Mbit' });
+    for (const unit of ['KB', 'MB', 'Kbit', 'Mbit'] as const) {
+      for (const value of [1, 3, 64, 250, 999]) {
+        expect(splitSpeed(joinSpeed(value, unit))).toEqual({ value, unit });
+      }
+    }
     for (const bytes of [0, 1024, 300 * 1024, 5 * 1024 * 1024, 123_456]) {
       const { value, unit } = splitSpeed(bytes);
       expect(Math.abs(joinSpeed(value, unit) - bytes)).toBeLessThanOrEqual(6);
@@ -134,3 +145,35 @@ describe('isHttpUrl', () => {
     expect(isHttpUrl('')).toBe(false);
   });
 });
+
+describe('speed display unit', () => {
+  it('keeps the automatic byte format as it was', () => {
+    expect(formatSpeed(0)).toBe('0 B/s');
+    expect(formatSpeed(1_500_000)).toBe('1.4 MB/s');
+    expect(formatSpeed(1_500_000, 'en', 'auto')).toBe('1.4 MB/s');
+  });
+
+  it('picks bit units by itself, decimal as networks quote them', () => {
+    expect(formatSpeed(0, 'en', 'bits')).toBe('0 bit/s');
+    expect(formatSpeed(125, 'en', 'bits')).toBe('1.00 Kbit/s');
+    expect(formatSpeed(1_500_000, 'en', 'bits')).toBe('12.0 Mbit/s');
+    expect(formatSpeed(12_500_000, 'en', 'bits')).toBe('100 Mbit/s');
+    expect(formatSpeed(125_000_000, 'en', 'bits')).toBe('1.00 Gbit/s');
+    // 999.96 Kbit/s must not be shown as "1000 Kbit/s".
+    expect(formatSpeed(124_995, 'en', 'bits')).toBe('1.00 Mbit/s');
+  });
+
+  it('shows one fixed unit when asked to', () => {
+    expect(formatSpeed(1_048_576, 'en', 'KB')).toBe('1024 KB/s');
+    expect(formatSpeed(5 * 1_048_576, 'en', 'MB')).toBe('5.00 MB/s');
+    expect(formatSpeed(40 * 1024, 'en', 'MB')).toBe('0.04 MB/s');
+    expect(formatSpeed(12_500_000, 'en', 'Mbit')).toBe('100 Mbit/s');
+    expect(formatSpeed(64_000, 'en', 'Kbit')).toBe('512 Kbit/s');
+    expect(formatSpeed(Number.NaN, 'en', 'Mbit')).toBe('—');
+  });
+
+  it('uses the number format of the language', () => {
+    expect(formatSpeed(1_500_000, 'pl', 'bits')).toBe('12,0 Mbit/s');
+  });
+});
+

@@ -148,6 +148,15 @@ pub struct Download {
     /// started (status `paused`). Free some space and resume it.
     #[serde(default)]
     pub waiting_space: bool,
+    /// Hidden from the main list (only finished, failed or cancelled downloads can be archived).
+    /// The file, if any, stays where it is.
+    #[serde(default)]
+    pub archived: bool,
+    /// Speed limit of this download alone, bytes/s. Set, it replaces the default per-download
+    /// limit of the settings (so it may be higher or lower); `0` means "use the default". The
+    /// total limit of all downloads (`Settings::speed_global`) caps the sum either way.
+    #[serde(default)]
+    pub speed_limit: u64,
 }
 
 /// Free space on the file system that holds the download directory.
@@ -181,9 +190,10 @@ pub struct Settings {
     pub connections: u32,
     /// Max simultaneously running downloads; extra ones are `Queued`.
     pub max_concurrent: u32,
-    /// Speed limit per download, bytes/s.
+    /// Default speed limit of every download, bytes/s. A download with a limit of its own
+    /// (`Download::speed_limit`) ignores it.
     pub speed_per_download: u64,
-    /// Global speed limit, bytes/s.
+    /// Total speed limit of all downloads together, bytes/s.
     pub speed_global: u64,
     /// Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).
     /// Existing downloads keep the directory they were created with.

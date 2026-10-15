@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Settings } from '../api/types';
-import { MAX_CONNECTIONS, fromDraft, isUntouched, sameSettings, toDraft, validate } from './settingsForm';
+import {
+  MAX_CONNECTIONS,
+  fromDraft,
+  isDirty,
+  isUntouched,
+  isValidSpeed,
+  sameSettings,
+  speedFromDraft,
+  speedToDraft,
+  toDraft,
+  validate,
+} from './settingsForm';
 
 const base: Settings = {
   connections: 4,
@@ -49,9 +60,26 @@ describe('settings form', () => {
     expect(validate(d).global).toBeDefined();
   });
 
+  it('knows what a usable speed limit is', () => {
+    expect(isValidSpeed({ limited: false, value: 0, unit: 'KB' })).toBe(true);
+    expect(isValidSpeed({ limited: true, value: 500, unit: 'KB' })).toBe(true);
+    expect(isValidSpeed({ limited: true, value: 0, unit: 'KB' })).toBe(false);
+    expect(isValidSpeed({ limited: true, value: -1, unit: 'MB' })).toBe(false);
+    expect(isValidSpeed({ limited: true, value: Number.NaN, unit: 'MB' })).toBe(false);
+  });
+
+  it('turns a stored per-download limit into the dialog field and back', () => {
+    expect(speedToDraft(0)).toEqual({ limited: false, value: 1, unit: 'MB' });
+    const d = speedToDraft(750 * 1024);
+    expect(d.limited).toBe(true);
+    expect(speedFromDraft(d)).toBe(750 * 1024);
+    expect(speedFromDraft({ ...d, limited: false })).toBe(0);
+  });
+
   it('detects changes, treating missing and false subdirs as equal', () => {
     expect(sameSettings(base, { ...base })).toBe(true);
     expect(sameSettings(base, { ...base, connections: 5 })).toBe(false);
+    expect(sameSettings(base, { ...base, speed_per_download: 1 })).toBe(false);
     const { category_subdirs: _omit, ...legacy } = base;
     expect(sameSettings(legacy, { ...base, category_subdirs: false })).toBe(true);
     expect(sameSettings(legacy, base)).toBe(false);
@@ -77,4 +105,26 @@ describe('isUntouched', () => {
     expect(sameSettings(fromDraft(draft), serverNow)).toBe(false); // looks "dirty" against the new value...
     expect(isUntouched(draft, base)).toBe(true); // ...but is untouched against the baseline
   });
+
+  it('is dirty only when the user changed something, whatever the rounding of the form', () => {
+    expect(isDirty(toDraft(base), base)).toBe(false);
+    // Speeds the form cannot show exactly: still not dirty until the user edits something.
+    for (const bytes of [123_456, 1_572_864, 99_999_999, 1]) {
+      const odd: Settings = { ...base, speed_global: bytes, speed_per_download: bytes };
+      expect(isDirty(toDraft(odd), odd), String(bytes)).toBe(false);
+      expect(isUntouched(toDraft(odd), odd), String(bytes)).toBe(true);
+    }
+    const d = toDraft(base);
+    d.connections += 1;
+    expect(isDirty(d, base)).toBe(true);
+    d.connections -= 1; // changing a field back removes the difference
+    expect(isDirty(d, base)).toBe(false);
+    d.global = { ...d.global, unit: 'Mbit' };
+    expect(isDirty(d, base)).toBe(true);
+    // A value typed as 1.5 MB/s is what the server then holds: saved, not dirty.
+    const typed = toDraft(base);
+    typed.perDownload = { limited: true, value: 1.5, unit: 'MB' };
+    expect(isDirty(typed, { ...base, speed_per_download: fromDraft(typed).speed_per_download })).toBe(false);
+  });
 });
+

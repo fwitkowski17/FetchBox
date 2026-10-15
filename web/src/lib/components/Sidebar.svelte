@@ -34,7 +34,7 @@
     offline: 'bg-danger',
   };
 
-  const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', add: 'plus', settings: 'sliders' };
+  const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', settings: 'sliders' };
   const THEME_ICONS: Record<ThemePref, IconName> = {
     system: 'monitor',
     light: 'sun',

@@ -262,13 +262,40 @@
     @apply text-muted;
   }
 
+  /* A select looks like an input: no native arrow (it differs per platform and sits tight against the
+     edge), one chevron drawn the same way in every theme, and the same hover and focus. Number inputs
+     lose their native spin buttons for the same reason; values are typed. */
+  .select {
+    @apply appearance-none truncate bg-no-repeat pr-10;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b93a1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+    background-size: 1.125rem;
+  }
+
+  .input:hover:not(:disabled):not(:focus-visible),
+  .select:hover:not(:disabled):not(:focus-visible) {
+    border-color: color-mix(in oklab, var(--border) 60%, var(--muted));
+  }
+
+  input[type='number'].input {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  input[type='number'].input::-webkit-inner-spin-button,
+  input[type='number'].input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
   .input:focus-visible,
   .select:focus-visible {
     @apply border-accent outline-offset-0;
   }
 
   .btn {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 font-semibold no-underline transition-colors;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 font-semibold no-underline transition-[background-color,border-color,filter,transform] duration-150;
+    @apply not-disabled:active:scale-[0.98];
     @apply hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-surface;
   }
 
@@ -296,6 +323,44 @@
 /* Forms read badly when they stretch across a wide screen. */
 .page-narrow {
   max-width: 42rem;
+}
+
+/* Dialogs: fade and rise in, fade and sink out. `data-closing` is set by Modal.svelte while the
+   exit plays, so the native <dialog> is only closed once it has finished. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+}
+@keyframes modal-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+
+dialog[data-modal][open] {
+  animation: modal-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+dialog[data-modal][open]::backdrop {
+  animation: backdrop-in 0.22s ease-out;
+}
+dialog[data-modal][data-closing] {
+  animation: modal-out 0.16s ease-in forwards;
+}
+dialog[data-modal][data-closing]::backdrop {
+  animation: backdrop-out 0.16s ease-in forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
