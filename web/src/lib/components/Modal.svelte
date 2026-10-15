@@ -7,9 +7,11 @@
     onclose: () => void;
     children: Snippet;
     footer?: Snippet;
+    /** `lg` for dialogs with a form. */
+    size?: 'md' | 'lg';
   }
 
-  let { open, title, onclose, children, footer }: Props = $props();
+  let { open, title, onclose, children, footer, size = 'md' }: Props = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
   const titleId = `modal-title-${Math.random().toString(36).slice(2, 8)}`;
@@ -27,7 +29,10 @@
 <dialog
   bind:this={dialog}
   aria-labelledby={titleId}
-  class="m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] rounded-2xl border border-border bg-surface p-0 text-text shadow-card backdrop:bg-backdrop"
+  class={[
+    'm-auto max-h-[calc(100dvh-2rem)] rounded-2xl border border-border bg-surface p-0 text-text shadow-card backdrop:bg-backdrop',
+    size === 'lg' ? 'w-[min(36rem,calc(100vw-2rem))]' : 'w-[min(30rem,calc(100vw-2rem))]',
+  ]}
   oncancel={(e) => {
     e.preventDefault();
     onclose();

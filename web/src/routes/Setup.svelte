@@ -7,6 +7,7 @@
   import Icon from '../lib/components/Icon.svelte';
   import SettingsFields from '../lib/components/SettingsFields.svelte';
   import { i18n, t } from '../lib/i18n';
+  import { addDialog } from '../lib/stores/addDialog.svelte';
   import { auth } from '../lib/stores/auth.svelte';
   import { settings } from '../lib/stores/settings.svelte';
   import { CARD } from '../lib/util/classes';
@@ -91,9 +92,10 @@
     }
   }
 
-  function finish(to: '#/' | '#/add'): void {
-    location.hash = to;
+  function finish(thenAdd: boolean): void {
+    location.hash = '#/';
     auth.finishWizard();
+    if (thenAdd) addDialog.show();
   }
 </script>
 
@@ -247,8 +249,8 @@
           <p class="hint mt-1">{t('setup.done.hint')}</p>
         </div>
         <div class="flex flex-wrap justify-center gap-2">
-          <button class="btn" type="button" onclick={() => finish('#/')}>{t('setup.done.list')}</button>
-          <button class="btn primary" type="button" onclick={() => finish('#/add')}>
+          <button class="btn" type="button" onclick={() => finish(false)}>{t('setup.done.list')}</button>
+          <button class="btn primary" type="button" onclick={() => finish(true)}>
             {t('setup.done.add')}
           </button>
         </div>

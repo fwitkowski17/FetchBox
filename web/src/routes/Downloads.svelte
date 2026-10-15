@@ -3,6 +3,7 @@
   import DownloadCard from '../lib/components/DownloadCard.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import { i18n, t } from '../lib/i18n';
+  import { addDialog } from '../lib/stores/addDialog.svelte';
   import { downloads } from '../lib/stores/downloads.svelte';
   import { prefs } from '../lib/stores/prefs.svelte';
   import { toast } from '../lib/stores/toast.svelte';
@@ -138,7 +139,9 @@
   <div class="mt-12 grid justify-items-center gap-3 text-center text-muted">
     <span class="grid size-16 place-items-center rounded-full bg-surface-2"><Icon name="down" size={28} /></span>
     <p>{t('downloads.empty')}</p>
-    <a class="btn primary" href="#/add"><Icon name="plus" size={18} />{t('downloads.empty.add')}</a>
+    <button class="btn primary" onclick={() => addDialog.show()}>
+      <Icon name="plus" size={18} />{t('downloads.empty.add')}
+    </button>
   </div>
 {:else if visible.length === 0}
   <div class="mt-12 grid justify-items-center gap-3 text-center text-muted">

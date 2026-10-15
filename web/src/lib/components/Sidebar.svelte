@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CATEGORIES, type Category } from '../api/types';
   import { i18n, t } from '../i18n';
+  import { addDialog } from '../stores/addDialog.svelte';
   import { downloads } from '../stores/downloads.svelte';
   import { prefs } from '../stores/prefs.svelte';
   import { route, routes, type Route } from '../stores/route';
@@ -34,7 +35,7 @@
     offline: 'bg-danger',
   };
 
-  const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', add: 'plus', settings: 'sliders' };
+  const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', settings: 'sliders' };
   const THEME_ICONS: Record<ThemePref, IconName> = {
     system: 'monitor',
     light: 'sun',
@@ -94,7 +95,22 @@
 
   <nav aria-label={t('nav.main')}>
     <ul class="grid gap-0.5">
-      {#each routes as r (r.id)}
+      {#each routes as r, i (r.id)}
+        {#if i === 1}
+          <!-- Not a page: opens the dialog over whatever is on screen. -->
+          <li>
+            <button
+              class={ITEM}
+              data-part="nav-add"
+              onclick={() => {
+                addDialog.show();
+                onclose();
+              }}
+            >
+              <Icon name="plus" size={20} />{t('nav.add')}
+            </button>
+          </li>
+        {/if}
         <li>
           <a
             class={ITEM}

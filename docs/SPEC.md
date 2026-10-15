@@ -55,7 +55,7 @@ dlmanager/
 ├── web/
 │   ├── src/
 │   │   ├── lib/{api/,components/,stores/}
-│   │   ├── routes/            # Downloads, AddDownload, Settings
+│   │   ├── routes/            # Downloads, Settings (+ Setup wizard); adding is a dialog
 │   │   └── main.ts
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
@@ -202,6 +202,11 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   Pressing "Resume" while the disk is still too full (`507`, also for a failed download) opens a dialog with the same gauge
   instead of a toast: it follows the disk figures, "Try again" retries, and once there is room the button reads "Resume" and
   starts the download (the dialog closes when the resume works or the download is gone).
+- Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the "Add" item of the side menu, the
+  floating button, the empty list and the end of the setup wizard (all through `stores/addDialog`), mounted once in the app
+  shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
+  success clears it), the name-conflict and "does not fit" dialogs open on top of it, and a success closes everything and
+  shows the list. Old `#/add` links still work: they open the dialog and the hash goes back to `#/`.
 - Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
