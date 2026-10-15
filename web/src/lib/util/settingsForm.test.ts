@@ -3,6 +3,7 @@ import type { Settings } from '../api/types';
 import {
   MAX_CONNECTIONS,
   fromDraft,
+  isDirty,
   isUntouched,
   isValidSpeed,
   sameSettings,
@@ -104,4 +105,26 @@ describe('isUntouched', () => {
     expect(sameSettings(fromDraft(draft), serverNow)).toBe(false); // looks "dirty" against the new value...
     expect(isUntouched(draft, base)).toBe(true); // ...but is untouched against the baseline
   });
+
+  it('is dirty only when the user changed something, whatever the rounding of the form', () => {
+    expect(isDirty(toDraft(base), base)).toBe(false);
+    // Speeds the form cannot show exactly: still not dirty until the user edits something.
+    for (const bytes of [123_456, 1_572_864, 99_999_999, 1]) {
+      const odd: Settings = { ...base, speed_global: bytes, speed_per_download: bytes };
+      expect(isDirty(toDraft(odd), odd), String(bytes)).toBe(false);
+      expect(isUntouched(toDraft(odd), odd), String(bytes)).toBe(true);
+    }
+    const d = toDraft(base);
+    d.connections += 1;
+    expect(isDirty(d, base)).toBe(true);
+    d.connections -= 1; // changing a field back removes the difference
+    expect(isDirty(d, base)).toBe(false);
+    d.global = { ...d.global, unit: 'Mbit' };
+    expect(isDirty(d, base)).toBe(true);
+    // A value typed as 1.5 MB/s is what the server then holds: saved, not dirty.
+    const typed = toDraft(base);
+    typed.perDownload = { limited: true, value: 1.5, unit: 'MB' };
+    expect(isDirty(typed, { ...base, speed_per_download: fromDraft(typed).speed_per_download })).toBe(false);
+  });
 });
+

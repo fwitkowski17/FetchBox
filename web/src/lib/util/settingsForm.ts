@@ -91,5 +91,15 @@ export function sameSettings(a: Settings, b: Settings): boolean {
  * one: a change made elsewhere would otherwise look like an unsaved edit of ours.
  */
 export function isUntouched(draft: Draft | null, baseline: Settings | null): boolean {
-  return draft === null || baseline === null || sameSettings(fromDraft(draft), baseline);
+  return draft === null || baseline === null || !isDirty(draft, baseline);
+}
+
+/**
+ * Does the form differ from what the server holds? The form shows speeds in a friendly unit and
+ * rounds them (123 456 B/s is "120.56 KB/s", which is 123 453 B/s again), so the draft is
+ * compared with the server value *as the form would show it*: an untouched form is never dirty,
+ * and neither is one just saved with a value the form cannot show exactly (1.5 MB/s).
+ */
+export function isDirty(draft: Draft, server: Settings): boolean {
+  return !sameSettings(fromDraft(draft), fromDraft(toDraft(server)));
 }

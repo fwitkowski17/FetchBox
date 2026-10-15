@@ -15,8 +15,8 @@
   import { motion } from '../lib/util/motion';
   import {
     fromDraft,
+    isDirty,
     isUntouched,
-    sameSettings,
     toDraft,
     validate,
     type Draft,
@@ -30,7 +30,7 @@
   let error = $state<string | null>(null);
 
   const dirty = $derived(
-    draft !== null && settings.value !== null && !sameSettings(fromDraft(draft), settings.value),
+    draft !== null && settings.value !== null && isDirty(draft, settings.value),
   );
   const errors = $derived(draft ? validate(draft) : {});
   const valid = $derived(Object.keys(errors).length === 0);
