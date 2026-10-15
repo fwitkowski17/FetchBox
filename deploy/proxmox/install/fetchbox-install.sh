@@ -2,7 +2,7 @@
 
 # Copyright (c) 2026 fwitkowski17
 # Author: fwitkowski17
-# License: MIT | https://github.com/fwitkowski17/WebDownloadManager/raw/main/LICENSE
+# License: MIT
 # Source: https://github.com/fwitkowski17/WebDownloadManager
 
 source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"

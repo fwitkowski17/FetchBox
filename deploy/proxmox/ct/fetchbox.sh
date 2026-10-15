@@ -3,7 +3,7 @@ _cs_boot="${COMMUNITY_SCRIPTS_CORE_DIR:-$(dirname "${BASH_SOURCE[0]}")/../../cor
 source "$_cs_boot" 2>/dev/null || source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_URL:-https://raw.githubusercontent.com/community-scripts/core/main}/core/build.func")
 # Copyright (c) 2026 fwitkowski17
 # Author: fwitkowski17
-# License: MIT | https://github.com/fwitkowski17/WebDownloadManager/raw/main/LICENSE
+# License: MIT
 # Source: https://github.com/fwitkowski17/WebDownloadManager
 
 APP="FetchBox"
