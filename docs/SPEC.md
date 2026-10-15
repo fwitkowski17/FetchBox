@@ -196,7 +196,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   first, and `days`: the last 14 days oldest first with the empty ones, whatever the period. Cancelling counts as neither
   success nor failure.)
 - `GET /api/version` and `POST /api/version/check` (see 6.9): `{current, enabled, latest?, update_available, release_url?,
-  checked_at?, check_failed}`; the `POST` looks again now, at most every 30 s
+  checked_at?, check_failed, notes}`; the `POST` looks again now, at most every 30 s
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -385,6 +385,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   follow the speed unit of the app. The numbers reload every 10 s while the page is open (not in a hidden tab) and as soon
   as a download ends. Nothing to count yet shows an explanation instead of zeroes. Because the numbers come from the
   history, they stay when downloads are removed from the list.
+- Dialogs: the buttons of a dialog (`Modal` footer) stay at the bottom of the dialog while its content scrolls, so a long
+  dialog (update notes, the file list of the add dialog on a phone) never hides them below the fold; content columns are
+  `minmax(0, 1fr)` so a long command or file name scrolls or wraps inside the dialog instead of widening it.
 - Select boxes (language, speed unit, category, sort, field units) are drawn like the text inputs: same height, border, font
   and hover/focus, no native arrow but one chevron in every theme. Number inputs have no native spin buttons.
 - Settings form works in KB/s, MB/s, Kbit/s and Mbit/s and "limit on/off"; the API stays in bytes/s with `0` = unlimited.
@@ -457,11 +460,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - The version is the workspace version in `Cargo.toml` (`0.6.1` while there is no final release); the binary prints it with
   `--version`, the API with `GET /api/version` and Settings shows it in the "About" card (also in `docs/openapi.json`, whose
   `info.version` it is). `web/package.json` carries the same number.
-- Update check: the server asks the GitHub releases API (`/repos/<owner>/<repo>/releases/latest`: the newest published release,
-  neither draft nor pre-release) with a 5 s timeout and compares the tag (`v0.7.0` -> `0.7.0`, numbers compared one by one,
-  a pre-release below its release) with its own version. An answer is kept for 6 hours, a failure for 15 minutes (an offline
+- Update check: the server asks the GitHub releases API for the list of releases (`/repos/<owner>/<repo>/releases?per_page=20`;
+  drafts and pre-releases are skipped) with a 5 s timeout, takes the highest version as `latest` and compares its tag
+  (`v0.7.0` -> `0.7.0`, numbers compared one by one, a pre-release below its release) with its own version. `notes` holds the
+  description (Markdown, at most 8000 characters) of each release newer than the running version, newest first, at most ten:
+  what changed since the user's version. An answer is kept for 6 hours, a failure for 15 minutes (an offline
   server does not retry on every page view), and "Check now" cannot ask more often than every 30 s (anonymous GitHub limit: 60
-  requests an hour). A `404` means no release has been published yet and is not an error. The release link is shown only
+  requests an hour). An empty list or a `404` means no release has been published yet and is not an error. The release link is shown only
   when it is an `https://` address. Nothing is sent but the request itself (the server's IP address and
   `User-Agent: FetchBox/<version>`).
 - It can be switched off (`Settings.check_updates`, default on; a client that does not send the field leaves it on). Then
@@ -471,6 +476,22 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   is available" with a "View the release" button, "You have the latest version", "No release has been published yet", "Could
   not check", "switched off"), the time of the last answer, "Check now" and the switch "Check for updates automatically"
   (part of the settings form: saved with it, and the answer is fetched again once saved).
+- Settings "Check now" always answers with a toast: the latest version (success), a newer one (info, and the update dialog
+  opens), no release published yet, switched off, or could not check (warning).
+- Update dialog (`UpdateDialog`, `stores/updateNotice`): "Version X is available", "You are running version Y", "What is new" (the
+  notes of every newer release in a scrolling box, each with a link to GitHub) and "How to update": Docker Compose (as in the
+  repository: `git pull`, `docker compose up -d --build fetchbox`; data in `./data` and `./downloads` stays, unfinished
+  downloads continue after the restart) and without Docker (`git pull`, `./scripts/build.sh`, start the new binary), each
+  command with a copy button. Notes are drawn as text nodes from a small Markdown reading (headings, lists, paragraphs, `**bold**`,
+  `code`; link targets dropped), never as HTML (`util/notes`). After signing in the app looks once and, if an update is known,
+  opens the dialog with "Remind me later" (hides it for that version for 24 hours; Escape and the backdrop mean the same) and
+  "Skip this version" (never announces that version again; a later one is announced); both are kept per browser in
+  `localStorage` (`fetchbox.updateSnooze`, `fetchbox.updateSkip`). From Settings ("How to update" in the About card) it opens
+  with a plain "Close". It does not open while update checks are off.
+- The app does not update itself. In the container the image is read-only (distroless, no shell, no package manager) and a
+  restart or `docker compose up` brings back the image's version, so a self-replaced binary would not survive; updating the
+  container from inside would also need access to the Docker socket, which is root on the host. A user who wants unattended
+  updates can run an updater such as Watchtower with a published image; that is outside the app.
 - A release is made by publishing a GitHub Release whose tag is `v<version>` (for example `v0.6.1`); that is what the check
   finds. Raising the version means changing `Cargo.toml` (and `web/package.json`) first.
 

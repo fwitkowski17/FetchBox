@@ -13,16 +13,18 @@ class VersionStore {
   #latest = 0;
 
   /** Ask for the kept answer, or, with `force`, look again now. */
-  async load(force = false): Promise<void> {
+  async load(force = false): Promise<VersionInfo | null> {
     const mine = ++this.#latest;
     this.busy = true;
     try {
       const result = await (force ? api.checkVersion() : api.getVersion());
-      if (mine !== this.#latest) return;
+      if (mine !== this.#latest) return this.info;
       this.info = result;
       this.error = null;
+      return result;
     } catch (e) {
       if (mine === this.#latest) this.error = e;
+      return null;
     } finally {
       if (mine === this.#latest) this.busy = false;
     }

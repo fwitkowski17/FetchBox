@@ -5,6 +5,8 @@
   import { untrack } from 'svelte';
   import { i18n, t } from '../i18n';
   import { settings } from '../stores/settings.svelte';
+  import { toast } from '../stores/toast.svelte';
+  import { updateNotice } from '../stores/updateNotice.svelte';
   import { version } from '../stores/version.svelte';
   import { CARD } from '../util/classes';
   import type { Draft } from '../util/settingsForm';
@@ -18,6 +20,19 @@
     void settings.value?.check_updates;
     untrack(() => void version.load());
   });
+
+  /** "Check now": says what it found, so a click is never answered with silence. */
+  async function checkNow(): Promise<void> {
+    const result = await version.load(true);
+    if (!result) toast.error(i18n.errorText(version.error));
+    else if (!result.enabled) toast.info(t('settings.update.off'));
+    else if (result.check_failed) toast.warning(t('settings.update.failed'));
+    else if (result.update_available && result.latest) {
+      toast.info(t('settings.update.available', { version: result.latest }));
+      updateNotice.show();
+    } else if (result.latest) toast.success(t('settings.update.latestToast', { version: result.current }));
+    else toast.info(t('settings.update.none'));
+  }
 
   const info = $derived(version.info);
   /** Only a web address is offered as a link. */
@@ -56,16 +71,21 @@
   </div>
 
   <div class="flex flex-wrap items-center gap-2">
-    {#if releaseUrl && info?.update_available}
-      <a class="btn primary" href={releaseUrl} target="_blank" rel="noopener noreferrer" data-part="release-link">
-        {t('settings.update.view')}
-      </a>
+    {#if info?.update_available}
+      <button type="button" class="btn primary" onclick={() => updateNotice.show()} data-part="update-instructions">
+        {t('settings.update.instructions')}
+      </button>
+      {#if releaseUrl}
+        <a class="btn" href={releaseUrl} target="_blank" rel="noopener noreferrer" data-part="release-link">
+          {t('settings.update.view')}
+        </a>
+      {/if}
     {/if}
     <button
       type="button"
       class="btn"
       disabled={version.busy || !info?.enabled}
-      onclick={() => version.load(true)}
+      onclick={checkNow}
       data-part="check-now"
     >
       <Icon name="retry" size={18} />{version.busy ? t('settings.update.checkingShort') : t('settings.update.check')}

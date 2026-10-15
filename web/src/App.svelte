@@ -11,9 +11,12 @@
   import SpeedLimitDialog from './lib/components/SpeedLimitDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
+  import UpdateDialog from './lib/components/UpdateDialog.svelte';
   import { i18n, t } from './lib/i18n';
   import { addDialog } from './lib/stores/addDialog.svelte';
   import { auth } from './lib/stores/auth.svelte';
+  import { updateNotice } from './lib/stores/updateNotice.svelte';
+  import { version } from './lib/stores/version.svelte';
   import { disk } from './lib/stores/disk.svelte';
   import { downloads } from './lib/stores/downloads.svelte';
   import { media } from './lib/stores/media.svelte';
@@ -59,6 +62,16 @@
         settings.clear();
         disk.stop();
       });
+    }
+  });
+
+  // After signing in, the app looks once whether a new version is out and, unless the user has put
+  // that off, says so. Signing out starts over.
+  $effect(() => {
+    if (auth.state === 'ready') {
+      untrack(() => void version.load().then((info) => updateNotice.announce(info)));
+    } else {
+      untrack(() => updateNotice.reset());
     }
   });
 
@@ -200,6 +213,7 @@
   <AddDownloadDialog />
   <DeleteDownloadDialog />
   <SpeedLimitDialog />
+  <UpdateDialog />
 {/if}
 
 <!-- Outside the screens above: it must also cover the login screen and the first-run wizard. -->
