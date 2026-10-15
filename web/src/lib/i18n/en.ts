@@ -261,6 +261,16 @@ export const en = {
   'disk.reserved': '{size} reserved for downloads',
   'disk.short': 'The queue needs {size} more than is free.',
 
+  // ---- a download held back for lack of space
+  'status.waitingSpace': 'Waiting for space',
+  'space.hint': 'Not started: the disk does not have enough free space. Free some up, then resume.',
+  'space.free': 'Free',
+  'space.needs': 'Needs',
+  'space.missing': 'Missing',
+  'space.room': 'There is room now. Resume to start the download.',
+  'space.aria': '{free} free of the {needed} this download needs',
+  'add.held': 'Added “{name}”, but not started: not enough free disk space.',
+
   // ---- accent colours
   'accent.blue': 'Blue',
   'accent.violet': 'Violet',
@@ -275,6 +285,7 @@ export const en = {
   'error.network': 'Cannot reach the server.',
   'error.http': 'The server answered with an error ({status}).',
   'error.unexpected': 'Something went wrong.',
+  'error.noSpace': 'Still not enough free disk space: {needed} needed, {free} free.',
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;

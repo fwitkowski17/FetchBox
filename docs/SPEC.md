@@ -97,13 +97,19 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   has to write (size minus what it has stored), held while it is queued, running or paused and given back when it
   completes (the bytes are on the disk by then), fails, is cancelled or removed. A new download is refused (`507`) when
   it does not fit into `available - reserved by the others`, so five 50 GB files cannot all be queued on a 100 GB disk.
-  The refusal is advisory: the same request with `ignore_space: true` is accepted ("add anyway", the user's call: files
+  Two cases are told apart. *Virtually* short (fits into the free space, but not next to the other reservations): the
+  request is refused with `507` and the user may repeat it with `ignore_space`. *Really* short (larger than the space
+  that is free right now): the entry is added but not started; it is stored as `paused` with `waiting_space` set, nothing
+  is written for it, and resuming it is refused (`507`, state unchanged) until the free space covers what is left.
+  Leaving `paused` ends the hold. The virtual refusal is advisory: the same request with `ignore_space: true` is accepted ("add anyway", the user's call: files
   may be moved or deleted before the space is needed). Such a download is flagged in the database (`downloads.ignore_space`)
   and the engine skips its own free-space check for it, also after a restart or a resume; if the disk really fills up it
   fails with the write error. The ring then shows the over-commitment.
   Reservations are kept per file system (device id): a category subdirectory can be a mount point on another disk, and
   a path that does not exist yet is judged by its nearest existing parent. A failed download reserves nothing; it counts
-  again as soon as it is resumed (no check on resume: the engine's start check below decides). As a safety net the engine
+  again as soon as it is resumed. Resuming (paused or failed) checks only the space that is really free (not the
+  reservations): if what is left does not fit, the request is refused with `507` and nothing changes, unless the
+  download was added with `ignore_space`. As a safety net the engine
   checks once more when a download actually starts (the disk may have been filled by something else, or the size was
   unknown at add time): the rest of the file plus what the other running downloads on that disk still have to write
   must fit, otherwise it fails with `not enough disk space: X needed, Y free (Z of it reserved for other downloads)`
@@ -131,7 +137,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
 - `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
 
@@ -157,8 +163,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   plus available (blocks reserved for root are not counted, so the share matches `df`'s `Use%`), `reserved` is what
   queued, running and paused downloads on that file system with a known size still have to write (see 6.2).
   `POST /api/downloads` answers `507 {"error":"insufficient storage","needed","free","reserved"}` when the file does not
-  fit next to the other reservations (`needed > free - reserved`); nothing is stored then. Sending the request again with
-  `ignore_space: true` adds it anyway.
+  fit next to the other reservations (`needed > free - reserved`) while it still fits into the free space; nothing is
+  stored then. Sending the request again with `ignore_space: true` adds it anyway. A file larger than the free space is
+  answered with `201` and a download that is `paused` with `waiting_space: true`; `POST .../resume` on it answers `507`
+  until there is room.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
   `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
@@ -185,6 +193,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   not fit. Polled every 10 s (not while the tab is hidden) and refreshed when a download finishes; hidden if the server
   cannot tell. The add form turns the `507` into a dialog: what the file needs, what is free, how much of it other downloads have reserved
   and what is left, with "Add anyway" (resends with `ignore_space`) and "Cancel"; a conflict dialog after it does not ask again.
+- Held download: a card with `waiting_space` shows the badge "Waiting for space" and, instead of the progress bar, a gauge:
+  one bar that is the whole need, filled with what the free space covers (follows the disk figures, so it fills while the
+  user frees space), the missing part striped, with "Free / Needs / Missing" below. Once the free space covers the need the
+  text says so and the bar turns green; the user resumes by hand. Adding such a file shows a warning toast, not a dialog.
 - Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.

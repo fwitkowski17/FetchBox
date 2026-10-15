@@ -1191,6 +1191,10 @@
           },
           "url": {
             "type": "string"
+          },
+          "waiting_space": {
+            "type": "boolean",
+            "description": "Held back because the file does not fit on the disk: it was added on purpose but not\nstarted (status `paused`). Free some space and resume it."
           }
         }
       },

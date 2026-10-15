@@ -453,20 +453,28 @@ impl Manager {
         Ok(total)
     }
 
-    /// Refuse (`InsufficientSpace`) when `needed` more bytes do not fit next to what the other
-    /// unfinished downloads on the same disk have reserved. A disk whose space cannot be read is
-    /// not checked: that must not stop downloads.
-    fn ensure_room(&self, subdir: &str, needed: u64) -> Result<()> {
+    /// Where does a new download of `needed` bytes stand on its disk?
+    /// - `Ok(false)`: it fits, next to what other unfinished downloads have reserved.
+    /// - `Ok(true)`: it does not fit even into the space that is really free; it should be added
+    ///   but held back, not started.
+    /// - `Err(InsufficientSpace)`: it fits into the free space but not next to the reservations
+    ///   of other downloads; the user decides (`ignore_space`).
+    ///
+    /// A disk whose space cannot be read is not checked: that must not stop downloads.
+    fn check_room(&self, subdir: &str, needed: u64) -> Result<bool> {
         let vol = match dlm_http_engine::disk::volume(&self.engine.dir_for(subdir)) {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(error = %e, "cannot read free disk space; skipping the check");
-                return Ok(());
+                return Ok(false);
             }
         };
+        if needed > vol.space.available {
+            return Ok(true);
+        }
         let others = self.reserved_on(vol.dev)?;
         dlm_http_engine::disk::ensure_fits(needed, others, vol.space.available)?;
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -498,14 +506,15 @@ impl Service for Manager {
         };
         let url = req.url.trim().to_owned();
 
-        let id = {
+        let (id, hold) = {
             let _guard = self.add_lock.lock().await;
             // Reserve room for it: tell the user now, not when the download dies halfway. Inside
             // the lock, so two adds cannot both claim the last free gigabytes.
             // `ignore_space`: the user knows better (files may be moved away before it starts).
-            if let (Some(size), false) = (info.size, req.ignore_space) {
-                self.ensure_room(&subdir, size)?;
-            }
+            let hold = match (info.size, req.ignore_space) {
+                (Some(size), false) => self.check_room(&subdir, size)?,
+                _ => false,
+            };
             let found = self.detect_conflict(&url, &subdir, &name).await?;
             let (filename, overwrite) = match (found.conflict, req.on_conflict) {
                 (None, _) => (name, false),
@@ -521,7 +530,7 @@ impl Service for Manager {
                     (name, found.name_taken)
                 }
             };
-            self.with_db(|c| {
+            let id = self.with_db(|c| {
                 let id = downloads::insert(
                     c,
                     &NewDownload {
@@ -535,10 +544,21 @@ impl Service for Manager {
                     },
                 )?;
                 downloads::set_remote_info(c, id, info.size, info.resumable, info.etag.as_deref())?;
+                if hold {
+                    // Really no room: keep the entry, but do not start it.
+                    downloads::set_status(c, id, Status::Paused, None)?;
+                    downloads::set_waiting_space(c, id, true)?;
+                }
                 Ok(id)
-            })?
+            })?;
+            (id, hold)
         };
 
+        if hold {
+            tracing::info!(id, "not enough free disk space: added but held back");
+            self.publish_download(id);
+            return self.get(id).map(|d| self.view(d));
+        }
         let start = self.sched().enqueue(id);
         self.publish_download(id);
         self.launch(start).await;
@@ -572,6 +592,23 @@ impl Service for Manager {
                 "cannot resume a {} download",
                 d.status.as_str()
             )));
+        }
+        // Resuming into a disk that is still really full would only fail again (or fill it): say so
+        // and leave the download as it is. The user's own `ignore_space` choice is respected.
+        if let Some(size) = d.size {
+            let ignore = self.with_db(|c| downloads::ignore_space_flag(c, id))?;
+            let needed = size.saturating_sub(d.downloaded);
+            if !ignore {
+                if let Ok(v) = dlm_http_engine::disk::volume(&self.engine.dir_for(&d.subdir)) {
+                    if needed > v.space.available {
+                        return Err(Error::InsufficientSpace {
+                            needed,
+                            free: v.space.available,
+                            reserved: 0,
+                        });
+                    }
+                }
+            }
         }
         self.with_db(|c| downloads::set_status(c, id, Status::Queued, None).map(|_| ()))?;
         let start = self.sched().enqueue(id);

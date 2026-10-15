@@ -36,7 +36,8 @@
       });
       conflict = null;
       ignoreSpace = false;
-      toast.success(t('add.added', { name: added.filename }));
+      if (added.waiting_space) toast.warning(t('add.held', { name: added.filename }));
+      else toast.success(t('add.added', { name: added.filename }));
       url = '';
       filename = '';
       category = 'auto';

@@ -21,7 +21,7 @@ pub struct NewDownload {
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
@@ -70,16 +70,27 @@ pub fn list_by_status(conn: &Connection, status: Status) -> Result<Vec<Download>
 }
 
 /// Change status. `error` is stored as given (cleared when `None`).
-/// Terminal statuses set `finished_at`; other statuses clear it.
+/// Terminal statuses set `finished_at`; other statuses clear it. Leaving `paused` also ends a
+/// "waiting for space" hold.
 pub fn set_status(conn: &Connection, id: Id, status: Status, error: Option<&str>) -> Result<bool> {
     let n = conn.execute(
         "UPDATE downloads
             SET status = ?2, error = ?3,
-                finished_at = CASE WHEN ?4 THEN unixepoch() ELSE NULL END
+                finished_at = CASE WHEN ?4 THEN unixepoch() ELSE NULL END,
+                waiting_space = CASE WHEN ?2 = 'paused' THEN waiting_space ELSE 0 END
           WHERE id = ?1",
         params![id, status.as_str(), error, status.is_terminal()],
     )?;
     Ok(n > 0)
+}
+
+/// Mark a (paused) download as held back because it does not fit on the disk, or clear the mark.
+pub fn set_waiting_space(conn: &Connection, id: Id, waiting: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE downloads SET waiting_space = ?2 WHERE id = ?1",
+        params![id, waiting],
+    )?;
+    Ok(())
 }
 
 /// Change status only if the current one is in `from` (guards against late engine events).
@@ -238,6 +249,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let etag = row.get(9)?;
     let error = row.get(10)?;
     let subdir = row.get(11)?;
+    let waiting_space = row.get(12)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -257,6 +269,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             error,
             subdir,
             speed: 0,
+            waiting_space,
         })
     })();
     Ok(mapped)
@@ -410,6 +423,23 @@ mod tests {
             .is_none());
         set_status(&conn, a, Status::Cancelled, None).expect("s");
         assert!(find_by_url(&conn, "http://x/a").expect("f").is_empty());
+    }
+
+    #[test]
+    fn waiting_space_hold_ends_when_the_download_leaves_paused() {
+        let conn = open_in_memory().expect("db");
+        let id = insert(&conn, &new("http://x/a")).expect("insert");
+        assert!(!get(&conn, id).expect("get").expect("row").waiting_space);
+
+        set_status(&conn, id, Status::Paused, None).expect("pause");
+        set_waiting_space(&conn, id, true).expect("hold");
+        assert!(get(&conn, id).expect("get").expect("row").waiting_space);
+        // Staying paused keeps the hold...
+        set_status(&conn, id, Status::Paused, None).expect("pause again");
+        assert!(get(&conn, id).expect("get").expect("row").waiting_space);
+        // ...queueing it (resume) ends it.
+        set_status(&conn, id, Status::Queued, None).expect("queue");
+        assert!(!get(&conn, id).expect("get").expect("row").waiting_space);
     }
 
     #[test]

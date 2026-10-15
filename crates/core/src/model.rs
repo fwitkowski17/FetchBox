@@ -144,6 +144,10 @@ pub struct Download {
     /// Current speed in bytes/s. Not persisted: filled in for running downloads.
     #[serde(default)]
     pub speed: u64,
+    /// Held back because the file does not fit on the disk: it was added on purpose but not
+    /// started (status `paused`). Free some space and resume it.
+    #[serde(default)]
+    pub waiting_space: bool,
 }
 
 /// Free space on the file system that holds the download directory.

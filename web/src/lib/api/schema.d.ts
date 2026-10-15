@@ -396,6 +396,11 @@ export interface components {
             /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
             subdir?: string;
             url: string;
+            /**
+             * @description Held back because the file does not fit on the disk: it was added on purpose but not
+             *     started (status `paused`). Free some space and resume it.
+             */
+            waiting_space?: boolean;
         };
         /** @description Error body used by every non-2xx response. */
         ErrorBody: {

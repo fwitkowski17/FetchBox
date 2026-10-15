@@ -12,12 +12,14 @@
     <div
       class={[
         'pointer-events-auto flex items-center gap-2 rounded-lg border bg-surface py-1.5 pr-1.5 pl-3 text-sm shadow-card',
-        item.kind === 'error' ? 'border-danger' : 'border-border',
+        item.kind === 'error' ? 'border-danger' : item.kind === 'warning' ? 'border-warning' : 'border-border',
       ]}
       role={item.kind === 'error' ? 'alert' : 'status'}
     >
-      <span class={item.kind === 'error' ? 'text-danger' : 'text-success'}>
-        <Icon name={item.kind === 'error' ? 'alert' : 'check'} size={18} />
+      <span
+        class={item.kind === 'error' ? 'text-danger' : item.kind === 'warning' ? 'text-warning' : 'text-success'}
+      >
+        <Icon name={item.kind === 'error' || item.kind === 'warning' ? 'alert' : 'check'} size={18} />
       </span>
       <span class="flex-1 [overflow-wrap:anywhere]">{item.message}</span>
       <button

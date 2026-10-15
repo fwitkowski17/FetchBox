@@ -9,6 +9,7 @@
   import CategoryIcon from './CategoryIcon.svelte';
   import Icon from './Icon.svelte';
   import ProgressBar from './ProgressBar.svelte';
+  import SpaceGauge from './SpaceGauge.svelte';
   import StatusBadge from './StatusBadge.svelte';
 
   let { download }: { download: Download } = $props();
@@ -20,6 +21,8 @@
   const speed = $derived(speedOf(d));
   const eta = $derived(etaSeconds(d.downloaded, d.size, speed));
   const live = $derived(d.status === 'downloading');
+  /** Held back because the disk is full; the gauge below says by how much. */
+  const heldForSpace = $derived(d.status === 'paused' && d.waiting_space === true && d.size != null);
   const unfinished = $derived(d.status === 'queued' || d.status === 'downloading' || d.status === 'paused');
   const folder = $derived(d.subdir ? `${d.subdir}/` : '');
 
@@ -80,10 +83,12 @@
         {/if}
       </p>
     </div>
-    <StatusBadge status={d.status} />
+    <StatusBadge status={d.status} waiting={heldForSpace} />
   </div>
 
-  {#if d.status !== 'cancelled'}
+  {#if heldForSpace && d.size != null}
+    <SpaceGauge size={d.size} downloaded={d.downloaded} />
+  {:else if d.status !== 'cancelled'}
     <ProgressBar
       value={d.status === 'completed' ? 1 : frac}
       status={d.status}
@@ -91,26 +96,28 @@
     />
   {/if}
 
-  <p data-part="stats" class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted tabular-nums">
-    {#if d.status === 'queued'}
-      <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
-    {:else if d.status === 'completed'}
-      <span>{i18n.bytes(d.size ?? d.downloaded)}</span>
-    {:else if d.status === 'cancelled'}
-      <span>{t('card.cancelled')}</span>
-    {:else}
-      <span>
-        {d.size != null
-          ? t('card.ofTotal', { done: i18n.bytes(d.downloaded), total: i18n.bytes(d.size) })
-          : i18n.bytes(d.downloaded)}
-        {#if frac !== null}<strong class="ml-1 font-semibold text-text">{formatPercent(frac)}</strong>{/if}
-      </span>
-      {#if live}
-        <span>{i18n.speed(speed)}</span>
-        {#if eta !== null}<span>{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
+  {#if !heldForSpace}
+    <p data-part="stats" class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted tabular-nums">
+      {#if d.status === 'queued'}
+        <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
+      {:else if d.status === 'completed'}
+        <span>{i18n.bytes(d.size ?? d.downloaded)}</span>
+      {:else if d.status === 'cancelled'}
+        <span>{t('card.cancelled')}</span>
+      {:else}
+        <span>
+          {d.size != null
+            ? t('card.ofTotal', { done: i18n.bytes(d.downloaded), total: i18n.bytes(d.size) })
+            : i18n.bytes(d.downloaded)}
+          {#if frac !== null}<strong class="ml-1 font-semibold text-text">{formatPercent(frac)}</strong>{/if}
+        </span>
+        {#if live}
+          <span>{i18n.speed(speed)}</span>
+          {#if eta !== null}<span>{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
+        {/if}
       {/if}
-    {/if}
-  </p>
+    </p>
+  {/if}
 
   {#if d.status === 'failed' && d.error}
     <p

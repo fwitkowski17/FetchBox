@@ -258,6 +258,16 @@ const pl: Messages = {
   'disk.reserved': 'Zarezerwowane na pobieranie: {size}',
   'disk.short': 'Kolejka potrzebuje o {size} więcej, niż jest wolne.',
 
+  // ---- a download held back for lack of space
+  'status.waitingSpace': 'Czeka na miejsce',
+  'space.hint': 'Nie rozpoczęto: na dysku nie ma dość wolnego miejsca. Zwolnij miejsce i wznów pobieranie.',
+  'space.free': 'Wolne',
+  'space.needs': 'Potrzeba',
+  'space.missing': 'Brakuje',
+  'space.room': 'Miejsca jest już dość. Wznów pobieranie, aby je rozpocząć.',
+  'space.aria': 'Wolne {free} z {needed}, których potrzebuje to pobranie',
+  'add.held': 'Dodano „{name}”, ale nie rozpoczęto: za mało wolnego miejsca na dysku.',
+
   // ---- accent colours
   'accent.blue': 'Niebieski',
   'accent.violet': 'Fioletowy',
@@ -272,6 +282,7 @@ const pl: Messages = {
   'error.network': 'Nie można połączyć się z serwerem.',
   'error.http': 'Serwer zwrócił błąd ({status}).',
   'error.unexpected': 'Coś poszło nie tak.',
+  'error.noSpace': 'Nadal za mało wolnego miejsca na dysku: potrzeba {needed}, wolne {free}.',
 };
 
 export default pl;
