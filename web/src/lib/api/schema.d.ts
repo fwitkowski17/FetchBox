@@ -611,6 +611,15 @@ export interface components {
         ProbeRequest: {
             url: string;
         };
+        /** @description What a release changed, as its author wrote it on GitHub (Markdown). */
+        ReleaseNote: {
+            /** @description The description of the release (Markdown, shortened when very long). Show it as text. */
+            body: string;
+            /** @description Page of the release. */
+            url: string;
+            /** @description Version without a leading `v`. */
+            version: string;
+        };
         /** @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. */
         Settings: {
             /**
@@ -801,6 +810,8 @@ export interface components {
             enabled: boolean;
             /** @description Version of the newest published release, without a leading `v`. */
             latest?: string | null;
+            /** @description What changed in every release newer than `current`, newest first (at most ten). */
+            notes: components["schemas"]["ReleaseNote"][];
             /** @description Page of the newest release. */
             release_url?: string | null;
             /** @description `latest` is newer than `current`. */

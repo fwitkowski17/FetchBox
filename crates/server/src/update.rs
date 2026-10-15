@@ -5,11 +5,12 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use fetchbox_core::VersionInfo;
+use fetchbox_core::{ReleaseNote, VersionInfo};
 
-/// The newest published (not draft, not pre-release) release of the project.
+/// The latest published releases of the project (drafts are not listed for anonymous requests;
+/// pre-releases are filtered out below).
 pub const RELEASES_API: &str =
-    "https://api.github.com/repos/fwitkowski17/WebDownloadManager/releases/latest";
+    "https://api.github.com/repos/fwitkowski17/WebDownloadManager/releases?per_page=20";
 
 /// Version of this program.
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
@@ -23,17 +24,24 @@ const MIN_GAP: Duration = Duration::from_secs(30);
 /// Do not wait for GitHub longer than this.
 const TIMEOUT: Duration = Duration::from_secs(5);
 
-/// What GitHub said about the latest release.
+/// How many releases newer than this one are described to the user.
+const MAX_NOTES: usize = 10;
+/// A longer release description is cut here (characters).
+const MAX_NOTE_CHARS: usize = 8000;
+
+/// A published release.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Release {
     version: String,
     url: String,
+    body: String,
 }
 
 #[derive(Debug, Clone)]
 enum Outcome {
-    Found(Release),
-    /// GitHub answered, but nothing is published yet (`404`).
+    /// The published releases, newest first (never empty).
+    Found(Vec<Release>),
+    /// GitHub answered, but nothing is published yet.
     NoRelease,
     Failed,
 }
@@ -117,7 +125,8 @@ impl UpdateChecker {
             tracing::debug!(status = %resp.status(), "update check refused");
             return Outcome::Failed;
         }
-        match resp.text().await.ok().and_then(|t| parse_release(&t)) {
+        match resp.text().await.ok().and_then(|t| parse_releases(&t)) {
+            Some(r) if r.is_empty() => Outcome::NoRelease,
             Some(r) => Outcome::Found(r),
             None => Outcome::Failed,
         }
@@ -134,6 +143,7 @@ pub fn disabled() -> VersionInfo {
         release_url: None,
         checked_at: None,
         check_failed: false,
+        notes: Vec::new(),
     }
 }
 
@@ -144,10 +154,21 @@ fn describe(outcome: &Outcome, answered_at: Option<i64>) -> VersionInfo {
         ..disabled()
     };
     match outcome {
-        Outcome::Found(r) => {
-            info.update_available = is_newer(&r.version, CURRENT);
-            info.latest = Some(r.version.clone());
-            info.release_url = Some(r.url.clone());
+        Outcome::Found(releases) => {
+            let latest = &releases[0];
+            info.update_available = is_newer(&latest.version, CURRENT);
+            info.latest = Some(latest.version.clone());
+            info.release_url = Some(latest.url.clone());
+            info.notes = releases
+                .iter()
+                .filter(|r| is_newer(&r.version, CURRENT))
+                .take(MAX_NOTES)
+                .map(|r| ReleaseNote {
+                    version: r.version.clone(),
+                    url: r.url.clone(),
+                    body: r.body.chars().take(MAX_NOTE_CHARS).collect(),
+                })
+                .collect();
         }
         Outcome::NoRelease => {}
         Outcome::Failed => info.check_failed = true,
@@ -155,15 +176,45 @@ fn describe(outcome: &Outcome, answered_at: Option<i64>) -> VersionInfo {
     info
 }
 
-fn parse_release(body: &str) -> Option<Release> {
+/// The published releases of a GitHub answer (a JSON list), newest version first. Drafts,
+/// pre-releases and entries whose tag is not a version or whose link is not a web address are
+/// left out. `None` when the answer is not a list at all.
+fn parse_releases(body: &str) -> Option<Vec<Release>> {
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
-    let tag = v.get("tag_name")?.as_str()?;
-    let version = tag.trim().trim_start_matches(['v', 'V']).to_owned();
-    parse_version(&version)?;
-    let url = v.get("html_url")?.as_str()?.to_owned();
-    // The link is shown to the user and opened by them: only a web address will do.
-    url.starts_with("https://")
-        .then_some(Release { version, url })
+    let mut out: Vec<Release> = v
+        .as_array()?
+        .iter()
+        .filter_map(|item| {
+            let flag = |k: &str| item.get(k).and_then(|f| f.as_bool()).unwrap_or(false);
+            if flag("draft") || flag("prerelease") {
+                return None;
+            }
+            let tag = item.get("tag_name")?.as_str()?;
+            let version = tag.trim().trim_start_matches(['v', 'V']).to_owned();
+            parse_version(&version)?;
+            let url = item.get("html_url")?.as_str()?.to_owned();
+            // The link is shown to the user and opened by them: only a web address will do.
+            if !url.starts_with("https://") {
+                return None;
+            }
+            let body = item
+                .get("body")
+                .and_then(|b| b.as_str())
+                .unwrap_or_default()
+                .to_owned();
+            Some(Release { version, url, body })
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        if is_newer(&a.version, &b.version) {
+            std::cmp::Ordering::Less
+        } else if is_newer(&b.version, &a.version) {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
+    Some(out)
 }
 
 /// `1.2.3` or `1.2.3-rc.1`: the numbers, and whether it is a pre-release.
@@ -236,25 +287,24 @@ mod tests {
     }
 
     #[test]
-    fn a_release_is_read_from_the_github_answer() {
-        let body = r#"{"tag_name":"v0.7.0","html_url":"https://github.com/o/r/releases/tag/v0.7.0","name":"x"}"#;
-        assert_eq!(
-            parse_release(body),
-            Some(Release {
-                version: "0.7.0".into(),
-                url: "https://github.com/o/r/releases/tag/v0.7.0".into()
-            })
-        );
-        // Not a version, not a web link, not JSON.
-        assert_eq!(
-            parse_release(r#"{"tag_name":"nightly","html_url":"https://x"}"#),
-            None
-        );
-        assert_eq!(
-            parse_release(r#"{"tag_name":"v1.0.0","html_url":"javascript:alert(1)"}"#),
-            None
-        );
-        assert_eq!(parse_release("<html>"), None);
+    fn releases_are_read_from_the_github_list_newest_first() {
+        let body = r###"[
+            {"tag_name":"v0.7.0","html_url":"https://github.com/o/r/releases/tag/v0.7.0","body":"## Changes\n- a"},
+            {"tag_name":"v0.9.0-rc.1","html_url":"https://github.com/o/r/x","prerelease":true},
+            {"tag_name":"v0.8.0","html_url":"https://github.com/o/r/releases/tag/v0.8.0","body":null},
+            {"tag_name":"v0.10.0","html_url":"https://github.com/o/r/releases/tag/v0.10.0","draft":true},
+            {"tag_name":"nightly","html_url":"https://github.com/o/r/y"},
+            {"tag_name":"v1.0.0","html_url":"javascript:alert(1)"}
+        ]"###;
+        let list = parse_releases(body).expect("a list");
+        let versions: Vec<_> = list.iter().map(|r| r.version.as_str()).collect();
+        assert_eq!(versions, vec!["0.8.0", "0.7.0"]);
+        assert_eq!(list[1].body, "## Changes\n- a");
+        assert_eq!(list[0].body, "");
+        assert_eq!(parse_releases("[]"), Some(Vec::new()));
+        // Not a list, not JSON.
+        assert_eq!(parse_releases(r#"{"message":"Not Found"}"#), None);
+        assert_eq!(parse_releases("<html>"), None);
     }
 
     async fn serve(status: StatusCode, body: &'static str, hits: Arc<AtomicUsize>) -> String {
@@ -275,8 +325,12 @@ mod tests {
         format!("http://{addr}/latest")
     }
 
-    const NEWER: &str =
-        r#"{"tag_name":"v99.0.0","html_url":"https://github.com/o/r/releases/tag/v99.0.0"}"#;
+    const NEWER: &str = r###"[
+        {"tag_name":"v100.0.0-rc.1","html_url":"https://github.com/o/r/releases/tag/v100.0.0-rc.1","prerelease":true,"body":"candidate"},
+        {"tag_name":"v99.0.0","html_url":"https://github.com/o/r/releases/tag/v99.0.0","body":"## What is new\n- Faster"},
+        {"tag_name":"v98.0.0","html_url":"https://github.com/o/r/releases/tag/v98.0.0","body":"- Earlier"},
+        {"tag_name":"v0.0.1","html_url":"https://github.com/o/r/releases/tag/v0.0.1","body":"- ancient"}
+    ]"###;
 
     #[tokio::test]
     async fn a_newer_release_is_reported_and_the_answer_is_reused() {
@@ -289,6 +343,19 @@ mod tests {
         assert_eq!(a.latest.as_deref(), Some("99.0.0"));
         assert_eq!(a.current, CURRENT);
         assert!(a.checked_at.is_some());
+        // Only what is newer than this version is described, newest first; no pre-release.
+        let notes: Vec<_> = a
+            .notes
+            .iter()
+            .map(|n| (n.version.as_str(), n.body.as_str()))
+            .collect();
+        assert_eq!(
+            notes,
+            vec![
+                ("99.0.0", "## What is new\n- Faster"),
+                ("98.0.0", "- Earlier")
+            ]
+        );
         let b = checker.info(false).await;
         assert_eq!(a, b);
         assert_eq!(
@@ -304,7 +371,9 @@ mod tests {
     #[tokio::test]
     async fn the_current_version_is_up_to_date() {
         let body: &'static str = Box::leak(
-            format!(r#"{{"tag_name":"v{CURRENT}","html_url":"https://github.com/o/r/x"}}"#)
+            format!(
+                r#"[{{"tag_name":"v{CURRENT}","html_url":"https://github.com/o/r/x","body":"now"}}]"#
+            )
                 .into_boxed_str(),
         );
         let url = serve(StatusCode::OK, body, Arc::default()).await;
@@ -314,18 +383,22 @@ mod tests {
             .await;
         assert!(!info.update_available);
         assert_eq!(info.latest.as_deref(), Some(CURRENT));
+        assert!(info.notes.is_empty(), "nothing is newer than this version");
     }
 
     #[tokio::test]
     async fn no_release_yet_is_not_an_error() {
-        let url = serve(StatusCode::NOT_FOUND, "{}", Arc::default()).await;
-        let info = UpdateChecker::new(Some(url))
-            .expect("checker")
-            .info(false)
-            .await;
-        assert!(info.enabled && !info.check_failed && !info.update_available);
-        assert_eq!(info.latest, None);
-        assert!(info.checked_at.is_some());
+        // A repository without releases answers with an empty list; a missing one with a 404.
+        for (status, body) in [(StatusCode::OK, "[]"), (StatusCode::NOT_FOUND, "{}")] {
+            let url = serve(status, body, Arc::default()).await;
+            let info = UpdateChecker::new(Some(url))
+                .expect("checker")
+                .info(false)
+                .await;
+            assert!(info.enabled && !info.check_failed && !info.update_available);
+            assert_eq!(info.latest, None);
+            assert!(info.checked_at.is_some());
+        }
     }
 
     #[tokio::test]

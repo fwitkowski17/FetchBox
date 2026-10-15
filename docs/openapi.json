@@ -1755,6 +1755,29 @@
           }
         }
       },
+      "ReleaseNote": {
+        "type": "object",
+        "description": "What a release changed, as its author wrote it on GitHub (Markdown).",
+        "required": [
+          "version",
+          "url",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "The description of the release (Markdown, shortened when very long). Show it as text."
+          },
+          "url": {
+            "type": "string",
+            "description": "Page of the release."
+          },
+          "version": {
+            "type": "string",
+            "description": "Version without a leading `v`."
+          }
+        }
+      },
       "Settings": {
         "type": "object",
         "description": "Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.",
@@ -2080,7 +2103,8 @@
           "current",
           "enabled",
           "update_available",
-          "check_failed"
+          "check_failed",
+          "notes"
         ],
         "properties": {
           "check_failed": {
@@ -2109,6 +2133,13 @@
               "null"
             ],
             "description": "Version of the newest published release, without a leading `v`."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReleaseNote"
+            },
+            "description": "What changed in every release newer than `current`, newest first (at most ten)."
           },
           "release_url": {
             "type": [

@@ -2439,7 +2439,7 @@ async fn the_version_endpoint_reports_a_newer_release_unless_checks_are_off() {
     let release = axum::Router::new().route(
         "/latest",
         get(|| async {
-            r#"{"tag_name":"v99.0.0","html_url":"https://github.com/o/r/releases/tag/v99.0.0"}"#
+            r#"[{"tag_name":"v99.0.0","html_url":"https://github.com/o/r/releases/tag/v99.0.0","body":"- Faster"}]"#
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -2483,6 +2483,8 @@ async fn the_version_endpoint_reports_a_newer_release_unless_checks_are_off() {
         v["release_url"],
         "https://github.com/o/r/releases/tag/v99.0.0"
     );
+    assert_eq!(v["notes"][0]["version"], "99.0.0");
+    assert_eq!(v["notes"][0]["body"], "- Faster");
     let (status, v) = send(
         &c,
         reqwest::Method::POST,

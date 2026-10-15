@@ -14,8 +14,8 @@ use async_trait::async_trait;
 pub use error::{Error, Result};
 pub use model::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, Handle, Id, Job,
-    ListingEntry, OnConflict, ProbeRequest, Progress, SegmentState, Settings, SourceKind, Status,
-    UrlInfo, UrlKind, VersionInfo,
+    ListingEntry, OnConflict, ProbeRequest, Progress, ReleaseNote, SegmentState, Settings,
+    SourceKind, Status, UrlInfo, UrlKind, VersionInfo,
 };
 pub use stats::{CategoryStat, DayStat, LargestFile, Stats, StatsRange};
 

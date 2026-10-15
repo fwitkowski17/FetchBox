@@ -276,6 +276,18 @@ pub struct AddRequest {
     pub ignore_space: bool,
 }
 
+/// What a release changed, as its author wrote it on GitHub (Markdown).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ReleaseNote {
+    /// Version without a leading `v`.
+    pub version: String,
+    /// Page of the release.
+    pub url: String,
+    /// The description of the release (Markdown, shortened when very long). Show it as text.
+    pub body: String,
+}
+
 /// The version of the running program and what is known about newer ones.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -294,6 +306,8 @@ pub struct VersionInfo {
     pub checked_at: Option<i64>,
     /// The last attempt did not get an answer (offline, rate limited, ...).
     pub check_failed: bool,
+    /// What changed in every release newer than `current`, newest first (at most ten).
+    pub notes: Vec<ReleaseNote>,
 }
 
 /// Request to look at a URL before adding it.
