@@ -19,7 +19,7 @@ use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
-    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status,
+    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo,
 };
 use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
@@ -592,6 +592,17 @@ impl Manager {
     }
 }
 
+impl Manager {
+    /// Probe a URL through the engine (which applies the private-address policy) and name what
+    /// went wrong the way the API reports it.
+    async fn probe_remote(&self, url: &str) -> Result<fetchbox_http_engine::RemoteInfo> {
+        self.engine.probe_url(url).await.map_err(|e| match e {
+            fetchbox_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
+            other => Error::Engine(format!("cannot reach {url}: {other}")),
+        })
+    }
+}
+
 fn io_err(e: std::io::Error) -> Error {
     Error::Internal(e.to_string())
 }
@@ -603,11 +614,18 @@ impl Service for Manager {
         Ok(all.into_iter().map(|d| self.view(d)).collect())
     }
 
+    async fn probe(&self, url: &str) -> Result<UrlInfo> {
+        let info = self.probe_remote(url).await?;
+        Ok(UrlInfo {
+            category: detect_category(&info.filename, info.content_type.as_deref()),
+            filename: info.filename,
+            size: info.size,
+            resumable: info.resumable,
+        })
+    }
+
     async fn add(&self, req: AddRequest) -> Result<Download> {
-        let info = self.engine.probe_url(&req.url).await.map_err(|e| match e {
-            fetchbox_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
-            other => Error::Engine(format!("cannot reach {}: {other}", req.url)),
-        })?;
+        let info = self.probe_remote(&req.url).await?;
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
         let category = req
             .category

@@ -856,6 +856,75 @@
         }
       }
     },
+    "/api/probe": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "summary": "Look at a URL without adding it: the file name, size, range support and category the server\nand the file name suggest. The same checks as an add apply (private addresses can be refused).\nA `POST` so that the address, which may carry a token, stays out of access logs.",
+        "operationId": "probe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable http(s) URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The remote server could not be reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": [
@@ -1560,6 +1629,18 @@
           "overwrite"
         ]
       },
+      "ProbeRequest": {
+        "type": "object",
+        "description": "Request to look at a URL before adding it.",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
       "Settings": {
         "type": "object",
         "description": "Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.",
@@ -1813,6 +1894,38 @@
             ],
             "format": "int64",
             "description": "Speed of this download alone, bytes per second. It replaces the default speed of each\ndownload (it may be faster or slower); `0` removes it, so the default applies again. The\ntotal limit of all downloads still caps the sum. Only for queued, running, paused and\nfailed downloads (`409` otherwise). Applied live to a running download.",
+            "minimum": 0
+          }
+        }
+      },
+      "UrlInfo": {
+        "type": "object",
+        "description": "What the remote server says about a URL: what an add request would work with.",
+        "required": [
+          "filename",
+          "resumable",
+          "category"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category",
+            "description": "Category the download would get when none is chosen."
+          },
+          "filename": {
+            "type": "string",
+            "description": "The (sanitized) file name the download would get."
+          },
+          "resumable": {
+            "type": "boolean",
+            "description": "The server honours `Range`, so the download can be paused and resumed."
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Size in bytes; `None` when the server does not tell.",
             "minimum": 0
           }
         }

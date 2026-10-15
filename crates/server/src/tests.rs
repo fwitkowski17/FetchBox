@@ -2298,3 +2298,61 @@ async fn the_stats_endpoint_answers_with_the_summary_and_checks_its_query() {
     let (status, _) = send(&c, reqwest::Method::GET, format!("{locked}/stats"), None).await;
     assert_eq!(status, 401);
 }
+
+#[tokio::test]
+async fn the_probe_endpoint_describes_a_url_without_adding_it() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let post = |url: String| format!(r#"{{"url":"{url}"}}"#);
+
+    let (status, v) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/probe"),
+        Some(&post(h.url("fast", "holiday.mkv"))),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["filename"], "holiday.mkv");
+    assert_eq!(v["size"], BODY_LEN as u64);
+    assert_eq!(v["category"], "video");
+    assert!(v["resumable"].is_boolean());
+    assert!(
+        h.mgr.list().await.expect("list").is_empty(),
+        "nothing is added"
+    );
+
+    let (status, _) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/probe"),
+        Some(r#"{"url":"ftp://example.com/a.bin"}"#),
+    )
+    .await;
+    assert_eq!(status, 400);
+
+    let locked = spawn_api_with(
+        &h,
+        fetchbox_api::Auth::with_password("correct-horse".to_owned()),
+    )
+    .await;
+    let (status, _) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{locked}/probe"),
+        Some(&post(h.url("fast", "a.bin"))),
+    )
+    .await;
+    assert_eq!(status, 401);
+}
+
+#[tokio::test]
+async fn the_probe_follows_the_private_url_policy() {
+    let h = Harness::with_policy(fetchbox_http_engine::UrlPolicy {
+        block_private: true,
+    })
+    .await;
+    let r = h.mgr.probe(&h.url("fast", "a.bin")).await;
+    assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
+}

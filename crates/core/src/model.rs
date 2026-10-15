@@ -267,6 +267,27 @@ pub struct AddRequest {
     pub ignore_space: bool,
 }
 
+/// Request to look at a URL before adding it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProbeRequest {
+    pub url: String,
+}
+
+/// What the remote server says about a URL: what an add request would work with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UrlInfo {
+    /// The (sanitized) file name the download would get.
+    pub filename: String,
+    /// Size in bytes; `None` when the server does not tell.
+    pub size: Option<u64>,
+    /// The server honours `Range`, so the download can be paused and resumed.
+    pub resumable: bool,
+    /// Category the download would get when none is chosen.
+    pub category: Category,
+}
+
 /// Why an add request collided with something.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -168,6 +168,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
   the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
   checks)
+- `POST /api/probe {url}` (looks at a URL without adding anything and answers `{filename, size?, resumable, category}`: the
+  same probe an add makes, with the same URL policy and the same errors, `400` for a bad URL and `502` when the server
+  cannot be reached; a `POST` so that an address with a token stays out of access logs)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/disk` (free space of the download disk)
 - `GET /api/stats?range=today|7d|30d|all&offset=<minutes east of UTC>` (a summary of the downloads of a period, in the
@@ -264,6 +267,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
   success clears it), the name-conflict and "does not fit" dialogs open on top of it, and a success closes everything and
   shows the list. Old `#/add` links still work: they open the dialog and the hash goes back to `#/`.
+  The address field has a paste button (clipboard icon) at its right end: it reads the clipboard (a secure context and the
+  browser's consent are needed; on a plain-HTTP LAN page it says so in a toast and Ctrl+V still works) and puts the first
+  line in the field. A valid http(s) address is looked at with `POST /api/probe`, 0.5 s after the last keystroke or at once
+  after a paste, and the result is shown under the field: the category icon, "Size: N" (or that the server does not report
+  one) and, when the server does not support ranges, that the download cannot be resumed once paused; the file name
+  field's placeholder becomes the name the server suggests. An older look is cancelled when the address changes. A
+  failed look shows its reason but never blocks adding (the add reports a real problem itself).
 - Motion: short and functional (about 150-250 ms), never decorative loops. Dialogs fade and rise in and fade and sink out
   (the native `<dialog>` is closed only after the exit has played; reopening during the exit cancels it); toasts fly in,
   fade out and the rest glide into place; the drawer scrim fades; the floating button pops in; a card added to an existing

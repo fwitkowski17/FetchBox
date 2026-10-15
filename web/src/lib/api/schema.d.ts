@@ -254,6 +254,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look at a URL without adding it: the file name, size, range support and category the server
+         *     and the file name suggest. The same checks as an add apply (private addresses can be refused).
+         *     A `POST` so that the address, which may carry a token, stays out of access logs.
+         */
+        post: operations["probe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings": {
         parameters: {
             query?: never;
@@ -534,6 +555,10 @@ export interface components {
          * @enum {string}
          */
         OnConflict: "reject" | "rename" | "overwrite";
+        /** @description Request to look at a URL before adding it. */
+        ProbeRequest: {
+            url: string;
+        };
         /** @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. */
         Settings: {
             /**
@@ -679,6 +704,20 @@ export interface components {
              *     failed downloads (`409` otherwise). Applied live to a running download.
              */
             speed_limit?: number | null;
+        };
+        /** @description What the remote server says about a URL: what an add request would work with. */
+        UrlInfo: {
+            /** @description Category the download would get when none is chosen. */
+            category: components["schemas"]["Category"];
+            /** @description The (sanitized) file name the download would get. */
+            filename: string;
+            /** @description The server honours `Range`, so the download can be paused and resumed. */
+            resumable: boolean;
+            /**
+             * Format: int64
+             * @description Size in bytes; `None` when the server does not tell.
+             */
+            size?: number | null;
         };
     };
     responses: never;
@@ -1326,6 +1365,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    probe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProbeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UrlInfo"];
+                };
+            };
+            /** @description Not a usable http(s) URL */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The remote server could not be reached */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };
