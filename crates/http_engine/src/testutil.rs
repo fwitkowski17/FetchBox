@@ -33,6 +33,32 @@ impl TestServer {
         Self { addr, body }
     }
 
+    /// A server that claims `claimed` bytes (`Content-Range: bytes 0-0/<claimed>`) and only has
+    /// the first one: enough for a probe, for tests about files that cannot fit anywhere.
+    pub async fn claiming(claimed: u64) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let _ = sock.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\nContent-Range: bytes 0-0/{claimed}\r\nETag: \"v1\"\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n\0"
+                    );
+                    let _ = sock.write_all(head.as_bytes()).await;
+                });
+            }
+        });
+        Self {
+            addr,
+            body: Arc::new(vec![0]),
+        }
+    }
+
     pub fn url(&self, path: &str) -> String {
         format!("http://{}/{path}", self.addr)
     }

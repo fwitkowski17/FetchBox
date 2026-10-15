@@ -415,6 +415,7 @@ dependencies = [
  "dlm-core",
  "futures-util",
  "reqwest",
+ "rustix",
  "tempfile",
  "thiserror",
  "tokio",

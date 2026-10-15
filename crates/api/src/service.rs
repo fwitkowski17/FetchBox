@@ -2,7 +2,7 @@
 //! so `api` depends on neither the database nor the engine.
 
 use async_trait::async_trait;
-use dlm_core::{AddRequest, Category, Download, Event, Id, Result, Settings};
+use dlm_core::{AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings};
 use tokio::sync::broadcast;
 
 /// Download manager as seen by the API.
@@ -20,6 +20,8 @@ pub trait Service: Send + Sync + 'static {
     async fn set_category(&self, id: Id, category: Category) -> Result<Download>;
     async fn settings(&self) -> Result<Settings>;
     async fn update_settings(&self, settings: Settings) -> Result<Settings>;
+    /// Free space where downloads are written.
+    async fn disk_space(&self) -> Result<DiskSpace>;
     /// Live updates for SSE.
     fn subscribe(&self) -> broadcast::Receiver<Event>;
 }

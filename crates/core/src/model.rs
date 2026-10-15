@@ -146,6 +146,27 @@ pub struct Download {
     pub speed: u64,
 }
 
+/// Free space on the file system that holds the download directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DiskSpace {
+    /// Bytes this program can use on the file system: what is used plus what is available
+    /// (blocks reserved for root are not counted, like `df`'s `Use%`).
+    pub total: u64,
+    /// Bytes available for new files.
+    pub available: u64,
+    /// Bytes still to be written by queued, running and paused downloads whose size is known.
+    /// When this exceeds `available` the queue will not fit.
+    pub pending: u64,
+}
+
+impl DiskSpace {
+    /// Bytes in use.
+    pub fn used(&self) -> u64 {
+        self.total.saturating_sub(self.available)
+    }
+}
+
 /// Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

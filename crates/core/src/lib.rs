@@ -12,8 +12,8 @@ use async_trait::async_trait;
 
 pub use error::{Error, Result};
 pub use model::{
-    AddRequest, Category, Conflict, ConflictKind, Download, Event, Handle, Id, Job, OnConflict,
-    Progress, SegmentState, Settings, SourceKind, Status,
+    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, Handle, Id, Job,
+    OnConflict, Progress, SegmentState, Settings, SourceKind, Status,
 };
 
 /// Backend that actually moves bytes (HTTP now, BitTorrent later).

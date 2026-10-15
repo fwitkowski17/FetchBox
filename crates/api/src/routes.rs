@@ -9,12 +9,12 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
-use dlm_core::{AddRequest, Category, Download, Error, Id, Settings};
+use dlm_core::{AddRequest, Category, DiskSpace, Download, Error, Id, Settings};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::auth::{self, Auth};
-use crate::error::{ApiError, ConflictBody, ErrorBody};
+use crate::error::{ApiError, ConflictBody, ErrorBody, SpaceBody};
 use crate::openapi;
 use crate::service::Service;
 use crate::sse;
@@ -31,6 +31,7 @@ pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
         .route("/downloads/{id}/resume", post(resume))
         .route("/downloads/{id}/cancel", post(cancel))
         .route("/settings", get(get_settings).put(put_settings))
+        .route("/disk", get(disk))
         .route("/events", get(sse::events))
         .with_state(service)
         .route_layer(middleware::from_fn_with_state(
@@ -105,6 +106,7 @@ pub(crate) async fn list(State(svc): Svc) -> ApiResult<Json<Vec<Download>>> {
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 409, description = "Collision; the user must choose", body = ConflictBody),
         (status = 502, description = "The remote server could not be reached", body = ErrorBody),
+        (status = 507, description = "The file is larger than the free disk space (counting what running downloads still need)", body = SpaceBody),
     )
 )]
 pub(crate) async fn add(
@@ -112,6 +114,21 @@ pub(crate) async fn add(
     Json(req): Json<AddRequest>,
 ) -> ApiResult<(StatusCode, Json<Download>)> {
     Ok((StatusCode::CREATED, Json(svc.add(req).await?)))
+}
+
+/// Free space on the disk that holds the download directory.
+#[utoipa::path(
+    get,
+    path = "/api/disk",
+    tag = "system",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, body = DiskSpace),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+    )
+)]
+pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
+    Ok(Json(svc.disk_space().await?))
 }
 
 /// Change the category of a download.

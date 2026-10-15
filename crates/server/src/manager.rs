@@ -17,8 +17,8 @@ use dlm_core::filename::sanitize;
 use dlm_core::limiter::RateLimiter;
 use dlm_core::scheduler::Scheduler;
 use dlm_core::{
-    AddRequest, Category, Conflict, ConflictKind, Download, Downloader, Error, Event, Id, Job,
-    OnConflict, Result, Settings, SourceKind, Status,
+    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
+    Id, Job, OnConflict, Result, Settings, SourceKind, Status,
 };
 use dlm_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use dlm_storage::downloads::{self, NewDownload};
@@ -438,6 +438,20 @@ impl Service for Manager {
             dlm_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
             other => Error::Engine(format!("cannot reach {}: {other}", req.url)),
         })?;
+        // Tell the user now, not when the download dies halfway. The engine checks again when
+        // the download really starts (the queue may have filled the disk by then).
+        if let Some(size) = info.size {
+            match dlm_http_engine::disk::space(&self.dir) {
+                Ok(d) => dlm_http_engine::disk::ensure_fits(
+                    size,
+                    self.engine.remaining_bytes(),
+                    d.available,
+                )?,
+                Err(e) => {
+                    tracing::warn!(error = %e, "cannot read free disk space; skipping the check")
+                }
+            }
+        }
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
         let category = req
             .category
@@ -553,6 +567,25 @@ impl Service for Manager {
         }
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
+    }
+
+    async fn disk_space(&self) -> Result<DiskSpace> {
+        let mut space = dlm_http_engine::disk::space(&self.dir).map_err(io_err)?;
+        // What queued, running and paused downloads will still write. Finished, failed and
+        // cancelled ones need nothing more.
+        let all = self.with_db(|c| downloads::list(c))?;
+        space.pending = all
+            .into_iter()
+            .map(|d| self.view(d))
+            .filter(|d| {
+                matches!(
+                    d.status,
+                    Status::Queued | Status::Downloading | Status::Paused
+                )
+            })
+            .filter_map(|d| d.size.map(|size| size.saturating_sub(d.downloaded)))
+            .sum();
+        Ok(space)
     }
 
     async fn settings(&self) -> Result<Settings> {

@@ -95,6 +95,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/disk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Free space on the disk that holds the download directory. */
+        get: operations["disk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/downloads": {
         parameters: {
             query?: never;
@@ -322,6 +339,26 @@ export interface components {
          * @enum {string}
          */
         ConflictKind: "duplicate_url" | "file_exists" | "name_reserved";
+        /** @description Free space on the file system that holds the download directory. */
+        DiskSpace: {
+            /**
+             * Format: int64
+             * @description Bytes available for new files.
+             */
+            available: number;
+            /**
+             * Format: int64
+             * @description Bytes still to be written by queued, running and paused downloads whose size is known.
+             *     When this exceeds `available` the queue will not fit.
+             */
+            pending: number;
+            /**
+             * Format: int64
+             * @description Bytes this program can use on the file system: what is used plus what is available
+             *     (blocks reserved for root are not counted, like `df`'s `Use%`).
+             */
+            total: number;
+        };
         /** @description A download as stored and shown to the user. */
         Download: {
             category: components["schemas"]["Category"];
@@ -447,6 +484,21 @@ export interface components {
          * @enum {string}
          */
         SourceKind: "http" | "magnet" | "torrent_file";
+        /** @description `507` body of `POST /downloads` when the file will not fit on the disk. */
+        SpaceBody: {
+            /**
+             * Format: int64
+             * @description Bytes available on the disk.
+             */
+            available: number;
+            /** @description Always `"insufficient storage"`. */
+            error: string;
+            /**
+             * Format: int64
+             * @description Bytes the download needs, including what other running downloads still have to write.
+             */
+            needed: number;
+        };
         /**
          * @description Lifecycle status of a download.
          * @enum {string}
@@ -671,6 +723,34 @@ export interface operations {
             };
         };
     };
+    disk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskSpace"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: never;
@@ -755,6 +835,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The file is larger than the free disk space (counting what running downloads still need) */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceBody"];
                 };
             };
         };

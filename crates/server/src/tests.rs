@@ -19,12 +19,15 @@ use futures_util::stream;
 use crate::manager::Manager;
 
 const BODY_LEN: usize = 40 * 1024;
+/// 10^19 bytes: what `/huge/...` claims to have.
+const HUGE_CLAIM: u64 = 10_000_000_000_000_000_000;
 
 fn body() -> Vec<u8> {
     (0..BODY_LEN).map(|i| (i % 251) as u8).collect()
 }
 
-/// `/fast/<name>` answers at once, `/slow/<name>` takes about a second.
+/// `/fast/<name>` answers at once, `/slow/<name>` takes about a second, `/huge/<name>` claims
+/// to be ten exabytes (more than any disk) and only has the usual 40 KiB.
 async fn spawn_files() -> SocketAddr {
     async fn serve(UrlPath((kind, _name)): UrlPath<(String, String)>) -> impl IntoResponse {
         let data = body();
@@ -43,9 +46,14 @@ async fn spawn_files() -> SocketAddr {
         } else {
             "application/octet-stream"
         };
+        let claimed = if kind == "huge" {
+            HUGE_CLAIM.to_string()
+        } else {
+            BODY_LEN.to_string()
+        };
         (
             [
-                (CONTENT_LENGTH, BODY_LEN.to_string()),
+                (CONTENT_LENGTH, claimed),
                 (CONTENT_TYPE, content_type.to_string()),
             ],
             Body::from_stream(s),
@@ -649,6 +657,72 @@ async fn sse_streams_download_events() {
         seen.push_str(&String::from_utf8_lossy(&chunk));
     }
     assert!(seen.contains("event: progress") || seen.contains("\"status\":\"downloading\""));
+}
+
+// ---- disk space -------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_file_that_cannot_fit_is_refused_when_it_is_added() {
+    let h = Harness::new().await;
+    let r = h
+        .mgr
+        .add(h.req("huge", "big.bin", OnConflict::Reject))
+        .await;
+    let Err(Error::InsufficientSpace { needed, available }) = r else {
+        panic!("expected InsufficientSpace, got {r:?}");
+    };
+    assert_eq!(needed, HUGE_CLAIM);
+    assert!(available < needed);
+    // Refused outright: no row, no file.
+    assert!(h.mgr.list().await.expect("list").is_empty());
+    assert_eq!(std::fs::read_dir(h.dir.path()).expect("ls").count(), 0);
+}
+
+#[tokio::test]
+async fn disk_space_counts_what_unfinished_downloads_still_need() {
+    let h = Harness::new().await;
+    let idle = h.mgr.disk_space().await.expect("space");
+    assert!(idle.total > 0 && idle.available <= idle.total, "{idle:?}");
+    assert_eq!(idle.pending, 0);
+
+    let d = h
+        .mgr
+        .add(h.req("slow", "a.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let busy = h.mgr.disk_space().await.expect("space");
+    assert!(
+        busy.pending > 0 && busy.pending <= BODY_LEN as u64,
+        "{busy:?}"
+    );
+
+    h.wait_status(d.id, Status::Completed).await;
+    assert_eq!(h.mgr.disk_space().await.expect("space").pending, 0);
+}
+
+#[tokio::test]
+async fn disk_endpoint_is_protected_and_refusals_are_507() {
+    let h = Harness::new().await;
+    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let c = reqwest::Client::new();
+    assert_eq!(aget(&c, &api, "/disk", None).await.status().as_u16(), 401);
+
+    let login = alogin(&c, &api, "correct-horse").await;
+    let cookie = session_cookie(&login);
+    let ok = aget(&c, &api, "/disk", Some(("cookie", &cookie))).await;
+    assert_eq!(ok.status().as_u16(), 200);
+    let v: serde_json::Value = serde_json::from_str(&ok.text().await.expect("body")).expect("json");
+    assert!(v["total"].as_u64().is_some_and(|n| n > 0), "{v}");
+    assert!(v["available"].is_u64() && v["pending"] == 0, "{v}");
+
+    let body = format!(r#"{{"url":"{}"}}"#, h.url("huge", "big.bin"));
+    let refused = apost(&c, &api, "/downloads", &body, Some(("cookie", &cookie))).await;
+    assert_eq!(refused.status().as_u16(), 507);
+    let v: serde_json::Value =
+        serde_json::from_str(&refused.text().await.expect("body")).expect("json");
+    assert_eq!(v["error"], "insufficient storage");
+    assert_eq!(v["needed"].as_u64(), Some(HUGE_CLAIM));
+    assert!(v["available"].is_u64(), "{v}");
 }
 
 // ---- authentication over real HTTP --------------------------------------------------

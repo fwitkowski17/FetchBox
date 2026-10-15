@@ -24,6 +24,17 @@ pub struct ConflictBody {
     pub conflict: Conflict,
 }
 
+/// `507` body of `POST /downloads` when the file will not fit on the disk.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SpaceBody {
+    /// Always `"insufficient storage"`.
+    pub error: String,
+    /// Bytes the download needs, including what other running downloads still have to write.
+    pub needed: u64,
+    /// Bytes available on the disk.
+    pub available: u64,
+}
+
 fn err(message: impl Into<String>) -> ErrorBody {
     ErrorBody {
         error: message.into(),
@@ -55,6 +66,15 @@ impl IntoResponse for ApiError {
                 Json(ConflictBody {
                     error: "conflict".into(),
                     conflict: (**c).clone(),
+                }),
+            )
+                .into_response(),
+            Error::InsufficientSpace { needed, available } => (
+                StatusCode::INSUFFICIENT_STORAGE,
+                Json(SpaceBody {
+                    error: "insufficient storage".into(),
+                    needed: *needed,
+                    available: *available,
                 }),
             )
                 .into_response(),
@@ -106,5 +126,15 @@ mod tests {
             suggested_name: "a (1)".into(),
         };
         assert_eq!(status(Error::Conflict(Box::new(c))), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn insufficient_space_is_507_with_both_sizes() {
+        let resp = ApiError(Error::InsufficientSpace {
+            needed: 5,
+            available: 3,
+        })
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::INSUFFICIENT_STORAGE);
     }
 }

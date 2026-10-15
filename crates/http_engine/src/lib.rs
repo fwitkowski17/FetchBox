@@ -3,6 +3,7 @@
 //! The engine owns no database. It reports what happened through [`Event`]s on a
 //! channel; the server wiring persists them (batched, never on the hot path).
 
+pub mod disk;
 pub mod error;
 pub mod policy;
 pub mod probe;
@@ -186,6 +187,11 @@ impl HttpDownloader {
         }
     }
 
+    /// Bytes the running downloads still have to write (known sizes only).
+    pub fn remaining_bytes(&self) -> u64 {
+        self.inner.remaining_of_others(None)
+    }
+
     /// The `.part` file of a download: `<subdir>/<name>.<id>.part` (ids keep same-name
     /// downloads apart). It lives next to the final file so the finishing move stays on
     /// one filesystem.
@@ -222,6 +228,16 @@ impl HttpDownloader {
 }
 
 impl Inner {
+    /// Bytes the running downloads (all but `except`) still have to write; unknown sizes count 0.
+    fn remaining_of_others(&self, except: Option<Id>) -> u64 {
+        self.entries()
+            .iter()
+            .filter(|(id, _)| Some(**id) != except)
+            .filter_map(|(_, e)| e.shared.remote.get())
+            .map(|r| r.size.map_or(0, |size| size.saturating_sub(r.downloaded())))
+            .sum()
+    }
+
     fn entries(&self) -> MutexGuard<'_, HashMap<Id, Entry>> {
         self.entries.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -337,6 +353,26 @@ async fn download(
         && job.etag == info.etag
         && plan_end == info.size
         && tokio::fs::metadata(&part).await.is_ok();
+
+    // Refuse early when the rest of the file (plus what other running downloads still have to
+    // write) cannot fit; otherwise the disk would fill up halfway and the download would die
+    // with a bare write error. Without a known size nothing can be checked.
+    if let Some(size) = info.size {
+        let have: u64 = if reuse {
+            job.segments.iter().map(|s| s.downloaded).sum()
+        } else {
+            0
+        };
+        match disk::space(&dir) {
+            Ok(d) => disk::ensure_fits(
+                size.saturating_sub(have),
+                inner.remaining_of_others(Some(job.id)),
+                d.available,
+            )?,
+            // Free space unknown (exotic file system): do not block downloads over it.
+            Err(e) => tracing::warn!(error = %e, "cannot read free disk space; skipping the check"),
+        }
+    }
 
     let remote = if reuse {
         build_remote(&info, &job.segments)
@@ -774,6 +810,52 @@ mod tests {
             std::fs::read(dir.path().join("file.bin")).expect("read"),
             b"existing"
         );
+    }
+
+    #[tokio::test]
+    async fn file_larger_than_the_disk_fails_before_anything_is_written() {
+        // Ten exabytes (10^19 bytes): more than any disk, so the test needs no way to fill one.
+        let server = TestServer::claiming(10_000_000_000_000_000_000).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+        dl.start(&job(1, &server, 4)).await.expect("start");
+        let mut started = None;
+        let failed = loop {
+            if let Some(ev) = next_terminal_or_started(&mut rx, &mut started).await {
+                break ev;
+            }
+        };
+        let Event::Failed { error, .. } = failed else {
+            panic!("expected a failure, got {failed:?}");
+        };
+        assert!(error.starts_with("not enough disk space: "), "{error}");
+        assert!(error.contains("10000000.0 TB needed"), "{error}");
+        assert!(started.is_none(), "must fail before the plan is announced");
+        // Nothing was created, in particular no sparse .part file of that size.
+        assert_eq!(std::fs::read_dir(dir.path()).expect("ls").count(), 0);
+    }
+
+    #[tokio::test]
+    async fn remaining_bytes_follow_running_downloads() {
+        let server = TestServer::spawn(256 * 1024, true, Duration::from_millis(40)).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+        assert_eq!(dl.remaining_bytes(), 0);
+        dl.start(&job(1, &server, 1)).await.expect("start");
+        loop {
+            if matches!(rx.recv().await.expect("closed"), Event::Started { .. }) {
+                break;
+            }
+        }
+        let left = dl.remaining_bytes();
+        assert!(left > 0 && left <= server.len() as u64, "{left}");
+        assert!(matches!(
+            next_terminal(&mut rx).await,
+            Event::Completed { .. }
+        ));
+        assert_eq!(dl.remaining_bytes(), 0, "finished downloads need nothing");
     }
 
     #[tokio::test]

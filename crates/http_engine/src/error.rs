@@ -13,6 +13,12 @@ pub enum EngineError {
     Status(u16),
     #[error("protocol error: {0}")]
     Protocol(String),
+    #[error(
+        "not enough disk space: {} needed, {} available",
+        dlm_core::error::human_bytes(*.needed),
+        dlm_core::error::human_bytes(*.available)
+    )]
+    NoSpace { needed: u64, available: u64 },
     #[error("connection closed before the full body arrived")]
     Truncated,
 }
@@ -44,6 +50,9 @@ impl From<EngineError> for dlm_core::Error {
     fn from(e: EngineError) -> Self {
         match e {
             EngineError::InvalidUrl(m) => dlm_core::Error::InvalidInput(m),
+            EngineError::NoSpace { needed, available } => {
+                dlm_core::Error::InsufficientSpace { needed, available }
+            }
             other => dlm_core::Error::Engine(other.to_string()),
         }
     }
