@@ -21,7 +21,7 @@
     position: fixed;
     z-index: 50;
     left: 50%;
-    bottom: calc(var(--nav-h) + 0.6rem + env(safe-area-inset-bottom));
+    top: calc(var(--header-h) + env(safe-area-inset-top) + 0.5rem);
     display: grid;
     gap: 0.35rem;
     width: min(28rem, calc(100vw - 1.5rem));
@@ -71,9 +71,13 @@
     cursor: pointer;
   }
 
-  @media (min-width: 48rem) {
+  @media (min-width: 64rem) {
     .toasts {
-      bottom: 1.25rem;
+      top: 1rem;
+      left: auto;
+      right: 1rem;
+      width: 24rem;
+      transform: none;
     }
   }
 </style>

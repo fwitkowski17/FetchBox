@@ -74,124 +74,126 @@
   }
 </script>
 
-<header class="head"><h1>{t('settings.title')}</h1></header>
+<div class="page-narrow">
+  <header class="head"><h1>{t('settings.title')}</h1></header>
 
-<form class="stack" onsubmit={save}>
-  {#if settings.error && !settings.value}
-    <div class="card" role="alert">
-      <p>{t('settings.loadFailed', { error: i18n.errorText(settings.error) })}</p>
-      <button type="button" class="btn" onclick={() => settings.load()}>{t('common.tryAgain')}</button>
-    </div>
-  {:else if draft === null}
-    <p class="hint" role="status">{t('common.loading')}</p>
-  {:else}
-    <section class="card">
-      <h2>{t('settings.downloads')}</h2>
-      <div class="field">
-        <label for="connections">{t('settings.connections.label')}</label>
-        <input
-          id="connections"
-          class="input"
-          type="number"
-          inputmode="numeric"
-          min="1"
-          max={MAX_CONNECTIONS}
-          bind:value={draft.connections}
-          aria-invalid={errors.connections ? 'true' : undefined}
-        />
-        <p class="hint">{t('settings.connections.hint')}</p>
-        {#if errors.connections}<p class="error" role="alert">{errorText(errors.connections)}</p>{/if}
+  <form class="stack" onsubmit={save}>
+    {#if settings.error && !settings.value}
+      <div class="card" role="alert">
+        <p>{t('settings.loadFailed', { error: i18n.errorText(settings.error) })}</p>
+        <button type="button" class="btn" onclick={() => settings.load()}>{t('common.tryAgain')}</button>
       </div>
+    {:else if draft === null}
+      <p class="hint" role="status">{t('common.loading')}</p>
+    {:else}
+      <section class="card">
+        <h2>{t('settings.downloads')}</h2>
+        <div class="field">
+          <label for="connections">{t('settings.connections.label')}</label>
+          <input
+            id="connections"
+            class="input"
+            type="number"
+            inputmode="numeric"
+            min="1"
+            max={MAX_CONNECTIONS}
+            bind:value={draft.connections}
+            aria-invalid={errors.connections ? 'true' : undefined}
+          />
+          <p class="hint">{t('settings.connections.hint')}</p>
+          {#if errors.connections}<p class="error" role="alert">{errorText(errors.connections)}</p>{/if}
+        </div>
 
-      <div class="field">
-        <label for="concurrent">{t('settings.concurrent.label')}</label>
-        <input
-          id="concurrent"
-          class="input"
-          type="number"
-          inputmode="numeric"
-          min="1"
-          max={MAX_CONCURRENT}
-          bind:value={draft.maxConcurrent}
-          aria-invalid={errors.maxConcurrent ? 'true' : undefined}
+        <div class="field">
+          <label for="concurrent">{t('settings.concurrent.label')}</label>
+          <input
+            id="concurrent"
+            class="input"
+            type="number"
+            inputmode="numeric"
+            min="1"
+            max={MAX_CONCURRENT}
+            bind:value={draft.maxConcurrent}
+            aria-invalid={errors.maxConcurrent ? 'true' : undefined}
+          />
+          <p class="hint">{t('settings.concurrent.hint')}</p>
+          {#if errors.maxConcurrent}<p class="error" role="alert">{errorText(errors.maxConcurrent)}</p>{/if}
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>{t('settings.speed')}</h2>
+        <SpeedField
+          label={t('settings.speed.each')}
+          hint={t('settings.speed.eachHint')}
+          bind:value={draft.perDownload}
+          error={errors.perDownload ? errorText(errors.perDownload) : undefined}
         />
-        <p class="hint">{t('settings.concurrent.hint')}</p>
-        {#if errors.maxConcurrent}<p class="error" role="alert">{errorText(errors.maxConcurrent)}</p>{/if}
-      </div>
-    </section>
+        <hr />
+        <SpeedField
+          label={t('settings.speed.total')}
+          hint={t('settings.speed.totalHint')}
+          bind:value={draft.global}
+          error={errors.global ? errorText(errors.global) : undefined}
+        />
+      </section>
 
-    <section class="card">
-      <h2>{t('settings.speed')}</h2>
-      <SpeedField
-        label={t('settings.speed.each')}
-        hint={t('settings.speed.eachHint')}
-        bind:value={draft.perDownload}
-        error={errors.perDownload ? errorText(errors.perDownload) : undefined}
-      />
-      <hr />
-      <SpeedField
-        label={t('settings.speed.total')}
-        hint={t('settings.speed.totalHint')}
-        bind:value={draft.global}
-        error={errors.global ? errorText(errors.global) : undefined}
-      />
-    </section>
+      <section class="card">
+        <h2>{t('settings.files')}</h2>
+        <Toggle
+          bind:checked={draft.categorySubdirs}
+          hint={t('settings.subdirs.hint')}
+        >
+          {t('settings.subdirs')}
+        </Toggle>
+      </section>
 
-    <section class="card">
-      <h2>{t('settings.files')}</h2>
-      <Toggle
-        bind:checked={draft.categorySubdirs}
-        hint={t('settings.subdirs.hint')}
-      >
-        {t('settings.subdirs')}
-      </Toggle>
-    </section>
+      {#if error}
+        <p class="banner" role="alert"><Icon name="alert" size={18} />{error}</p>
+      {/if}
 
-    {#if error}
-      <p class="banner" role="alert"><Icon name="alert" size={18} />{error}</p>
+      {#if dirty}
+        <div class="savebar" role="group" aria-label={t('settings.unsaved')}>
+          <span class="hint">{t('settings.unsaved')}</span>
+          <button type="button" class="btn" onclick={reset} disabled={saving}>{t('settings.discard')}</button>
+          <button type="submit" class="btn primary" disabled={!valid || saving}>
+            {saving ? t('settings.saving') : t('settings.save')}
+          </button>
+        </div>
+      {/if}
     {/if}
 
-    {#if dirty}
-      <div class="savebar" role="group" aria-label={t('settings.unsaved')}>
-        <span class="hint">{t('settings.unsaved')}</span>
-        <button type="button" class="btn" onclick={reset} disabled={saving}>{t('settings.discard')}</button>
-        <button type="submit" class="btn primary" disabled={!valid || saving}>
-          {saving ? t('settings.saving') : t('settings.save')}
+    <section class="card">
+      <h2>{t('settings.appearance')}</h2>
+      <ThemePicker />
+      <p class="hint">{t('settings.theme.hint')}</p>
+
+      <div class="field">
+        <label for="language">{t('settings.language')}</label>
+        <select
+          id="language"
+          class="select"
+          value={i18n.pref}
+          onchange={(e) => void i18n.setPref(e.currentTarget.value)}
+        >
+          <option value="auto">{t('settings.language.auto')}</option>
+          {#each LOCALES as l (l.code)}
+            <option value={l.code} lang={l.code}>{l.name}</option>
+          {/each}
+        </select>
+      </div>
+    </section>
+
+    {#if auth.required}
+      <section class="card">
+        <h2>{t('settings.account')}</h2>
+        <button type="button" class="btn" onclick={() => auth.logout()}>
+          <Icon name="logout" size={18} />{t('settings.signOut')}
         </button>
-      </div>
+      </section>
     {/if}
-  {/if}
-
-  <section class="card">
-    <h2>{t('settings.appearance')}</h2>
-    <ThemePicker />
-    <p class="hint">{t('settings.theme.hint')}</p>
-
-    <div class="field">
-      <label for="language">{t('settings.language')}</label>
-      <select
-        id="language"
-        class="select"
-        value={i18n.pref}
-        onchange={(e) => void i18n.setPref(e.currentTarget.value)}
-      >
-        <option value="auto">{t('settings.language.auto')}</option>
-        {#each LOCALES as l (l.code)}
-          <option value={l.code} lang={l.code}>{l.name}</option>
-        {/each}
-      </select>
-    </div>
-  </section>
-
-  {#if auth.required}
-    <section class="card">
-      <h2>{t('settings.account')}</h2>
-      <button type="button" class="btn" onclick={() => auth.logout()}>
-        <Icon name="logout" size={18} />{t('settings.signOut')}
-      </button>
-    </section>
-  {/if}
-</form>
+  </form>
+</div>
 
 <style>
   .head {
@@ -240,7 +242,7 @@
 
   .savebar {
     position: sticky;
-    bottom: calc(var(--nav-h) + 0.5rem + env(safe-area-inset-bottom));
+    bottom: calc(0.75rem + env(safe-area-inset-bottom));
     z-index: 5;
     display: flex;
     align-items: center;
@@ -256,9 +258,4 @@
     flex: 1;
   }
 
-  @media (min-width: 48rem) {
-    .savebar {
-      bottom: 1rem;
-    }
-  }
 </style>

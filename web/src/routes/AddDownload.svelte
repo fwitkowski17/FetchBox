@@ -60,61 +60,63 @@
   }
 </script>
 
-<header class="head"><h1>{t('add.title')}</h1></header>
+<div class="page-narrow">
+  <header class="head"><h1>{t('add.title')}</h1></header>
 
-<form class="card" onsubmit={onSubmit}>
-  <div class="field">
-    <label for="url">{t('add.address')}</label>
-    <!-- svelte-ignore a11y_autofocus -->
-    <input
-      id="url"
-      class="input"
-      type="url"
-      inputmode="url"
-      autocomplete="off"
-      autocapitalize="off"
-      spellcheck="false"
-      autofocus
-      placeholder="https://example.com/file.zip"
-      bind:value={url}
-      aria-invalid={showUrlHint ? 'true' : undefined}
-      aria-describedby="url-hint"
-    />
-    <p id="url-hint" class="hint" class:warn={showUrlHint}>
-      {showUrlHint ? t('add.address.invalid') : t('add.address.hint')}
-    </p>
-  </div>
-
-  <div class="two">
+  <form class="card" onsubmit={onSubmit}>
     <div class="field">
-      <label for="filename">{t('add.filename')} <span class="opt">{t('common.optional')}</span></label>
+      <label for="url">{t('add.address')}</label>
+      <!-- svelte-ignore a11y_autofocus -->
       <input
-        id="filename"
+        id="url"
         class="input"
+        type="url"
+        inputmode="url"
         autocomplete="off"
-        placeholder={t('add.filename.placeholder')}
-        bind:value={filename}
+        autocapitalize="off"
+        spellcheck="false"
+        autofocus
+        placeholder="https://example.com/file.zip"
+        bind:value={url}
+        aria-invalid={showUrlHint ? 'true' : undefined}
+        aria-describedby="url-hint"
       />
+      <p id="url-hint" class="hint" class:warn={showUrlHint}>
+        {showUrlHint ? t('add.address.invalid') : t('add.address.hint')}
+      </p>
     </div>
-    <div class="field">
-      <label for="category">{t('add.category')}</label>
-      <select id="category" class="select" bind:value={category}>
-        <option value="auto">{t('add.category.auto')}</option>
-        {#each CATEGORIES as c (c)}
-          <option value={c}>{t(`category.${c}`)}</option>
-        {/each}
-      </select>
+
+    <div class="two">
+      <div class="field">
+        <label for="filename">{t('add.filename')} <span class="opt">{t('common.optional')}</span></label>
+        <input
+          id="filename"
+          class="input"
+          autocomplete="off"
+          placeholder={t('add.filename.placeholder')}
+          bind:value={filename}
+        />
+      </div>
+      <div class="field">
+        <label for="category">{t('add.category')}</label>
+        <select id="category" class="select" bind:value={category}>
+          <option value="auto">{t('add.category.auto')}</option>
+          {#each CATEGORIES as c (c)}
+            <option value={c}>{t(`category.${c}`)}</option>
+          {/each}
+        </select>
+      </div>
     </div>
-  </div>
 
-  {#if error}
-    <p class="error" role="alert"><Icon name="alert" size={18} />{error}</p>
-  {/if}
+    {#if error}
+      <p class="error" role="alert"><Icon name="alert" size={18} />{error}</p>
+    {/if}
 
-  <button class="btn primary" type="submit" disabled={!urlOk || busy}>
-    <Icon name="down" size={18} />{busy && !conflict ? t('add.submitting') : t('add.submit')}
-  </button>
-</form>
+    <button class="btn primary" type="submit" disabled={!urlOk || busy}>
+      <Icon name="down" size={18} />{busy && !conflict ? t('add.submitting') : t('add.submit')}
+    </button>
+  </form>
+</div>
 
 <ConflictDialog {conflict} {busy} onchoose={choose} />
 

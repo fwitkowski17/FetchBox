@@ -13,7 +13,7 @@
       try {
         var t = localStorage.getItem('dlm.theme');
         if (t) t = JSON.parse(t);
-        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        if (t === 'light' || t === 'dark' || t === 'black') document.documentElement.setAttribute('data-theme', t);
       } catch (e) {}
     </script>
   </head>

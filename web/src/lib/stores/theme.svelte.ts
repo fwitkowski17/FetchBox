@@ -2,17 +2,21 @@
 // (`[data-theme]` overrides, otherwise `prefers-color-scheme`).
 import { readJson, writeJson } from '../util/storage';
 
-export type ThemePref = 'system' | 'light' | 'dark';
+export type ThemePref = 'system' | 'light' | 'dark' | 'black';
 
 const KEY = 'dlm.theme';
-const isPref = (v: unknown): v is ThemePref => v === 'system' || v === 'light' || v === 'dark';
+const isPref = (v: unknown): v is ThemePref =>
+  v === 'system' || v === 'light' || v === 'dark' || v === 'black';
+
+/** Order of the quick toggle. */
+const ORDER: readonly ThemePref[] = ['system', 'light', 'dark', 'black'];
 
 class ThemeStore {
   pref = $state<ThemePref>(readJson<ThemePref>(KEY, 'system', isPref));
   #systemDark = $state(false);
 
-  /** What is actually shown right now. */
-  effective = $derived<'light' | 'dark'>(
+  /** What is actually shown right now (`system` resolves to light or dark, never black). */
+  effective = $derived<'light' | 'dark' | 'black'>(
     this.pref === 'system' ? (this.#systemDark ? 'dark' : 'light') : this.pref,
   );
 
@@ -33,9 +37,9 @@ class ThemeStore {
     this.#apply();
   }
 
-  /** Quick toggle for the header button: system -> light -> dark -> system. */
+  /** Quick toggle: system -> light -> dark -> black -> system. */
   cycle(): void {
-    this.set(this.pref === 'system' ? 'light' : this.pref === 'light' ? 'dark' : 'system');
+    this.set(ORDER[(ORDER.indexOf(this.pref) + 1) % ORDER.length] ?? 'system');
   }
 
   #apply(): void {

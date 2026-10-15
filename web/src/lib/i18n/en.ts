@@ -20,6 +20,13 @@ export const en = {
   'nav.downloads': 'Downloads',
   'nav.add': 'Add',
   'nav.settings': 'Settings',
+  'nav.open': 'Open menu',
+  'nav.close': 'Close menu',
+  'nav.filters': 'Filters',
+  'filters.status': 'Status',
+  'filters.categories': 'Categories',
+  'filters.active': 'Active filters',
+  'filters.remove': 'Remove filter: {name}',
   'app.offline': 'Cannot reach the server.',
   'app.totalSpeed': 'Total download speed',
   'connection.live': 'Live',
@@ -29,6 +36,7 @@ export const en = {
   'theme.system': 'System',
   'theme.light': 'Light',
   'theme.dark': 'Dark',
+  'theme.black': 'Black',
   'theme.button': 'Theme: {theme}. Activate to change.',
 
   // ---- sign in
@@ -175,7 +183,8 @@ export const en = {
   'settings.saveFailed': 'Could not save the settings.',
   'settings.appearance': 'Appearance',
   'settings.theme': 'Theme',
-  'settings.theme.hint': '“System” follows the light or dark setting of your device.',
+  'settings.theme.hint':
+    '“System” follows the light or dark setting of your device. “Black” is dark with a pure black background, easier on OLED screens.',
   'settings.language': 'Language',
   'settings.language.auto': 'Automatic (browser language)',
   'settings.account': 'Account',

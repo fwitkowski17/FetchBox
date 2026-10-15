@@ -1,5 +1,6 @@
 /* Design tokens. Light is the base; dark applies when the user picks it (`data-theme="dark"`)
-   or, with no choice made, when the OS prefers it. The dark block is therefore written twice. */
+   or, with no choice made, when the OS prefers it. The dark block is therefore written twice.
+   `black` is dark with a pure black background, which switches OLED pixels off. */
 :root {
   color-scheme: light;
 
@@ -31,8 +32,8 @@
   --radius: 14px;
   --radius-sm: 9px;
   --tap: 44px;
-  --nav-h: 3.75rem;
   --header-h: 3.5rem;
+  --sidebar-w: 17rem;
 }
 
 :root[data-theme='dark'] {
@@ -93,6 +94,37 @@
     --cat-archive: #e5be55;
     --cat-other: #9aa5b5;
   }
+}
+
+/* After the system block on purpose: same specificity, so the later rule wins when the OS
+   is dark and the user still picked black. */
+:root[data-theme='black'] {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --surface: #0b0c0e;
+  --surface-2: #15171b;
+  --border: #23262d;
+  --text: #eceef2;
+  --muted: #9aa3b0;
+  --accent: #6aa8ff;
+  --accent-contrast: #06142b;
+  --accent-soft: #14233d;
+  --success: #52c98e;
+  --success-soft: #0e2a1e;
+  --warning: #f0b84f;
+  --warning-soft: #2c220b;
+  --danger: #ff7a7a;
+  --danger-soft: #331618;
+  --shadow: 0 0 0 1px rgb(255 255 255 / 4%);
+  --backdrop: rgb(0 0 0 / 75%);
+
+  --cat-photo: #f07ab0;
+  --cat-music: #b18cff;
+  --cat-video: #ff9170;
+  --cat-program: #4fd1d1;
+  --cat-archive: #e5be55;
+  --cat-other: #9aa5b5;
 }
 
 * {
@@ -260,4 +292,9 @@ textarea {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* Forms read badly when they stretch across a wide screen. */
+.page-narrow {
+  max-width: 42rem;
 }

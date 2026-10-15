@@ -24,11 +24,12 @@ cd web && npm run check
 
 Svelte 5 + Vite + TypeScript in `web/`, mobile-first, no UI framework (about 32 kB gzipped JS). It is embedded into the binary at build time; `cd web && npm run dev` serves it with hot reload and proxies `/api` to `localhost:8080`.
 
+- Side-menu layout: on wide screens a permanent panel with navigation, status and category filters (with counts), connection state and the theme switch; on phones the same panel slides in from the left, with a floating add button and a row of the filters currently applied.
 - Download list as cards with live progress (server-sent events): status, size, speed, ETA, category, pause/resume/retry, cancel, remove.
-- Sorting (date, name, size, progress, speed, status; either direction), status tabs, category filter and search; the choices are remembered.
+- Sorting (date, name, size, progress, speed, status; either direction), status and category filters and search; the choices are remembered.
 - Add by URL with optional name and category; name conflicts open a dialog (keep both / replace / cancel).
 - Settings: connections, simultaneous downloads, speed limits (KB/s or MB/s), category folders. Applied live; other open tabs follow.
-- Light, dark or follow-the-system theme (no flash on load), login screen, automatic return to it when the session ends.
+- Light, dark, black (pure black background for OLED screens) or follow-the-system theme, applied before first paint; login screen, automatic return to it when the session ends.
 - English and Polish, chosen from the browser language or in Settings; numbers, dates and name sorting follow the language.
 
 ### Adding a language

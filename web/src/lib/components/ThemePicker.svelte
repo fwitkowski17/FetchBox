@@ -7,6 +7,7 @@
     { id: 'system', icon: 'monitor' },
     { id: 'light', icon: 'sun' },
     { id: 'dark', icon: 'moon' },
+    { id: 'black', icon: 'contrast' },
   ];
 </script>
 
@@ -29,7 +30,7 @@
 <style>
   .seg {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
     gap: 0.25rem;
     padding: 0.25rem;
     border-radius: var(--radius-sm);

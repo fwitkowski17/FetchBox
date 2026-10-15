@@ -1,7 +1,4 @@
 <script lang="ts">
-  import type { Category } from '../lib/api/types';
-  import { CATEGORIES } from '../lib/api/types';
-  import CategoryIcon from '../lib/components/CategoryIcon.svelte';
   import DownloadCard from '../lib/components/DownloadCard.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import { i18n, t } from '../lib/i18n';
@@ -9,10 +6,7 @@
   import { prefs } from '../lib/stores/prefs.svelte';
   import { toast } from '../lib/stores/toast.svelte';
   import {
-    GROUPS,
     SORT_OPTIONS,
-    countCategories,
-    countGroups,
     filterDownloads,
     sortDownloads,
     summarize,
@@ -23,8 +17,6 @@
   const visible = $derived(
     sortDownloads(filterDownloads(downloads.items, filter), prefs.sort, i18n.locale),
   );
-  const groupCounts = $derived(countGroups(downloads.items, filter));
-  const categoryCounts = $derived(countCategories(downloads.items, filter));
   const summary = $derived(summarize(downloads.items));
   const finished = $derived(
     downloads.items.filter((d) => d.status === 'completed' || d.status === 'failed' || d.status === 'cancelled').length,
@@ -101,28 +93,24 @@
   </div>
 </div>
 
-<div class="chips" role="group" aria-label={t('downloads.filter.status')}>
-  {#each GROUPS as g (g.id)}
-    <button class="chip" aria-pressed={prefs.group === g.id} onclick={() => prefs.setGroup(g.id)}>
-      {t(`group.${g.id}`)}<span class="count">{groupCounts[g.id]}</span>
-    </button>
-  {/each}
-</div>
-
-<div class="chips" role="group" aria-label={t('downloads.filter.category')}>
-  <button class="chip" aria-pressed={prefs.category === 'all'} onclick={() => prefs.setCategory('all')}>
-    {t('downloads.filter.allCategories')}<span class="count">{categoryCounts.all}</span>
-  </button>
-  {#each CATEGORIES as c (c)}
-    <button
-      class="chip"
-      aria-pressed={prefs.category === c}
-      onclick={() => prefs.setCategory(c as Category)}
-    >
-      <CategoryIcon category={c} size={15} />{t(`category.${c}`)}<span class="count">{categoryCounts[c]}</span>
-    </button>
-  {/each}
-</div>
+<!-- The side panel shows the filters on wide screens; on narrow ones they sit in the menu, so
+     the ones in effect are listed here and can be removed with one tap. -->
+{#if prefs.group !== 'all' || prefs.category !== 'all'}
+  <div class="applied" role="group" aria-label={t('filters.active')}>
+    {#if prefs.group !== 'all'}
+      {@const name = t(`group.${prefs.group}`)}
+      <button class="tag" aria-label={t('filters.remove', { name })} onclick={() => prefs.setGroup('all')}>
+        {name}<Icon name="x" size={14} />
+      </button>
+    {/if}
+    {#if prefs.category !== 'all'}
+      {@const name = t(`category.${prefs.category}`)}
+      <button class="tag" aria-label={t('filters.remove', { name })} onclick={() => prefs.setCategory('all')}>
+        {name}<Icon name="x" size={14} />
+      </button>
+    {/if}
+  </div>
+{/if}
 
 {#if !downloads.loaded && !downloads.loadError}
   <p class="empty" role="status">{t('common.loading')}</p>
@@ -187,7 +175,7 @@
 
   @media (min-width: 40rem) {
     .toolbar {
-      grid-template-columns: 1fr auto;
+      grid-template-columns: minmax(0, 1fr) auto;
     }
   }
 
@@ -218,61 +206,38 @@
     min-width: 9rem;
   }
 
-  .chips {
+  .applied {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.4rem;
-    margin-bottom: 0.6rem;
-    padding-bottom: 0.15rem;
-    overflow-x: auto;
-    scrollbar-width: none;
+    margin-bottom: 0.75rem;
   }
 
-  .chips::-webkit-scrollbar {
-    display: none;
-  }
-
-  /* Room on wide screens: wrap instead of scrolling sideways. */
-  @media (min-width: 48rem) {
-    .chips {
-      flex-wrap: wrap;
-      overflow-x: visible;
-    }
-  }
-
-  .chip {
+  .tag {
     display: inline-flex;
-    flex: none;
     align-items: center;
     gap: 0.35rem;
     min-height: 2.25rem;
-    padding: 0.25rem 0.8rem;
-    border: 1px solid var(--border);
+    padding: 0.2rem 0.6rem 0.2rem 0.8rem;
+    border: 1px solid var(--accent);
     border-radius: 999px;
-    background: var(--surface);
+    background: var(--accent-soft);
+    color: var(--accent);
     font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
-    white-space: nowrap;
   }
 
-  .chip[aria-pressed='true'] {
-    background: var(--accent-soft);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .count {
-    color: var(--muted);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .chip[aria-pressed='true'] .count {
-    color: inherit;
+  /* On wide screens the side panel already shows what is selected. */
+  @media (min-width: 64rem) {
+    .applied {
+      display: none;
+    }
   }
 
   .list {
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 25rem), 1fr));
     gap: 0.75rem;
     margin: 1rem 0 0;
     padding: 0;

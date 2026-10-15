@@ -14,6 +14,13 @@ const pl: Messages = {
   'nav.downloads': 'Pobrania',
   'nav.add': 'Dodaj',
   'nav.settings': 'Ustawienia',
+  'nav.open': 'Otwórz menu',
+  'nav.close': 'Zamknij menu',
+  'nav.filters': 'Filtry',
+  'filters.status': 'Status',
+  'filters.categories': 'Kategorie',
+  'filters.active': 'Aktywne filtry',
+  'filters.remove': 'Usuń filtr: {name}',
   'app.offline': 'Nie można połączyć się z serwerem.',
   'app.totalSpeed': 'Łączna prędkość pobierania',
   'connection.live': 'Połączono',
@@ -23,6 +30,7 @@ const pl: Messages = {
   'theme.system': 'Systemowy',
   'theme.light': 'Jasny',
   'theme.dark': 'Ciemny',
+  'theme.black': 'Czarny',
   'theme.button': 'Motyw: {theme}. Kliknij, aby zmienić.',
 
   // ---- sign in
@@ -172,7 +180,8 @@ const pl: Messages = {
   'settings.saveFailed': 'Nie udało się zapisać ustawień.',
   'settings.appearance': 'Wygląd',
   'settings.theme': 'Motyw',
-  'settings.theme.hint': '„Systemowy” podąża za jasnym lub ciemnym trybem urządzenia.',
+  'settings.theme.hint':
+    '„Systemowy” podąża za jasnym lub ciemnym trybem urządzenia. „Czarny” to ciemny motyw z całkowicie czarnym tłem, oszczędniejszy na ekranach OLED.',
   'settings.language': 'Język',
   'settings.language.auto': 'Automatyczny (język przeglądarki)',
   'settings.account': 'Konto',
