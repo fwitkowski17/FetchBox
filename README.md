@@ -29,6 +29,16 @@ Svelte 5 + Vite + TypeScript in `web/`, mobile-first, no UI framework (about 32 
 - Add by URL with optional name and category; name conflicts open a dialog (keep both / replace / cancel).
 - Settings: connections, simultaneous downloads, speed limits (KB/s or MB/s), category folders. Applied live; other open tabs follow.
 - Light, dark or follow-the-system theme (no flash on load), login screen, automatic return to it when the session ends.
+- English and Polish, chosen from the browser language or in Settings; numbers, dates and name sorting follow the language.
+
+### Adding a language
+
+Translations live in `web/src/lib/i18n/` (no library; a few hundred lines). To add one, say German:
+
+1. Copy `pl.ts` to `de.ts` and translate the values. Keep the `{placeholders}` as they are; a message that depends on a count is an object with the plural forms of that language (`one`, `few`, `many`, `other`, whatever the language needs; see `downloads.cleared`).
+2. Add one line to `locales.ts`: `{ code: 'de', name: 'Deutsch', load: async () => (await import('./de')).default }`.
+
+That is all: the language appears in Settings, is loaded on demand as its own small chunk, and is picked automatically when it matches the browser language. `npm run check` fails on a missing or misspelled key, and `npm test` fails on a changed placeholder or a missing plural form. `en.ts` is the source of truth for the keys. Messages coming from the backend (for example the reason a download could not be added) are not translated yet.
 
 `npm run check` (types), `npm test` (vitest, logic only) and `npm run build` run in CI.
 

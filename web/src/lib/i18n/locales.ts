@@ -18,4 +18,5 @@ export const FALLBACK_LOCALE = 'en';
 
 export const LOCALES: readonly LocaleInfo[] = [
   { code: 'en', name: 'English', load: async () => en },
+  { code: 'pl', name: 'Polski', load: async () => (await import('./pl')).default },
 ];

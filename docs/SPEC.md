@@ -149,6 +149,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   `prefers-color-scheme`), applied before first paint.
 - Settings form works in KB/MB and "limit on/off"; the API stays in bytes/s with `0` = unlimited. The form follows
   server changes made by other clients unless the user has unsaved edits.
+- i18n without a library: `web/src/lib/i18n/` holds one typed dictionary per language (`en.ts` is the source of truth for
+  the keys, other languages must provide all of them), `{name}` placeholders, plural forms via `Intl.PluralRules`
+  (Polish needs one/few/many/other), and a registry (`locales.ts`) where each language is one line and a lazily loaded
+  chunk. The language comes from the stored choice or `navigator.languages` (falling back to English); numbers, dates and
+  name sorting use `Intl` for the active language; substituted values (file names) are rendered as text, never as HTML.
+  Tests check every language for the same keys and placeholders and for the plural forms it needs. Backend messages
+  (`error` strings) are shown as sent and are not translated.
 - PWA: manifest + service worker (app shell cache only).
 
 ### 6.7 Security
