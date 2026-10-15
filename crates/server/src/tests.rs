@@ -861,6 +861,221 @@ async fn repeated_wrong_passwords_are_throttled() {
     assert!(locked.headers().get("retry-after").is_some());
 }
 
+/// POST a JSON body to an auth endpoint.
+async fn apost(
+    c: &reqwest::Client,
+    api: &str,
+    path: &str,
+    json: &str,
+    header: Option<(&str, &str)>,
+) -> reqwest::Response {
+    raw(
+        c,
+        reqwest::Method::POST,
+        format!("{api}{path}"),
+        Some(json),
+        header,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn first_run_setup_creates_the_account_and_survives_a_restart() {
+    let h = Harness::new().await;
+    // The manager is the credential store: the hash goes to the real SQLite table.
+    let auth = dlm_api::Auth::from_store(h.mgr.clone()).expect("auth");
+    let code = auth.setup_code().expect("code");
+    let api = spawn_api_with(&h, auth).await;
+    let c = reqwest::Client::new();
+
+    // Fresh server: locked, and the UI is told to show the setup.
+    let st = aget(&c, &api, "/auth/status", None)
+        .await
+        .text()
+        .await
+        .expect("body");
+    assert!(st.contains(r#""auth_required":true"#), "{st}");
+    assert!(st.contains(r#""setup_required":true"#), "{st}");
+    assert!(st.contains(r#""can_change_password":false"#), "{st}");
+    assert_eq!(
+        aget(&c, &api, "/downloads", None).await.status().as_u16(),
+        401
+    );
+    assert_eq!(
+        alogin(&c, &api, "anything-goes").await.status().as_u16(),
+        401
+    );
+    assert_eq!(alogin(&c, &api, &code).await.status().as_u16(), 401);
+
+    // Wrong code and weak password create nothing.
+    let bad = apost(
+        &c,
+        &api,
+        "/auth/setup",
+        r#"{"code":"WRONG123","password":"correct-horse"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(bad.status().as_u16(), 403);
+    assert!(bad.headers().get("set-cookie").is_none());
+    let weak = apost(
+        &c,
+        &api,
+        "/auth/setup",
+        &format!(r#"{{"code":"{code}","password":"short"}}"#),
+        None,
+    )
+    .await;
+    assert_eq!(weak.status().as_u16(), 400);
+
+    // The right code (typed in lower case) creates the account and logs in.
+    let ok = apost(
+        &c,
+        &api,
+        "/auth/setup",
+        &format!(
+            r#"{{"code":"{}","password":"correct-horse"}}"#,
+            code.to_lowercase()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(ok.status().as_u16(), 200);
+    let cookie = session_cookie(&ok);
+    assert!(
+        cookie.starts_with("dlm_session=") && cookie.len() > 20,
+        "{cookie}"
+    );
+    assert_eq!(
+        aget(&c, &api, "/downloads", Some(("cookie", &cookie)))
+            .await
+            .status()
+            .as_u16(),
+        200
+    );
+    let st = aget(&c, &api, "/auth/status", Some(("cookie", &cookie)))
+        .await
+        .text()
+        .await
+        .expect("body");
+    assert!(st.contains(r#""setup_required":false"#), "{st}");
+    assert!(st.contains(r#""can_change_password":true"#), "{st}");
+    assert!(st.contains(r#""authenticated":true"#), "{st}");
+
+    // Setup is a one-shot: nobody can take the account over afterwards.
+    let again = apost(
+        &c,
+        &api,
+        "/auth/setup",
+        &format!(r#"{{"code":"{code}","password":"takeover-pass"}}"#),
+        None,
+    )
+    .await;
+    assert_eq!(again.status().as_u16(), 409);
+    assert_eq!(
+        alogin(&c, &api, "takeover-pass").await.status().as_u16(),
+        401
+    );
+
+    // Changing the password needs a session, the current password, and ends other sessions.
+    let other = alogin(&c, &api, "correct-horse").await;
+    assert_eq!(other.status().as_u16(), 200);
+    let other_cookie = session_cookie(&other);
+    let change = r#"{"current_password":"correct-horse","new_password":"battery-staple"}"#;
+    assert_eq!(
+        apost(&c, &api, "/auth/password", change, None)
+            .await
+            .status()
+            .as_u16(),
+        401
+    );
+    let wrong = r#"{"current_password":"nope-nope-nope","new_password":"battery-staple"}"#;
+    assert_eq!(
+        apost(&c, &api, "/auth/password", wrong, Some(("cookie", &cookie)))
+            .await
+            .status()
+            .as_u16(),
+        403
+    );
+    assert_eq!(
+        apost(
+            &c,
+            &api,
+            "/auth/password",
+            change,
+            Some(("cookie", &cookie))
+        )
+        .await
+        .status()
+        .as_u16(),
+        204
+    );
+    let status_of = |ck: String| {
+        let (c, api) = (c.clone(), api.clone());
+        async move {
+            aget(&c, &api, "/downloads", Some(("cookie", &ck)))
+                .await
+                .status()
+                .as_u16()
+        }
+    };
+    assert_eq!(status_of(cookie.clone()).await, 200, "the caller stays in");
+    assert_eq!(status_of(other_cookie).await, 401, "other sessions end");
+    assert_eq!(
+        alogin(&c, &api, "correct-horse").await.status().as_u16(),
+        401
+    );
+    assert_eq!(
+        alogin(&c, &api, "battery-staple").await.status().as_u16(),
+        200
+    );
+
+    // "Restart": a new Auth over the same database knows the account and the new password.
+    let restarted = dlm_api::Auth::from_store(h.mgr.clone()).expect("auth");
+    assert!(!restarted.setup_required());
+    assert!(restarted.login("battery-staple").is_ok());
+    assert!(restarted.login("correct-horse").is_err());
+}
+
+#[tokio::test]
+async fn externally_configured_password_cannot_be_changed_or_set_up() {
+    let h = Harness::new().await;
+    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let c = reqwest::Client::new();
+    let ok = alogin(&c, &api, "correct-horse").await;
+    let cookie = session_cookie(&ok);
+
+    let st = aget(&c, &api, "/auth/status", Some(("cookie", &cookie)))
+        .await
+        .text()
+        .await
+        .expect("body");
+    assert!(st.contains(r#""setup_required":false"#), "{st}");
+    assert!(st.contains(r#""can_change_password":false"#), "{st}");
+    let change = r#"{"current_password":"correct-horse","new_password":"battery-staple"}"#;
+    assert_eq!(
+        apost(
+            &c,
+            &api,
+            "/auth/password",
+            change,
+            Some(("cookie", &cookie))
+        )
+        .await
+        .status()
+        .as_u16(),
+        409
+    );
+    let setup = r#"{"code":"ABCDEFGH","password":"takeover-pass"}"#;
+    assert_eq!(
+        apost(&c, &api, "/auth/setup", setup, None)
+            .await
+            .status()
+            .as_u16(),
+        409
+    );
+}
+
 #[tokio::test]
 async fn disabled_auth_keeps_the_api_open() {
     let h = Harness::new().await;

@@ -75,6 +75,161 @@
         }
       }
     },
+    "/api/auth/password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change the password of an account created in the UI.",
+        "description": "Ends every other session. Not available for a password from the environment or a file.",
+        "operationId": "change_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Password changed"
+          },
+          "400": {
+            "description": "New password too short or too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong current password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The password is managed outside the UI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many failed attempts (5 per minute); see `Retry-After`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockedBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/setup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create the account on first run and log in.",
+        "description": "Only possible while `setup_required` is true; the code comes from the server log.",
+        "operationId": "setup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Account created and logged in; sets the `dlm_session` cookie",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Password too short or too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong setup code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Setup already done, or authentication is configured externally",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many failed attempts (5 per minute); see `Retry-After`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockedBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/status": {
       "get": {
         "tags": [
@@ -760,7 +915,9 @@
         "description": "What the UI needs to decide whether to show the login screen.",
         "required": [
           "auth_required",
-          "authenticated"
+          "authenticated",
+          "setup_required",
+          "can_change_password"
         ],
         "properties": {
           "auth_required": {
@@ -770,6 +927,14 @@
           "authenticated": {
             "type": "boolean",
             "description": "The caller's session (or the disabled auth) lets it through."
+          },
+          "can_change_password": {
+            "type": "boolean",
+            "description": "The password was created in the UI and can be changed (`POST /api/auth/password`);\nfalse for a password from `DLM_PASSWORD` / `--password-file`."
+          },
+          "setup_required": {
+            "type": "boolean",
+            "description": "No account exists yet: show the first-run setup (`POST /api/auth/setup`)."
           }
         }
       },
@@ -784,6 +949,23 @@
           "archive",
           "other"
         ]
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "description": "Password change.",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string",
+            "description": "At least 8 characters."
+          }
+        }
       },
       "Conflict": {
         "type": "object",
@@ -1151,6 +1333,24 @@
           }
         }
       },
+      "SetupRequest": {
+        "type": "object",
+        "description": "First-run account creation.",
+        "required": [
+          "code",
+          "password"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "One-time code printed in the server log at startup (case and dashes are ignored)."
+          },
+          "password": {
+            "type": "string",
+            "description": "The new password, at least 8 characters."
+          }
+        }
+      },
       "SourceKind": {
         "type": "string",
         "description": "What kind of source a download comes from.",
@@ -1217,7 +1417,7 @@
     },
     {
       "name": "auth",
-      "description": "Single-user login"
+      "description": "Single-user login, first-run setup, password change"
     },
     {
       "name": "system",

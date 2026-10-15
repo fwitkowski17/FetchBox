@@ -1,25 +1,309 @@
+@import 'tailwindcss';
+
+/* ---- Font: Inter, self-hosted (the app must work on a LAN without any CDN).
+   Only the two subsets Western and Central European languages need; the browser downloads
+   `latin-ext` (Polish ą ć ę ł ń ś ź ż) only when such a character is on the page. */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---- Theme variables: light is the base, dark/black override it. */
 :root {
-  --bg: #111827;
-  --surface: #1f2937;
-  --text: #f3f4f6;
-  --muted: #9ca3af;
-  --accent: #38bdf8;
-  --nav-h: 3.5rem;
+  color-scheme: light;
+
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #d9dee6;
+  --text: #141821;
+  --muted: #566070;
+  --accent-l: 0.51;
+  --accent-c: 0.19;
+  --accent-contrast: #ffffff;
+  --soft-mix: 14%;
+  --success: #17794a;
+  --success-soft: #d9f3e5;
+  --warning: #8f5400;
+  --warning-soft: #fbecc9;
+  --danger: #bf2626;
+  --danger-soft: #fbe0e0;
+  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 2px 8px rgb(16 24 40 / 6%);
+  --backdrop: rgb(10 14 22 / 45%);
+
+  --cat-photo: #c2316f;
+  --cat-music: #7b45d6;
+  --cat-video: #c24a22;
+  --cat-program: #0f7f80;
+  --cat-archive: #946a00;
+  --cat-other: #5b6678;
+
+  --header-h: 3.5rem;
+  --sidebar-w: 17rem;
+}
+
+:root[data-theme='dark'] {
   color-scheme: dark;
+
+  --bg: #0e1116;
+  --surface: #171b22;
+  --surface-2: #1f2530;
+  --border: #2a3140;
+  --text: #e7eaf0;
+  --muted: #9aa5b5;
+  --accent-l: 0.76;
+  --accent-c: 0.14;
+  --accent-contrast: #070b13;
+  --soft-mix: 20%;
+  --success: #52c98e;
+  --success-soft: #153326;
+  --warning: #f0b84f;
+  --warning-soft: #3a2d10;
+  --danger: #ff7a7a;
+  --danger-soft: #3d1b1e;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 2px 10px rgb(0 0 0 / 30%);
+  --backdrop: rgb(0 0 0 / 60%);
+
+  --cat-photo: #f07ab0;
+  --cat-music: #b18cff;
+  --cat-video: #ff9170;
+  --cat-program: #4fd1d1;
+  --cat-archive: #e5be55;
+  --cat-other: #9aa5b5;
 }
 
-* {
-  box-sizing: border-box;
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --bg: #0e1116;
+    --surface: #171b22;
+    --surface-2: #1f2530;
+    --border: #2a3140;
+    --text: #e7eaf0;
+    --muted: #9aa5b5;
+    --accent-l: 0.76;
+    --accent-c: 0.14;
+    --accent-contrast: #070b13;
+    --soft-mix: 20%;
+    --success: #52c98e;
+    --success-soft: #153326;
+    --warning: #f0b84f;
+    --warning-soft: #3a2d10;
+    --danger: #ff7a7a;
+    --danger-soft: #3d1b1e;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 2px 10px rgb(0 0 0 / 30%);
+    --backdrop: rgb(0 0 0 / 60%);
+
+    --cat-photo: #f07ab0;
+    --cat-music: #b18cff;
+    --cat-video: #ff9170;
+    --cat-program: #4fd1d1;
+    --cat-archive: #e5be55;
+    --cat-other: #9aa5b5;
+  }
 }
 
-html,
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+/* After the system block on purpose: same specificity, so the later rule wins when the OS
+   is dark and the user still picked black. */
+:root[data-theme='black'] {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --surface: #0b0c0e;
+  --surface-2: #15171b;
+  --border: #23262d;
+  --text: #eceef2;
+  --muted: #9aa3b0;
+  --accent-l: 0.76;
+  --accent-c: 0.14;
+  --accent-contrast: #070b13;
+  --soft-mix: 18%;
+  --success: #52c98e;
+  --success-soft: #0e2a1e;
+  --warning: #f0b84f;
+  --warning-soft: #2c220b;
+  --danger: #ff7a7a;
+  --danger-soft: #331618;
+  --shadow: 0 0 0 1px rgb(255 255 255 / 4%);
+  --backdrop: rgb(0 0 0 / 75%);
+
+  --cat-photo: #f07ab0;
+  --cat-music: #b18cff;
+  --cat-video: #ff9170;
+  --cat-program: #4fd1d1;
+  --cat-archive: #e5be55;
+  --cat-other: #9aa5b5;
 }
 
-body {
-  min-height: 100dvh;
+/* ---- Accent. Lightness and saturation belong to the theme (they are what keeps text readable
+   on the accent); the hue is the user's choice. `--accent-h` and `--accent-k` (saturation
+   factor) are set from JavaScript, see stores/accent.svelte.ts. */
+:root {
+  --accent: oklch(var(--accent-l) calc(var(--accent-c) * var(--accent-k, 1)) var(--accent-h, 258));
+  --accent-soft: color-mix(in oklab, var(--accent) var(--soft-mix), var(--surface));
+}
+
+/* ---- Tailwind: utilities read the theme variables above, so `bg-surface`, `text-muted`,
+   `border-border`... follow light / dark / black without any `dark:` variants. */
+@theme inline {
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-backdrop: var(--backdrop);
+  --color-cat-photo: var(--cat-photo);
+  --color-cat-music: var(--cat-music);
+  --color-cat-video: var(--cat-video);
+  --color-cat-program: var(--cat-program);
+  --color-cat-archive: var(--cat-archive);
+  --color-cat-other: var(--cat-other);
+
+  --shadow-card: var(--shadow);
+
+  --animate-slide: slide 1.4s ease-in-out infinite;
+
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--bg);
+    color: var(--text);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss03'; /* single-storey a, round quotes: friendlier in UI text */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  *,
+  ::after,
+  ::before {
+    border-color: var(--border);
+  }
+
+  /* Tailwind resets buttons to the default cursor; interactive things should say so. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* ---- Shared controls. Written once with utilities; templates add variants (`primary`...). */
+@layer components {
+  .field {
+    @apply grid gap-1.5;
+  }
+
+  .field > label,
+  .field > .label {
+    @apply text-sm font-semibold;
+  }
+
+  .hint {
+    @apply text-sm text-muted;
+  }
+
+  .input,
+  .select {
+    @apply min-h-11 w-full rounded-lg border border-border bg-surface px-3 py-2 transition-colors;
+  }
+
+  .input::placeholder {
+    @apply text-muted;
+  }
+
+  .input:focus-visible,
+  .select:focus-visible {
+    @apply border-accent outline-offset-0;
+  }
+
+  .btn {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 font-semibold no-underline transition-colors;
+    @apply hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-surface;
+  }
+
+  .btn.primary {
+    @apply border-accent bg-accent text-accent-contrast hover:bg-accent hover:brightness-110 disabled:hover:bg-accent;
+  }
+
+  .btn.danger {
+    @apply text-danger;
+  }
+
+  .btn.danger.solid {
+    @apply border-danger bg-danger text-white hover:bg-danger hover:brightness-110;
+  }
+
+  .btn.ghost {
+    @apply border-transparent bg-transparent hover:bg-surface-2;
+  }
+
+  .btn.icon {
+    @apply w-11 px-0;
+  }
+}
+
+/* Forms read badly when they stretch across a wide screen. */
+.page-narrow {
+  max-width: 42rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

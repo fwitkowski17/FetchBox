@@ -1,56 +1,183 @@
 <script lang="ts">
-  import Downloads from './routes/Downloads.svelte';
+  import { onMount, tick, untrack } from 'svelte';
+  import { setUnauthorizedHandler } from './lib/api/client';
+  import ConfirmHost from './lib/components/ConfirmHost.svelte';
+  import Icon from './lib/components/Icon.svelte';
+  import Sidebar from './lib/components/Sidebar.svelte';
+  import Toasts from './lib/components/Toasts.svelte';
+  import { i18n, t } from './lib/i18n';
+  import { auth } from './lib/stores/auth.svelte';
+  import { downloads } from './lib/stores/downloads.svelte';
+  import { media } from './lib/stores/media.svelte';
+  import { route } from './lib/stores/route';
+  import { settings } from './lib/stores/settings.svelte';
+  import { theme } from './lib/stores/theme.svelte';
+  import { summarize } from './lib/util/downloads';
   import AddDownload from './routes/AddDownload.svelte';
+  import Downloads from './routes/Downloads.svelte';
+  import Login from './routes/Login.svelte';
   import Settings from './routes/Settings.svelte';
-  import { route, routes } from './lib/stores/route';
+  import Setup from './routes/Setup.svelte';
+
+  onMount(() => {
+    theme.init();
+    setUnauthorizedHandler(() => auth.expire());
+    void auth.check();
+  });
+
+  // Data is only fetched (and the event stream only open) while signed in.
+  $effect(() => {
+    if (auth.state === 'ready') {
+      untrack(() => {
+        downloads.start({
+          onClosed: () => void auth.check(),
+          onSettings: (s) => settings.received(s),
+        });
+        if (!settings.value) void settings.load();
+      });
+    } else {
+      untrack(() => {
+        downloads.stop();
+        settings.clear();
+      });
+    }
+  });
+
+  const summary = $derived(summarize(downloads.items));
+
+  // Current speed in the tab title, handy when the tab is in the background.
+  $effect(() => {
+    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · dlmanager` : 'dlmanager';
+  });
+
+  // ---- the menu: a permanent panel on wide screens, a drawer on narrow ones
+  let menuOpen = $state(false);
+  let menuButton: HTMLButtonElement | undefined = $state();
+  let sidebar: HTMLElement | undefined = $state();
+
+  async function openMenu(): Promise<void> {
+    menuOpen = true;
+    await tick();
+    sidebar?.querySelector<HTMLElement>('a, button')?.focus();
+  }
+
+  async function closeMenu(): Promise<void> {
+    if (!menuOpen) return;
+    menuOpen = false;
+    // The page behind the drawer is `inert` until the DOM updates; focus cannot enter it before.
+    await tick();
+    menuButton?.focus();
+  }
+
+  // Going to another page, or widening the window, leaves nothing to close.
+  $effect(() => {
+    void $route;
+    if (media.desktop) untrack(() => (menuOpen = false));
+  });
+
+  const DOT: Record<string, string> = {
+    live: 'bg-success',
+    connecting: 'animate-pulse bg-warning',
+    offline: 'bg-danger',
+  };
+
+  const drawerOpen = $derived(menuOpen && !media.desktop);
+  const connectionLabel = $derived(t(`connection.${downloads.connection}`));
 </script>
 
-<main>
-  {#if $route === 'downloads'}
-    <Downloads />
-  {:else if $route === 'add'}
-    <AddDownload />
-  {:else}
-    <Settings />
-  {/if}
-</main>
+<svelte:window onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeMenu()} />
 
-<nav aria-label="Main">
-  {#each routes as r (r.id)}
-    <a href={'#' + r.path} class:active={$route === r.id} aria-current={$route === r.id ? 'page' : undefined}>
-      {r.label}
-    </a>
-  {/each}
-</nav>
+{#if auth.state === 'loading'}
+  <p class="grid min-h-dvh place-content-center text-muted" role="status">{t('common.loading')}</p>
+{:else if auth.state === 'offline'}
+  <div class="grid min-h-dvh content-center justify-items-center gap-3 text-center text-muted">
+    <Icon name="alert" size={32} />
+    <p>{t('app.offline')}</p>
+    <button class="btn primary" onclick={() => auth.check()}>{t('common.tryAgain')}</button>
+  </div>
+{:else if auth.wizard}
+  <!-- Also while signed in: the wizard continues after the account step. -->
+  <Setup />
+{:else if auth.state === 'login'}
+  <Login />
+{:else}
+  <div class="min-h-dvh lg:grid lg:grid-cols-[var(--sidebar-w)_minmax(0,1fr)]">
+    <Sidebar
+      bind:el={sidebar}
+      open={drawerOpen}
+      inert={!media.desktop && !menuOpen}
+      onclose={closeMenu}
+    />
+    {#if drawerOpen}
+      <button
+        class="fixed inset-0 z-30 cursor-default bg-backdrop"
+        tabindex="-1"
+        aria-label={t('nav.close')}
+        data-part="scrim"
+        onclick={closeMenu}
+      ></button>
+    {/if}
 
-<style>
-  main {
-    max-width: 48rem;
-    margin: 0 auto;
-    padding: 1rem 1rem calc(var(--nav-h) + 1.5rem + env(safe-area-inset-bottom));
-  }
+    <div class="min-w-0" inert={drawerOpen} data-part="content">
+      <!-- Opaque on purpose: a `backdrop-filter` would make the bar the containing block of
+           fixed-position descendants and break them. -->
+      <header
+        class="sticky top-0 z-20 flex h-(--header-h) items-center gap-2 border-b border-border bg-bg px-2 pt-[env(safe-area-inset-top)] lg:hidden"
+        data-part="topbar"
+      >
+        <button
+          bind:this={menuButton}
+          class="btn icon ghost"
+          aria-label={t('nav.open')}
+          aria-controls="sidebar"
+          aria-expanded={drawerOpen}
+          onclick={openMenu}
+        >
+          <Icon name="menu" />
+        </button>
+        <span class="flex items-center gap-2 font-bold tracking-tight">
+          <span class="grid size-7 place-items-center rounded-md bg-accent text-accent-contrast">
+            <Icon name="down" size={16} />
+          </span>
+          dlmanager
+        </span>
+        <span class="flex-1"></span>
+        {#if summary.active > 0}
+          <span class="text-sm font-semibold text-accent tabular-nums" title={t('app.totalSpeed')}>
+            ↓ {i18n.speed(summary.speed)}
+          </span>
+        {/if}
+        <!-- Normally just a dot; the words appear when something is wrong. -->
+        <span class="mr-2 flex items-center gap-1.5 text-sm text-muted" title={connectionLabel}>
+          <span class={['size-2.5 rounded-full', DOT[downloads.connection]]} aria-hidden="true"></span>
+          <span class={[downloads.connection === 'live' && 'sr-only']}>{connectionLabel}</span>
+        </span>
+      </header>
 
-  nav {
-    position: fixed;
-    inset: auto 0 0 0;
-    display: flex;
-    height: calc(var(--nav-h) + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
-    background: var(--surface);
-    border-top: 1px solid #374151;
-  }
+      <main class="mx-auto max-w-[76rem] px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-8 lg:pt-6 lg:pb-12">
+        {#if $route === 'downloads'}
+          <Downloads />
+        {:else if $route === 'add'}
+          <AddDownload />
+        {:else}
+          <Settings />
+        {/if}
+      </main>
+    </div>
 
-  a {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted);
-    text-decoration: none;
-    font-weight: 500;
-  }
+    {#if !media.desktop && $route === 'downloads'}
+      <a
+        class="fixed right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-10 grid size-14 place-items-center rounded-full bg-accent text-accent-contrast shadow-lg"
+        href="#/add"
+        aria-label={t('nav.add')}
+        title={t('nav.add')}
+        data-part="fab"
+      >
+        <Icon name="plus" size={26} />
+      </a>
+    {/if}
+  </div>
+{/if}
 
-  a.active {
-    color: var(--accent);
-  }
-</style>
+<ConfirmHost />
+<Toasts />

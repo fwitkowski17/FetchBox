@@ -8,6 +8,21 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>dlmanager</title>
+    <script>
+      // Apply the saved theme before the first paint so a dark-mode user never sees a white flash.
+      try {
+        var t = localStorage.getItem('dlm.theme');
+        if (t) t = JSON.parse(t);
+        if (t === 'light' || t === 'dark' || t === 'black') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+      try {
+        var a = JSON.parse(localStorage.getItem('dlm.accent'));
+        if (a && typeof a.hue === 'number' && typeof a.chroma === 'number') {
+          document.documentElement.style.setProperty('--accent-h', a.hue);
+          document.documentElement.style.setProperty('--accent-k', a.chroma);
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="app"></div>

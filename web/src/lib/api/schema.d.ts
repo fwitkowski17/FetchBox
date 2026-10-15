@@ -38,6 +38,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the password of an account created in the UI.
+         * @description Ends every other session. Not available for a password from the environment or a file.
+         */
+        post: operations["change_password"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the account on first run and log in.
+         * @description Only possible while `setup_required` is true; the code comes from the server log.
+         */
+        post: operations["setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/status": {
         parameters: {
             query?: never;
@@ -230,12 +270,25 @@ export interface components {
             auth_required: boolean;
             /** @description The caller's session (or the disabled auth) lets it through. */
             authenticated: boolean;
+            /**
+             * @description The password was created in the UI and can be changed (`POST /api/auth/password`);
+             *     false for a password from `DLM_PASSWORD` / `--password-file`.
+             */
+            can_change_password: boolean;
+            /** @description No account exists yet: show the first-run setup (`POST /api/auth/setup`). */
+            setup_required: boolean;
         };
         /**
          * @description File category, auto-detected from extension and changeable by the user.
          * @enum {string}
          */
         Category: "photo" | "music" | "video" | "program" | "archive" | "other";
+        /** @description Password change. */
+        ChangePasswordRequest: {
+            current_password: string;
+            /** @description At least 8 characters. */
+            new_password: string;
+        };
         /** @description Description of a collision, shown to the user so they can choose. */
         Conflict: {
             /**
@@ -382,6 +435,13 @@ export interface components {
              */
             speed_per_download: number;
         };
+        /** @description First-run account creation. */
+        SetupRequest: {
+            /** @description One-time code printed in the server log at startup (case and dashes are ignored). */
+            code: string;
+            /** @description The new password, at least 8 characters. */
+            password: string;
+        };
         /**
          * @description What kind of source a download comes from.
          * @enum {string}
@@ -462,6 +522,133 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    change_password: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description New password too short or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Wrong current password */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The password is managed outside the UI */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many failed attempts (5 per minute); see `Retry-After` */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LockedBody"];
+                };
+            };
+        };
+    };
+    setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupRequest"];
+            };
+        };
+        responses: {
+            /** @description Account created and logged in; sets the `dlm_session` cookie */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Password too short or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Wrong setup code */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Setup already done, or authentication is configured externally */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many failed attempts (5 per minute); see `Retry-After` */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LockedBody"];
+                };
             };
         };
     };

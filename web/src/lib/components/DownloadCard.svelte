@@ -1,0 +1,165 @@
+<script lang="ts">
+  import type { Category, Download } from '../api/types';
+  import { CATEGORIES } from '../api/types';
+  import { i18n, t } from '../i18n';
+  import { confirmAction } from '../stores/confirm.svelte';
+  import { downloads } from '../stores/downloads.svelte';
+  import { speedOf } from '../util/downloads';
+  import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
+  import CategoryIcon from './CategoryIcon.svelte';
+  import Icon from './Icon.svelte';
+  import ProgressBar from './ProgressBar.svelte';
+  import StatusBadge from './StatusBadge.svelte';
+
+  let { download }: { download: Download } = $props();
+
+  let busy = $state(false);
+
+  const d = $derived(download);
+  const frac = $derived(fraction(d.downloaded, d.size));
+  const speed = $derived(speedOf(d));
+  const eta = $derived(etaSeconds(d.downloaded, d.size, speed));
+  const live = $derived(d.status === 'downloading');
+  const unfinished = $derived(d.status === 'queued' || d.status === 'downloading' || d.status === 'paused');
+  const folder = $derived(d.subdir ? `${d.subdir}/` : '');
+
+  /** The one big button that matters for this status. */
+  const primary = $derived.by(() => {
+    switch (d.status) {
+      case 'queued':
+      case 'downloading':
+        return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
+      case 'paused':
+        return { label: t('card.resume'), icon: 'play', run: () => downloads.resume(d.id) } as const;
+      case 'failed':
+        return { label: t('card.retry'), icon: 'retry', run: () => downloads.resume(d.id) } as const;
+      default:
+        return null;
+    }
+  });
+
+  async function act(run: () => Promise<boolean>): Promise<void> {
+    busy = true;
+    try {
+      await run();
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function cancel(): Promise<void> {
+    const ok = await confirmAction({
+      title: t('confirm.cancel.title'),
+      message: t('confirm.cancel.message', { name: d.filename }),
+      confirmLabel: t('confirm.cancel.yes'),
+      danger: true,
+    });
+    if (ok) await act(() => downloads.cancel(d.id));
+  }
+
+  const remove = () => act(() => downloads.remove(d.id));
+
+  function changeCategory(e: Event): void {
+    const value = (e.currentTarget as HTMLSelectElement).value as Category;
+    void act(() => downloads.setCategory(d.id, value));
+  }
+</script>
+
+<article
+  class="grid gap-3 rounded-2xl border border-border bg-surface p-4 shadow-card"
+  aria-label={d.filename}
+>
+  <div class="flex items-center gap-3">
+    <CategoryIcon category={d.category} tile />
+    <div class="min-w-0 flex-1">
+      <h3 class="truncate font-semibold tracking-tight" title={d.filename}>{d.filename}</h3>
+      <p class="flex flex-wrap items-center gap-x-3 text-sm text-muted">
+        <span class="max-w-full truncate">{hostOf(d.url)}</span>
+        {#if folder}
+          <span class="inline-flex items-center gap-1"><Icon name="folder" size={13} />{folder}</span>
+        {/if}
+      </p>
+    </div>
+    <StatusBadge status={d.status} />
+  </div>
+
+  {#if d.status !== 'cancelled'}
+    <ProgressBar
+      value={d.status === 'completed' ? 1 : frac}
+      status={d.status}
+      label={t('card.progressOf', { name: d.filename })}
+    />
+  {/if}
+
+  <p data-part="stats" class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted tabular-nums">
+    {#if d.status === 'queued'}
+      <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
+    {:else if d.status === 'completed'}
+      <span>{i18n.bytes(d.size ?? d.downloaded)}</span>
+    {:else if d.status === 'cancelled'}
+      <span>{t('card.cancelled')}</span>
+    {:else}
+      <span>
+        {d.size != null
+          ? t('card.ofTotal', { done: i18n.bytes(d.downloaded), total: i18n.bytes(d.size) })
+          : i18n.bytes(d.downloaded)}
+        {#if frac !== null}<strong class="ml-1 font-semibold text-text">{formatPercent(frac)}</strong>{/if}
+      </span>
+      {#if live}
+        <span>{i18n.speed(speed)}</span>
+        {#if eta !== null}<span>{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
+      {/if}
+    {/if}
+  </p>
+
+  {#if d.status === 'failed' && d.error}
+    <p
+      class="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]"
+      role="alert"
+    >
+      <span class="mt-0.5"><Icon name="alert" size={16} /></span>{d.error}
+    </p>
+  {/if}
+  {#if unfinished && !d.resumable}
+    <p class="text-sm text-warning">{t('card.noResume')}</p>
+  {/if}
+
+  <div class="flex items-center gap-2">
+    {#if primary}
+      <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
+        <Icon name={primary.icon} size={18} />{primary.label}
+      </button>
+    {/if}
+
+    <label class="min-w-0 flex-[0_1_10rem]">
+      <span class="sr-only">{t('card.categoryOf', { name: d.filename })}</span>
+      <select class="select" value={d.category} disabled={busy} onchange={changeCategory}>
+        {#each CATEGORIES as c (c)}
+          <option value={c}>{t(`category.${c}`)}</option>
+        {/each}
+      </select>
+    </label>
+
+    {#if unfinished}
+      <button
+        class={['btn icon', !primary && 'ml-auto']}
+        disabled={busy}
+        aria-label={t('card.cancel.label', { name: d.filename })}
+        title={t('card.cancel.title')}
+        onclick={cancel}
+      >
+        <Icon name="x" />
+      </button>
+    {:else}
+      <button
+        class="btn icon ml-auto"
+        disabled={busy}
+        aria-label={t('card.remove.label', { name: d.filename })}
+        title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
+        onclick={remove}
+      >
+        <Icon name="trash" />
+      </button>
+    {/if}
+  </div>
+</article>

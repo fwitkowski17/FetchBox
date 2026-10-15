@@ -5,7 +5,9 @@ use axum::Json;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
-use crate::auth::{self, AuthStatus, LockedBody, LoginRequest, LoginResponse};
+use crate::auth::{
+    self, AuthStatus, ChangePasswordRequest, LockedBody, LoginRequest, LoginResponse, SetupRequest,
+};
 use crate::error::{ConflictBody, ErrorBody};
 use crate::routes::{self, Health, UpdateDownload};
 use crate::sse;
@@ -39,18 +41,20 @@ token as `Authorization: Bearer`.",
         auth::login,
         auth::logout,
         auth::status,
+        auth::setup,
+        auth::change_password,
     ),
     components(schemas(
         Download, Status, Category, SourceKind, Settings, AddRequest, OnConflict, Conflict,
         ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, LoginRequest,
-        LoginResponse, LockedBody, AuthStatus,
+        LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest,
     )),
     modifiers(&Runtime),
     tags(
         (name = "downloads", description = "Download list and per-download commands"),
         (name = "settings", description = "Global settings, applied live"),
         (name = "events", description = "Server-sent events"),
-        (name = "auth", description = "Single-user login"),
+        (name = "auth", description = "Single-user login, first-run setup, password change"),
         (name = "system", description = "Health"),
     )
 )]
@@ -113,6 +117,8 @@ mod tests {
             ("/api/auth/login", "post"),
             ("/api/auth/logout", "post"),
             ("/api/auth/status", "get"),
+            ("/api/auth/setup", "post"),
+            ("/api/auth/password", "post"),
         ] {
             assert!(
                 paths[path][method].is_object(),

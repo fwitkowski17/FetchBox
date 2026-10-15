@@ -578,3 +578,14 @@ impl Service for Manager {
         self.bus.subscribe()
     }
 }
+
+/// The password hash created in the first-run setup lives next to the settings.
+impl dlm_api::auth::CredentialStore for Manager {
+    fn load_password_hash(&self) -> std::result::Result<Option<String>, String> {
+        settings::password_hash(&self.db()).map_err(|e| e.to_string())
+    }
+
+    fn save_password_hash(&self, hash: &str) -> std::result::Result<(), String> {
+        settings::set_password_hash(&self.db(), hash).map_err(|e| e.to_string())
+    }
+}

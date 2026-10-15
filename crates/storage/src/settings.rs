@@ -11,6 +11,31 @@ const SPEED_PER_DOWNLOAD: &str = "speed_per_download";
 const SPEED_GLOBAL: &str = "speed_global";
 const CATEGORY_SUBDIRS: &str = "category_subdirs";
 
+/// Key of the Argon2 hash of the password created in the first-run setup. It lives in the
+/// same table as the settings but is not part of `Settings`, so it never reaches the API.
+const PASSWORD_HASH: &str = "password_hash";
+
+/// The stored password hash, if the account was set up through the UI.
+pub fn password_hash(conn: &Connection) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            [PASSWORD_HASH],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// Store (or replace) the password hash.
+pub fn set_password_hash(conn: &Connection, hash: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![PASSWORD_HASH, hash],
+    )?;
+    Ok(())
+}
+
 /// Load settings; missing or unparsable keys fall back to the defaults.
 pub fn load(conn: &Connection) -> Result<Settings> {
     let d = Settings::default();
@@ -93,6 +118,24 @@ mod tests {
         assert_eq!(
             load(&conn).expect("load").connections,
             Settings::default().connections
+        );
+    }
+
+    #[test]
+    fn password_hash_roundtrip_and_isolation() {
+        let mut conn = open_in_memory().expect("db");
+        assert_eq!(password_hash(&conn).expect("get"), None);
+        set_password_hash(&conn, "$argon2id$one").expect("set");
+        set_password_hash(&conn, "$argon2id$two").expect("replace");
+        assert_eq!(
+            password_hash(&conn).expect("get").as_deref(),
+            Some("$argon2id$two")
+        );
+        // Saving the regular settings must neither touch nor expose the hash.
+        save(&mut conn, &Settings::default()).expect("save");
+        assert_eq!(
+            password_hash(&conn).expect("get").as_deref(),
+            Some("$argon2id$two")
         );
     }
 }

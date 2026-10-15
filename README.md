@@ -2,7 +2,7 @@
 
 Self-hosted download manager for a homelab. One Rust binary serves the REST API, SSE and the embedded Svelte frontend. See [docs/SPEC.md](docs/SPEC.md).
 
-Status: backend in progress (download engine, REST API, SSE and auth work; frontend not started).
+Status: usable; BitTorrent support is planned.
 
 ## Develop
 
@@ -19,6 +19,38 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cd web && npm run check
 ```
+
+## Frontend
+
+Svelte 5 + Vite + TypeScript in `web/`, mobile-first, styled with Tailwind CSS 4 (no UI component framework; about 40 kB gzipped JS and 7 kB gzipped CSS, 316 kB for the whole embedded app including the font). It is embedded into the binary at build time; `cd web && npm run dev` serves it with hot reload and proxies `/api` to `localhost:8080`.
+
+- Side-menu layout: on wide screens a permanent panel with navigation, status and category filters (with counts), connection state and the theme switch; on phones the same panel slides in from the left, with a floating add button and a row of the filters currently applied.
+- Download list as cards with live progress (server-sent events): status, size, speed, ETA, category, pause/resume/retry, cancel, remove.
+- Sorting (date, name, size, progress, speed, status; either direction), status and category filters and search; the choices are remembered.
+- Add by URL with optional name and category; name conflicts open a dialog (keep both / replace / cancel).
+- Settings: connections, simultaneous downloads, speed limits (KB/s or MB/s), category folders. Applied live; other open tabs follow.
+- Light, dark, black (pure black background for OLED screens) or follow-the-system theme, plus a choice of eight accent colours (blue, violet, pink, red, orange, green, teal, graphite); both are applied before first paint. Login screen, automatic return to it when the session ends.
+- Status filters (all, active, paused, completed, failed) have icons coloured by state, in the side panel and in the filter tags on phones.
+- English and Polish, chosen from the browser language or in Settings; numbers, dates and name sorting follow the language.
+
+### Adding a language
+
+Translations live in `web/src/lib/i18n/` (no library; a few hundred lines). To add one, say German:
+
+1. Copy `pl.ts` to `de.ts` and translate the values. Keep the `{placeholders}` as they are; a message that depends on a count is an object with the plural forms of that language (`one`, `few`, `many`, `other`, whatever the language needs; see `downloads.cleared`).
+2. Add one line to `locales.ts`: `{ code: 'de', name: 'Deutsch', load: async () => (await import('./de')).default }`.
+
+That is all: the language appears in Settings, is loaded on demand as its own small chunk, and is picked automatically when it matches the browser language. `npm run check` fails on a missing or misspelled key, and `npm test` fails on a changed placeholder or a missing plural form. `en.ts` is the source of truth for the keys. Messages coming from the backend (for example the reason a download could not be added) are not translated yet.
+
+`npm run check` (types), `npm test` (vitest, logic only) and `npm run build` run in CI.
+
+### Styling and font
+
+Accent colours are one hue on top of the theme: lightness and saturation come from the theme (`--accent-l`, `--accent-c` in `app.css`, which is what keeps text on the accent readable), the hue is the user's choice (`web/src/lib/util/accent.ts`, a table of ids, hue and a saturation factor). A test computes the contrast of every accent in every theme from the real CSS values and fails below WCAG AA, so a new accent or a changed token cannot silently make buttons or links unreadable. Adding an accent is one line in that table plus its name in each dictionary.
+
+Tailwind runs at build time only (the final image still has no Node). Colours are CSS variables defined per theme in `web/src/app.css` and exposed to Tailwind through `@theme inline`, so classes such as `bg-surface`, `text-muted` or `border-border` follow light, dark and black without any `dark:` variants. Shared controls (`.btn`, `.input`, `.select`, `.field`) are defined once in the same file with `@apply`.
+
+The font is Inter (variable), bundled with the app, so nothing is fetched from a CDN and it works on an isolated LAN. Only the `latin` (48 kB) and `latin-ext` (85 kB, Polish letters among others) subsets are included, and the browser downloads a subset only when a character from it is on the page. Tailwind 4 needs a reasonably recent browser (Safari 16.4+, Chrome 111+, Firefox 128+).
 
 ## Options worth knowing
 
@@ -39,13 +71,17 @@ A test fails when `docs/openapi.json` is stale, and CI fails when the generated 
 
 ## Authentication
 
-The API is protected by a single shared password. The server **refuses to start** without one:
+The API is protected by a single shared password. There are three ways to set it up, in order of precedence:
 
-```bash
-DLM_PASSWORD='at-least-8-chars' cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads
-# or: --password-file /run/secrets/dlm_password
-# or, only on a fully trusted network: --no-auth
-```
+1. **From the environment or a file** (`DLM_PASSWORD`, or `--password-file /run/secrets/dlm_password`): at least 8 characters. It wins over everything and cannot be changed in the UI.
+2. **In the browser, on first run** (the default when neither is set): the server starts locked and prints a one-time **setup code** to its log:
+
+   ```text
+   WARN dlmanager: first run: open the web UI and enter the setup code K7QM2XPD to create your account ...
+   ```
+
+   Open the UI (`docker compose logs dlmanager` shows the line in Docker), walk through the setup wizard (look, account, download defaults) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
+3. **No authentication**, only on a fully trusted network: `--no-auth`.
 
 Log in with `POST /api/auth/login {"password": "..."}`: the response sets an `HttpOnly` session cookie and also returns a token usable as `Authorization: Bearer <token>`. After 5 failed attempts logins are locked for up to a minute. Sessions are kept in memory (a restart logs everyone out). Serve it over HTTPS via a reverse proxy when exposed beyond the LAN (send `X-Forwarded-Proto: https` so the cookie gets `Secure`).
 
@@ -62,4 +98,4 @@ Workspace crates live in `crates/` (`core`, `http_engine`, `torrent_engine`, `st
 
 ## Dependency notes
 
-`tokio` + `axum` (one async stack), `rust-embed` + `mime_guess` (embedded SPA), `rusqlite` bundled (lighter than sqlx, no system SQLite), `clap` (CLI), `serde`/`serde_json`, `thiserror`/`anyhow`, `tracing`, `async-trait` (`Downloader` trait object).
+`tailwindcss` + `@tailwindcss/vite` (build-time only: consistent design tokens and no hand-written CSS to maintain; the output is a few kB), `@fontsource-variable/inter` (the font files, so no CDN), `tokio` + `axum` (one async stack), `rust-embed` + `mime_guess` (embedded SPA), `rusqlite` bundled (lighter than sqlx, no system SQLite), `argon2` (Argon2id hash of the password created in the first-run setup; pure Rust, no system library, no RNG framework since the salt comes from `getrandom`), `clap` (CLI), `serde`/`serde_json`, `thiserror`/`anyhow`, `tracing`, `async-trait` (`Downloader` trait object).
