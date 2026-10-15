@@ -57,19 +57,21 @@ describe('api client', () => {
     const err = (await api.login('x').catch((e: unknown) => e)) as ApiError;
     expect(err.status).toBe(429);
     expect(err.retryAfter).toBe(42);
-    expect(err.message).toBe('too many attempts');
+    expect(err.serverMessage).toBe('too many attempts');
   });
 
   it('reports an unreachable server as status 0', async () => {
     mockFetch(new TypeError('failed to fetch'));
     const err = (await api.listDownloads().catch((e: unknown) => e)) as ApiError;
     expect(err.status).toBe(0);
+    expect(err.serverMessage).toBeUndefined();
   });
 
   it('survives a non-JSON error body', async () => {
     mockFetch(new Response('<html>bad gateway</html>', { status: 502 }));
     const err = (await api.listDownloads().catch((e: unknown) => e)) as ApiError;
     expect(err.status).toBe(502);
+    expect(err.serverMessage).toBeUndefined(); // the UI then shows its own, translated text
     expect(err.message).toContain('502');
   });
 

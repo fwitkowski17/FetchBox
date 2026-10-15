@@ -3,6 +3,7 @@
   import { ApiError } from '../lib/api/client';
   import type { Settings as ServerSettings } from '../lib/api/types';
   import Icon from '../lib/components/Icon.svelte';
+  import { LOCALES, i18n, t } from '../lib/i18n';
   import SpeedField from '../lib/components/SpeedField.svelte';
   import ThemePicker from '../lib/components/ThemePicker.svelte';
   import Toggle from '../lib/components/Toggle.svelte';
@@ -18,6 +19,7 @@
     toDraft,
     validate,
     type Draft,
+    type ErrorCode,
   } from '../lib/util/settingsForm';
 
   let draft = $state<Draft | null>(null);
@@ -49,12 +51,18 @@
     error = null;
     try {
       await settings.save(fromDraft(draft));
-      toast.success('Settings saved. They apply right away.');
+      toast.success(t('settings.saved'));
     } catch (err) {
-      error = err instanceof ApiError ? err.message : 'Could not save the settings.';
+      error = err instanceof ApiError ? i18n.errorText(err) : t('settings.saveFailed');
     } finally {
       saving = false;
     }
+  }
+
+  /** The message for a validation code; the bounds are the form's own. */
+  function errorText(code: ErrorCode): string {
+    const max = code === 'connections' ? MAX_CONNECTIONS : MAX_CONCURRENT;
+    return t(`settings.error.${code}`, { max });
   }
 
   function reset(): void {
@@ -66,21 +74,21 @@
   }
 </script>
 
-<header class="head"><h1>Settings</h1></header>
+<header class="head"><h1>{t('settings.title')}</h1></header>
 
 <form class="stack" onsubmit={save}>
   {#if settings.error && !settings.value}
     <div class="card" role="alert">
-      <p>Could not load the settings: {settings.error}</p>
-      <button type="button" class="btn" onclick={() => settings.load()}>Try again</button>
+      <p>{t('settings.loadFailed', { error: i18n.errorText(settings.error) })}</p>
+      <button type="button" class="btn" onclick={() => settings.load()}>{t('common.tryAgain')}</button>
     </div>
   {:else if draft === null}
-    <p class="hint" role="status">Loading…</p>
+    <p class="hint" role="status">{t('common.loading')}</p>
   {:else}
     <section class="card">
-      <h2>Downloads</h2>
+      <h2>{t('settings.downloads')}</h2>
       <div class="field">
-        <label for="connections">Connections per download</label>
+        <label for="connections">{t('settings.connections.label')}</label>
         <input
           id="connections"
           class="input"
@@ -91,12 +99,12 @@
           bind:value={draft.connections}
           aria-invalid={errors.connections ? 'true' : undefined}
         />
-        <p class="hint">More connections can be faster, but only for servers that allow it. Applies to new downloads.</p>
-        {#if errors.connections}<p class="error" role="alert">{errors.connections}</p>{/if}
+        <p class="hint">{t('settings.connections.hint')}</p>
+        {#if errors.connections}<p class="error" role="alert">{errorText(errors.connections)}</p>{/if}
       </div>
 
       <div class="field">
-        <label for="concurrent">Simultaneous downloads</label>
+        <label for="concurrent">{t('settings.concurrent.label')}</label>
         <input
           id="concurrent"
           class="input"
@@ -107,35 +115,35 @@
           bind:value={draft.maxConcurrent}
           aria-invalid={errors.maxConcurrent ? 'true' : undefined}
         />
-        <p class="hint">Extra downloads wait in the queue. Changes take effect immediately.</p>
-        {#if errors.maxConcurrent}<p class="error" role="alert">{errors.maxConcurrent}</p>{/if}
+        <p class="hint">{t('settings.concurrent.hint')}</p>
+        {#if errors.maxConcurrent}<p class="error" role="alert">{errorText(errors.maxConcurrent)}</p>{/if}
       </div>
     </section>
 
     <section class="card">
-      <h2>Speed limits</h2>
+      <h2>{t('settings.speed')}</h2>
       <SpeedField
-        label="Limit each download"
-        hint="Applies to every download separately."
+        label={t('settings.speed.each')}
+        hint={t('settings.speed.eachHint')}
         bind:value={draft.perDownload}
-        error={errors.perDownload}
+        error={errors.perDownload ? errorText(errors.perDownload) : undefined}
       />
       <hr />
       <SpeedField
-        label="Limit total speed"
-        hint="Shared by all downloads together."
+        label={t('settings.speed.total')}
+        hint={t('settings.speed.totalHint')}
         bind:value={draft.global}
-        error={errors.global}
+        error={errors.global ? errorText(errors.global) : undefined}
       />
     </section>
 
     <section class="card">
-      <h2>Files</h2>
+      <h2>{t('settings.files')}</h2>
       <Toggle
         bind:checked={draft.categorySubdirs}
-        hint="New downloads go into folders like video/ or music/. Existing files are not moved."
+        hint={t('settings.subdirs.hint')}
       >
-        Sort into category folders
+        {t('settings.subdirs')}
       </Toggle>
     </section>
 
@@ -144,27 +152,42 @@
     {/if}
 
     {#if dirty}
-      <div class="savebar" role="group" aria-label="Unsaved changes">
-        <span class="hint">Unsaved changes</span>
-        <button type="button" class="btn" onclick={reset} disabled={saving}>Discard</button>
+      <div class="savebar" role="group" aria-label={t('settings.unsaved')}>
+        <span class="hint">{t('settings.unsaved')}</span>
+        <button type="button" class="btn" onclick={reset} disabled={saving}>{t('settings.discard')}</button>
         <button type="submit" class="btn primary" disabled={!valid || saving}>
-          {saving ? 'Saving…' : 'Save changes'}
+          {saving ? t('settings.saving') : t('settings.save')}
         </button>
       </div>
     {/if}
   {/if}
 
   <section class="card">
-    <h2>Appearance</h2>
+    <h2>{t('settings.appearance')}</h2>
     <ThemePicker />
-    <p class="hint">“System” follows the light or dark setting of your device.</p>
+    <p class="hint">{t('settings.theme.hint')}</p>
+
+    <div class="field">
+      <label for="language">{t('settings.language')}</label>
+      <select
+        id="language"
+        class="select"
+        value={i18n.pref}
+        onchange={(e) => void i18n.setPref(e.currentTarget.value)}
+      >
+        <option value="auto">{t('settings.language.auto')}</option>
+        {#each LOCALES as l (l.code)}
+          <option value={l.code} lang={l.code}>{l.name}</option>
+        {/each}
+      </select>
+    </div>
   </section>
 
   {#if auth.required}
     <section class="card">
-      <h2>Account</h2>
+      <h2>{t('settings.account')}</h2>
       <button type="button" class="btn" onclick={() => auth.logout()}>
-        <Icon name="logout" size={18} />Sign out
+        <Icon name="logout" size={18} />{t('settings.signOut')}
       </button>
     </section>
   {/if}

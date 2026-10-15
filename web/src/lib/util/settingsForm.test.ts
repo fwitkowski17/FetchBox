@@ -40,7 +40,7 @@ describe('settings form', () => {
     d.connections = 0;
     d.maxConcurrent = 2.5;
     d.perDownload = { limited: true, value: 0, unit: 'KB' };
-    expect(Object.keys(validate(d)).sort()).toEqual(['connections', 'maxConcurrent', 'perDownload']);
+    expect(validate(d)).toEqual({ connections: 'connections', maxConcurrent: 'concurrent', perDownload: 'speed' });
     d.connections = MAX_CONNECTIONS + 1;
     expect(validate(d).connections).toBeDefined();
     d.connections = MAX_CONNECTIONS;

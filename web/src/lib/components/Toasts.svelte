@@ -1,14 +1,15 @@
 <script lang="ts">
+  import { t } from '../i18n';
   import { toast } from '../stores/toast.svelte';
   import Icon from './Icon.svelte';
 </script>
 
 <div class="toasts" aria-live="polite">
-  {#each toast.items as t (t.id)}
-    <div class="toast {t.kind}" role={t.kind === 'error' ? 'alert' : 'status'}>
-      <Icon name={t.kind === 'error' ? 'alert' : 'check'} size={18} />
-      <span>{t.message}</span>
-      <button class="close" aria-label="Dismiss" onclick={() => toast.dismiss(t.id)}>
+  {#each toast.items as item (item.id)}
+    <div class="toast {item.kind}" role={item.kind === 'error' ? 'alert' : 'status'}>
+      <Icon name={item.kind === 'error' ? 'alert' : 'check'} size={18} />
+      <span>{item.message}</span>
+      <button class="close" aria-label={t('common.dismiss')} onclick={() => toast.dismiss(item.id)}>
         <Icon name="x" size={16} />
       </button>
     </div>

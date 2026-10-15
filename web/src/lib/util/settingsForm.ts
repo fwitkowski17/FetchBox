@@ -50,20 +50,25 @@ export function fromDraft(d: Draft): Settings {
   };
 }
 
-export type Errors = Partial<Record<'connections' | 'maxConcurrent' | 'perDownload' | 'global', string>>;
+export type Field = 'connections' | 'maxConcurrent' | 'perDownload' | 'global';
+
+/** Which message to show for a field (`settings.error.<code>`); the UI supplies the wording. */
+export type ErrorCode = 'connections' | 'concurrent' | 'speed';
+
+export type Errors = Partial<Record<Field, ErrorCode>>;
 
 export function validate(d: Draft): Errors {
   const errors: Errors = {};
   if (!Number.isInteger(d.connections) || d.connections < 1 || d.connections > MAX_CONNECTIONS) {
-    errors.connections = `Use a whole number from 1 to ${MAX_CONNECTIONS}.`;
+    errors.connections = 'connections';
   }
   if (!Number.isInteger(d.maxConcurrent) || d.maxConcurrent < 1 || d.maxConcurrent > MAX_CONCURRENT) {
-    errors.maxConcurrent = `Use a whole number from 1 to ${MAX_CONCURRENT}.`;
+    errors.maxConcurrent = 'concurrent';
   }
   for (const key of ['perDownload', 'global'] as const) {
     const s = d[key];
     if (s.limited && !(Number.isFinite(s.value) && s.value > 0)) {
-      errors[key] = 'Enter a speed above 0, or turn the limit off.';
+      errors[key] = 'speed';
     }
   }
   return errors;

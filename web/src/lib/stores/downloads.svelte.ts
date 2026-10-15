@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { AppEvent, Category, Settings } from '../api/types';
 import type { Download } from '../api/types';
 import { applyEvent } from '../util/downloads';
+import { i18n } from '../i18n';
 import { toast } from './toast.svelte';
 
 export type Connection = 'connecting' | 'live' | 'offline';
@@ -21,7 +22,8 @@ class DownloadsStore {
   items = $state.raw<Download[]>([]);
   loaded = $state(false);
   connection = $state<Connection>('connecting');
-  loadError = $state<string | null>(null);
+  /** The error from the last failed load (shown through `i18n.errorText`). */
+  loadError = $state.raw<unknown>(null);
 
   #source: EventSource | null = null;
   #retry: ReturnType<typeof setTimeout> | null = null;
@@ -74,7 +76,7 @@ class DownloadsStore {
       this.loaded = true;
       this.loadError = null;
     } catch (e) {
-      this.loadError = e instanceof Error ? e.message : 'Cannot load downloads';
+      this.loadError = e;
     }
   }
 
@@ -99,7 +101,7 @@ class DownloadsStore {
       if (this.connection !== 'live') await this.reload();
       return true;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Something went wrong');
+      toast.error(i18n.errorText(e));
       return false;
     }
   }

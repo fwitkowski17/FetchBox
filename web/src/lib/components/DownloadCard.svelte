@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { Category, Download } from '../api/types';
-  import { CATEGORIES, CATEGORY_LABELS } from '../api/types';
+  import { CATEGORIES } from '../api/types';
+  import { i18n, t } from '../i18n';
   import { confirmAction } from '../stores/confirm.svelte';
   import { downloads } from '../stores/downloads.svelte';
   import { speedOf } from '../util/downloads';
-  import { etaSeconds, formatBytes, formatDuration, formatPercent, formatSpeed, fraction, hostOf } from '../util/format';
+  import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
   import CategoryIcon from './CategoryIcon.svelte';
   import Icon from './Icon.svelte';
   import ProgressBar from './ProgressBar.svelte';
@@ -27,11 +28,11 @@
     switch (d.status) {
       case 'queued':
       case 'downloading':
-        return { label: 'Pause', icon: 'pause', run: () => downloads.pause(d.id) } as const;
+        return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
       case 'paused':
-        return { label: 'Resume', icon: 'play', run: () => downloads.resume(d.id) } as const;
+        return { label: t('card.resume'), icon: 'play', run: () => downloads.resume(d.id) } as const;
       case 'failed':
-        return { label: 'Retry', icon: 'retry', run: () => downloads.resume(d.id) } as const;
+        return { label: t('card.retry'), icon: 'retry', run: () => downloads.resume(d.id) } as const;
       default:
         return null;
     }
@@ -48,9 +49,9 @@
 
   async function cancel(): Promise<void> {
     const ok = await confirmAction({
-      title: 'Cancel this download?',
-      message: `“${d.filename}” will stop and the partly downloaded file will be deleted.`,
-      confirmLabel: 'Cancel download',
+      title: t('confirm.cancel.title'),
+      message: t('confirm.cancel.message', { name: d.filename }),
+      confirmLabel: t('confirm.cancel.yes'),
       danger: true,
     });
     if (ok) await act(() => downloads.cancel(d.id));
@@ -78,24 +79,26 @@
   </div>
 
   {#if d.status !== 'cancelled'}
-    <ProgressBar value={d.status === 'completed' ? 1 : frac} status={d.status} label={`Progress of ${d.filename}`} />
+    <ProgressBar value={d.status === 'completed' ? 1 : frac} status={d.status} label={t('card.progressOf', { name: d.filename })} />
   {/if}
 
   <p class="stats">
     {#if d.status === 'queued'}
-      Waiting for a free slot{d.size != null ? ` · ${formatBytes(d.size)}` : ''}
+      {t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}
     {:else if d.status === 'completed'}
-      {formatBytes(d.size ?? d.downloaded)}
+      {i18n.bytes(d.size ?? d.downloaded)}
     {:else if d.status === 'cancelled'}
-      Cancelled
+      {t('card.cancelled')}
     {:else}
       <span class="num">
-        {formatBytes(d.downloaded)}{d.size != null ? ` of ${formatBytes(d.size)}` : ''}
+        {d.size != null
+          ? t('card.ofTotal', { done: i18n.bytes(d.downloaded), total: i18n.bytes(d.size) })
+          : i18n.bytes(d.downloaded)}
         {#if frac !== null}<strong>{formatPercent(frac)}</strong>{/if}
       </span>
       {#if live}
-        <span class="num">{formatSpeed(speed)}</span>
-        {#if eta !== null}<span class="num">{formatDuration(eta)} left</span>{/if}
+        <span class="num">{i18n.speed(speed)}</span>
+        {#if eta !== null}<span class="num">{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
       {/if}
     {/if}
   </p>
@@ -104,7 +107,7 @@
     <p class="error" role="alert"><Icon name="alert" size={16} />{d.error}</p>
   {/if}
   {#if unfinished && !d.resumable}
-    <p class="note">This server does not allow resuming, so pausing restarts the download.</p>
+    <p class="note">{t('card.noResume')}</p>
   {/if}
 
   <div class="actions">
@@ -115,24 +118,24 @@
     {/if}
 
     <label class="catpick">
-      <span class="sr-only">Category of {d.filename}</span>
+      <span class="sr-only">{t('card.categoryOf', { name: d.filename })}</span>
       <select class="select" value={d.category} disabled={busy} onchange={changeCategory}>
         {#each CATEGORIES as c (c)}
-          <option value={c}>{CATEGORY_LABELS[c]}</option>
+          <option value={c}>{t(`category.${c}`)}</option>
         {/each}
       </select>
     </label>
 
     {#if unfinished}
-      <button class="btn icon" disabled={busy} aria-label={`Cancel ${d.filename}`} title="Cancel" onclick={cancel}>
+      <button class="btn icon" disabled={busy} aria-label={t('card.cancel.label', { name: d.filename })} title={t('card.cancel.title')} onclick={cancel}>
         <Icon name="x" />
       </button>
     {:else}
       <button
         class="btn icon"
         disabled={busy}
-        aria-label={`Remove ${d.filename} from the list`}
-        title={d.status === 'completed' ? 'Remove from list (the file stays on disk)' : 'Remove from list'}
+        aria-label={t('card.remove.label', { name: d.filename })}
+        title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
         onclick={remove}
       >
         <Icon name="trash" />

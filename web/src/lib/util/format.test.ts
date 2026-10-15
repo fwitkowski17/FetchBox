@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  durationParts,
   etaSeconds,
   formatBytes,
-  formatDuration,
+  formatDate,
   formatPercent,
   formatSpeed,
   fraction,
@@ -37,17 +38,38 @@ describe('formatBytes', () => {
   it('formats speed', () => {
     expect(formatSpeed(2 * 1024 * 1024)).toBe('2.0 MB/s');
   });
+
+  it('uses the decimal separator of the language and never groups digits', () => {
+    expect(formatBytes(1536, 'pl')).toBe('1,5 KB');
+    expect(formatBytes(1536, 'en')).toBe('1.5 KB');
+    expect(formatSpeed(2.5 * 1024 * 1024, 'pl')).toBe('2,5 MB/s');
+    expect(formatBytes(1000 * 1024, 'pl')).toBe('1000 KB');
+    expect(formatBytes(1000 * 1024, 'en')).toBe('1000 KB');
+  });
 });
 
-describe('formatDuration / etaSeconds', () => {
-  it('picks readable units', () => {
-    expect(formatDuration(0)).toBe('0 s');
-    expect(formatDuration(45)).toBe('45 s');
-    expect(formatDuration(65)).toBe('1 min 05 s');
-    expect(formatDuration(3 * 3600 + 7 * 60)).toBe('3 h 07 min');
-    expect(formatDuration(30 * 3600)).toBe('1 d 6 h');
-    expect(formatDuration(200 * 86_400)).toBe('—');
-    expect(formatDuration(-5)).toBe('—');
+describe('formatDate', () => {
+  it('follows the language', () => {
+    const t = Date.UTC(2026, 9, 14, 12, 0) / 1000;
+    expect(formatDate(t, 'en')).toMatch(/Oct/);
+    expect(formatDate(t, 'pl')).toMatch(/paź/);
+  });
+});
+
+describe('durationParts / etaSeconds', () => {
+  it('picks the unit pattern and pads where it reads better', () => {
+    expect(durationParts(0)).toEqual({ unit: 's', values: { s: '0' } });
+    expect(durationParts(45)).toEqual({ unit: 's', values: { s: '45' } });
+    expect(durationParts(65)).toEqual({ unit: 'ms', values: { m: '1', s: '05' } });
+    expect(durationParts(3 * 3600 + 7 * 60)).toEqual({ unit: 'hm', values: { h: '3', m: '07' } });
+    expect(durationParts(30 * 3600)).toEqual({ unit: 'dh', values: { d: '1', h: '6' } });
+  });
+
+  it('rounds, and gives up on nonsense and on 100 days or more', () => {
+    expect(durationParts(59.6)).toEqual({ unit: 'ms', values: { m: '1', s: '00' } });
+    expect(durationParts(200 * 86_400)).toBeNull();
+    expect(durationParts(-5)).toBeNull();
+    expect(durationParts(Number.NaN)).toBeNull();
   });
 
   it('is unknown without size or speed, or when done', () => {

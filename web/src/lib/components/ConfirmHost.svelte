@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../i18n';
   import { confirmStore } from '../stores/confirm.svelte';
   import Modal from './Modal.svelte';
 
@@ -8,7 +9,7 @@
 <Modal open={pending !== null} title={pending?.title ?? ''} onclose={() => confirmStore.answer(false)}>
   <p>{pending?.message}</p>
   {#snippet footer()}
-    <button class="btn" onclick={() => confirmStore.answer(false)}>Keep it</button>
+    <button class="btn" onclick={() => confirmStore.answer(false)}>{t('confirm.keep')}</button>
     <button
       class="btn"
       class:danger={pending?.danger}

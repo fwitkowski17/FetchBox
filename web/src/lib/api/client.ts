@@ -11,6 +11,8 @@ import type {
 /** A failed API call. `status` is 0 when the server could not be reached at all. */
 export class ApiError extends Error {
   readonly status: number;
+  /** What the server said (`error` field), if anything. Not translated; shown as is. */
+  readonly serverMessage: string | undefined;
   /** Set on `409` when a new download collides with an existing one. */
   readonly conflict: Conflict | undefined;
   /** Seconds until logins are allowed again (`429`). */
@@ -18,12 +20,14 @@ export class ApiError extends Error {
 
   constructor(
     status: number,
-    message: string,
+    serverMessage: string | undefined,
     extra: { conflict?: Conflict; retryAfter?: number } = {},
   ) {
-    super(message);
+    // `message` is for logs and tests; the UI builds its own text (see `errorText`).
+    super(serverMessage ?? `HTTP ${status}`);
     this.name = 'ApiError';
     this.status = status;
+    this.serverMessage = serverMessage;
     this.conflict = extra.conflict;
     this.retryAfter = extra.retryAfter;
   }
@@ -41,8 +45,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function parseError(status: number, body: unknown): ApiError {
-  const message =
-    isRecord(body) && typeof body.error === 'string' ? body.error : `Request failed (${status})`;
+  const message = isRecord(body) && typeof body.error === 'string' ? body.error : undefined;
   const conflict =
     isRecord(body) && isRecord(body.conflict) ? (body.conflict as Conflict) : undefined;
   const retryAfter =
@@ -60,7 +63,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, 'Cannot reach the server');
+    throw new ApiError(0, undefined);
   }
 
   if (res.status === 204) {

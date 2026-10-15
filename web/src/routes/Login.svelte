@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ApiError } from '../lib/api/client';
   import Icon from '../lib/components/Icon.svelte';
+  import { i18n, t } from '../lib/i18n';
   import { auth } from '../lib/stores/auth.svelte';
 
   let password = $state('');
@@ -17,11 +18,11 @@
       password = '';
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        error = 'Wrong password.';
+        error = t('login.wrong');
       } else if (err instanceof ApiError && err.status === 429) {
-        error = `Too many attempts. Try again in ${err.retryAfter ?? 60} s.`;
+        error = t('login.locked', { n: err.retryAfter ?? 60 });
       } else {
-        error = err instanceof Error ? err.message : 'Login failed.';
+        error = err instanceof ApiError && err.status === 0 ? i18n.errorText(err) : t('login.failed');
       }
     } finally {
       busy = false;
@@ -33,10 +34,10 @@
   <form class="card" onsubmit={submit}>
     <div class="logo"><Icon name="lock" size={26} /></div>
     <h1>dlmanager</h1>
-    <p class="hint">Enter the password to continue.</p>
+    <p class="hint">{t('login.prompt')}</p>
 
     <div class="field">
-      <label for="password">Password</label>
+      <label for="password">{t('login.password')}</label>
       <!-- svelte-ignore a11y_autofocus -->
       <input
         id="password"
@@ -53,7 +54,7 @@
     {#if error}<p id="login-error" class="error" role="alert">{error}</p>{/if}
 
     <button class="btn primary" type="submit" disabled={busy || !password}>
-      {busy ? 'Signing in…' : 'Sign in'}
+      {busy ? t('login.submitting') : t('login.submit')}
     </button>
   </form>
 </div>

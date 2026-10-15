@@ -1,19 +1,11 @@
 <script lang="ts">
   import type { Status } from '../api/types';
+  import { t } from '../i18n';
 
   let { status }: { status: Status } = $props();
-
-  const LABELS: Record<Status, string> = {
-    queued: 'Queued',
-    downloading: 'Downloading',
-    paused: 'Paused',
-    completed: 'Completed',
-    failed: 'Failed',
-    cancelled: 'Cancelled',
-  };
 </script>
 
-<span class="badge {status}">{LABELS[status]}</span>
+<span class="badge {status}">{t(`status.${status}`)}</span>
 
 <style>
   .badge {

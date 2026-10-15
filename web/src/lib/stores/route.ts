@@ -2,10 +2,11 @@ import { readable } from 'svelte/store';
 
 export type Route = 'downloads' | 'add' | 'settings';
 
-export const routes: readonly { id: Route; path: string; label: string }[] = [
-  { id: 'downloads', path: '/', label: 'Downloads' },
-  { id: 'add', path: '/add', label: 'Add' },
-  { id: 'settings', path: '/settings', label: 'Settings' },
+/** Labels are translated: `nav.<id>`. */
+export const routes: readonly { id: Route; path: string }[] = [
+  { id: 'downloads', path: '/' },
+  { id: 'add', path: '/add' },
+  { id: 'settings', path: '/settings' },
 ];
 
 function parse(hash: string): Route {

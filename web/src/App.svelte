@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { setUnauthorizedHandler } from './lib/api/client';
+  import { i18n, t } from './lib/i18n';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
   import Icon, { type IconName } from './lib/components/Icon.svelte';
   import Toasts from './lib/components/Toasts.svelte';
@@ -10,7 +11,6 @@
   import { settings } from './lib/stores/settings.svelte';
   import { theme } from './lib/stores/theme.svelte';
   import { summarize } from './lib/util/downloads';
-  import { formatSpeed } from './lib/util/format';
   import AddDownload from './routes/AddDownload.svelte';
   import Downloads from './routes/Downloads.svelte';
   import Login from './routes/Login.svelte';
@@ -46,22 +46,20 @@
 
   // Current speed in the tab title, handy when the tab is in the background.
   $effect(() => {
-    document.title = summary.active > 0 ? `↓ ${formatSpeed(summary.speed)} · dlmanager` : 'dlmanager';
+    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · dlmanager` : 'dlmanager';
   });
 
   const themeIcon = $derived<IconName>(theme.pref === 'system' ? 'monitor' : theme.pref === 'light' ? 'sun' : 'moon');
-  const connectionLabel = $derived(
-    downloads.connection === 'live' ? 'Live' : downloads.connection === 'connecting' ? 'Reconnecting…' : 'Offline',
-  );
+  const connectionLabel = $derived(t(`connection.${downloads.connection}`));
 </script>
 
 {#if auth.state === 'loading'}
-  <p class="center" role="status">Loading…</p>
+  <p class="center" role="status">{t('common.loading')}</p>
 {:else if auth.state === 'offline'}
   <div class="center">
     <Icon name="alert" size={32} />
-    <p>Cannot reach the server.</p>
-    <button class="btn primary" onclick={() => auth.check()}>Try again</button>
+    <p>{t('app.offline')}</p>
+    <button class="btn primary" onclick={() => auth.check()}>{t('common.tryAgain')}</button>
   </div>
 {:else if auth.state === 'login'}
   <Login />
@@ -69,7 +67,7 @@
   <header class="top">
     <span class="brand"><Icon name="down" size={20} />dlmanager</span>
 
-    <nav class="nav" aria-label="Main">
+    <nav class="nav" aria-label={t('nav.main')}>
       {#each routes as r (r.id)}
         <a
           href={'#' + r.path}
@@ -77,24 +75,24 @@
           aria-current={$route === r.id ? 'page' : undefined}
         >
           <Icon name={NAV_ICONS[r.id]} size={22} />
-          <span>{r.label}</span>
+          <span>{t(`nav.${r.id}`)}</span>
         </a>
       {/each}
     </nav>
 
     <div class="status">
       {#if summary.active > 0}
-        <span class="speed" title="Total download speed">↓ {formatSpeed(summary.speed)}</span>
+        <span class="speed" title={t('app.totalSpeed')}>↓ {i18n.speed(summary.speed)}</span>
       {/if}
-      <span class="conn {downloads.connection}" title={`Connection to the server: ${connectionLabel}`}>
+      <span class="conn {downloads.connection}" title={t('connection.title', { state: connectionLabel })}>
         <span class="dot" aria-hidden="true"></span>
         <span class:sr-only={downloads.connection === 'live'}>{connectionLabel}</span>
       </span>
       <button
         class="btn icon ghost"
         onclick={() => theme.cycle()}
-        aria-label={`Theme: ${theme.pref}. Activate to change.`}
-        title={`Theme: ${theme.pref}`}
+        aria-label={t('theme.button', { theme: t(`theme.${theme.pref}`) })}
+        title={t(`theme.${theme.pref}`)}
       >
         <Icon name={themeIcon} />
       </button>

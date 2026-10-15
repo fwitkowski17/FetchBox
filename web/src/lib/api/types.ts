@@ -22,12 +22,3 @@ export const CATEGORIES: readonly Category[] = [
   'archive',
   'other',
 ];
-
-export const CATEGORY_LABELS: Record<Category, string> = {
-  photo: 'Photos',
-  music: 'Music',
-  video: 'Video',
-  program: 'Programs',
-  archive: 'Archives',
-  other: 'Other',
-};

@@ -6,12 +6,13 @@ import { fraction } from './format';
 
 export type Group = 'all' | 'active' | 'paused' | 'completed' | 'stopped';
 
-export const GROUPS: readonly { id: Group; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'active', label: 'Active' },
-  { id: 'paused', label: 'Paused' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'stopped', label: 'Failed' },
+/** Tabs in display order. Their labels are translated: `group.<id>`. */
+export const GROUPS: readonly { id: Group }[] = [
+  { id: 'all' },
+  { id: 'active' },
+  { id: 'paused' },
+  { id: 'completed' },
+  { id: 'stopped' },
 ];
 
 export function groupOf(status: Status): Exclude<Group, 'all'> {
@@ -91,13 +92,14 @@ export interface SortSpec {
   dir: SortDir;
 }
 
-export const SORT_OPTIONS: readonly { key: SortKey; label: string }[] = [
-  { key: 'added', label: 'Date added' },
-  { key: 'name', label: 'Name' },
-  { key: 'size', label: 'Size' },
-  { key: 'progress', label: 'Progress' },
-  { key: 'speed', label: 'Speed' },
-  { key: 'status', label: 'Status' },
+/** Sort choices in display order. Their labels are translated: `sort.<key>`. */
+export const SORT_OPTIONS: readonly { key: SortKey }[] = [
+  { key: 'added' },
+  { key: 'name' },
+  { key: 'size' },
+  { key: 'progress' },
+  { key: 'speed' },
+  { key: 'status' },
 ];
 
 /** Most interesting first: what is running, then waiting, then the rest. */
@@ -110,7 +112,18 @@ const STATUS_RANK: Record<Status, number> = {
   completed: 5,
 };
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const collators = new Map<string, Intl.Collator>();
+
+/** Natural, case-insensitive ordering by the language's own alphabet (Polish: a < ą < b). */
+function collatorFor(locale: string | undefined): Intl.Collator {
+  const key = locale ?? '';
+  let c = collators.get(key);
+  if (!c) {
+    c = new Intl.Collator(locale, { numeric: true, sensitivity: 'base' });
+    collators.set(key, c);
+  }
+  return c;
+}
 
 /** Compare numbers where `null` ("unknown") always sorts last, in both directions. */
 function byNumber(a: number | null, b: number | null, dir: SortDir): number {
@@ -121,8 +134,13 @@ function byNumber(a: number | null, b: number | null, dir: SortDir): number {
 }
 
 /** New array; stable, ties broken by id (newest first) so the order never jitters. */
-export function sortDownloads(items: readonly Download[], spec: SortSpec): Download[] {
+export function sortDownloads(
+  items: readonly Download[],
+  spec: SortSpec,
+  locale?: string,
+): Download[] {
   const sign = spec.dir === 'asc' ? 1 : -1;
+  const collator = collatorFor(locale);
   const compare = (a: Download, b: Download): number => {
     switch (spec.key) {
       case 'added':

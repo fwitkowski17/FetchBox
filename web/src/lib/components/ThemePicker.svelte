@@ -1,15 +1,16 @@
 <script lang="ts">
+  import { t } from '../i18n';
   import { theme, type ThemePref } from '../stores/theme.svelte';
   import Icon, { type IconName } from './Icon.svelte';
 
-  const OPTIONS: readonly { id: ThemePref; label: string; icon: IconName }[] = [
-    { id: 'system', label: 'System', icon: 'monitor' },
-    { id: 'light', label: 'Light', icon: 'sun' },
-    { id: 'dark', label: 'Dark', icon: 'moon' },
+  const OPTIONS: readonly { id: ThemePref; icon: IconName }[] = [
+    { id: 'system', icon: 'monitor' },
+    { id: 'light', icon: 'sun' },
+    { id: 'dark', icon: 'moon' },
   ];
 </script>
 
-<div class="seg" role="radiogroup" aria-label="Theme">
+<div class="seg" role="radiogroup" aria-label={t('settings.theme')}>
   {#each OPTIONS as o (o.id)}
     <label class:on={theme.pref === o.id}>
       <input
@@ -20,7 +21,7 @@
         onchange={() => theme.set(o.id)}
       />
       <Icon name={o.icon} size={18} />
-      <span>{o.label}</span>
+      <span>{t(`theme.${o.id}`)}</span>
     </label>
   {/each}
 </div>

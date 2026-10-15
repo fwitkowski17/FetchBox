@@ -2,8 +2,25 @@
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 
-/** `1536` -> `1.5 KB`. Binary steps (1024), one decimal below 10. */
-export function formatBytes(bytes: number): string {
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+/** Cached formatter with a fixed number of decimals and no digit grouping ("1536", not "1 536"). */
+function decimals(locale: string, digits: number): Intl.NumberFormat {
+  const key = `${locale}/${digits}`;
+  let nf = numberFormats.get(key);
+  if (!nf) {
+    nf = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+      useGrouping: false,
+    });
+    numberFormats.set(key, nf);
+  }
+  return nf;
+}
+
+/** `1536` -> `1.5 KB` (`1,5 KB` in Polish). Binary steps (1024), one decimal below 10. */
+export function formatBytes(bytes: number, locale = 'en'): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '—';
   let value = bytes;
   let unit = 0;
@@ -11,31 +28,40 @@ export function formatBytes(bytes: number): string {
     value /= 1024;
     unit++;
   }
-  let text = unit === 0 ? String(Math.round(value)) : value.toFixed(value < 10 ? 1 : 0);
+  let digits = unit === 0 || value >= 10 ? 0 : 1;
   // Rounding can land exactly on 1024 (e.g. 1023.96 KB): step up instead of showing it.
-  if (unit > 0 && unit < UNITS.length - 1 && Number(text) >= 1024) {
+  if (unit > 0 && unit < UNITS.length - 1 && Number(value.toFixed(digits)) >= 1024) {
     value /= 1024;
     unit++;
-    text = value.toFixed(1);
+    digits = 1;
   }
-  return `${text} ${UNITS[unit]}`;
+  return `${decimals(locale, digits).format(value)} ${UNITS[unit]}`;
 }
 
-export function formatSpeed(bytesPerSecond: number): string {
-  return `${formatBytes(bytesPerSecond)}/s`;
+export function formatSpeed(bytesPerSecond: number, locale = 'en'): string {
+  return `${formatBytes(bytesPerSecond, locale)}/s`;
 }
 
-/** Seconds -> `45 s`, `12 min 05 s`, `2 h 03 min`, `1 d 4 h`. */
-export function formatDuration(totalSeconds: number): string {
-  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '—';
+/** A duration split into the pieces of one unit pattern; the words around them are translated
+ *  elsewhere (`duration.<unit>`). Numbers come as strings, zero-padded where that reads better. */
+export interface DurationParts {
+  unit: 's' | 'ms' | 'hm' | 'dh';
+  values: Record<string, string>;
+}
+
+/** `null` for nonsense or anything of 100 days and more. */
+export function durationParts(totalSeconds: number): DurationParts | null {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return null;
   const s = Math.round(totalSeconds);
-  if (s < 60) return `${s} s`;
   const pad = (n: number) => String(n).padStart(2, '0');
-  if (s < 3600) return `${Math.floor(s / 60)} min ${pad(s % 60)} s`;
-  if (s < 86_400) return `${Math.floor(s / 3600)} h ${pad(Math.floor((s % 3600) / 60))} min`;
+  if (s < 60) return { unit: 's', values: { s: String(s) } };
+  if (s < 3600) return { unit: 'ms', values: { m: String(Math.floor(s / 60)), s: pad(s % 60) } };
+  if (s < 86_400) {
+    return { unit: 'hm', values: { h: String(Math.floor(s / 3600)), m: pad(Math.floor((s % 3600) / 60)) } };
+  }
   const days = Math.floor(s / 86_400);
-  if (days >= 100) return '—';
-  return `${days} d ${Math.floor((s % 86_400) / 3600)} h`;
+  if (days >= 100) return null;
+  return { unit: 'dh', values: { d: String(days), h: String(Math.floor((s % 86_400) / 3600)) } };
 }
 
 /** Seconds left, or `null` when it cannot be known (no size or no speed). */
@@ -58,9 +84,9 @@ export function formatPercent(f: number | null): string {
   return f === null ? '' : `${Math.floor(f * 100)}%`;
 }
 
-/** Unix seconds -> local date and time. */
-export function formatDate(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleString(undefined, {
+/** Unix seconds -> date and time in the given language. */
+export function formatDate(unixSeconds: number, locale = 'en'): string {
+  return new Date(unixSeconds * 1000).toLocaleString(locale, {
     dateStyle: 'medium',
     timeStyle: 'short',
   });

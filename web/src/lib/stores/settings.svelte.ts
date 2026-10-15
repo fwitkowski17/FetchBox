@@ -4,14 +4,15 @@ import type { Settings } from '../api/types';
 class SettingsStore {
   /** `null` until the first load. */
   value = $state.raw<Settings | null>(null);
-  error = $state<string | null>(null);
+  /** The error from the last failed load (shown through `i18n.errorText`). */
+  error = $state.raw<unknown>(null);
 
   async load(): Promise<void> {
     try {
       this.value = await api.getSettings();
       this.error = null;
     } catch (e) {
-      this.error = e instanceof Error ? e.message : 'Cannot load settings';
+      this.error = e;
     }
   }
 

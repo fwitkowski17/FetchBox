@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { Category } from '../lib/api/types';
-  import { CATEGORIES, CATEGORY_LABELS } from '../lib/api/types';
+  import { CATEGORIES } from '../lib/api/types';
   import CategoryIcon from '../lib/components/CategoryIcon.svelte';
   import DownloadCard from '../lib/components/DownloadCard.svelte';
   import Icon from '../lib/components/Icon.svelte';
+  import { i18n, t } from '../lib/i18n';
   import { downloads } from '../lib/stores/downloads.svelte';
   import { prefs } from '../lib/stores/prefs.svelte';
   import { toast } from '../lib/stores/toast.svelte';
@@ -17,10 +18,11 @@
     summarize,
     type SortKey,
   } from '../lib/util/downloads';
-  import { formatSpeed } from '../lib/util/format';
 
   const filter = $derived({ group: prefs.group, category: prefs.category, query: prefs.query });
-  const visible = $derived(sortDownloads(filterDownloads(downloads.items, filter), prefs.sort));
+  const visible = $derived(
+    sortDownloads(filterDownloads(downloads.items, filter), prefs.sort, i18n.locale),
+  );
   const groupCounts = $derived(countGroups(downloads.items, filter));
   const categoryCounts = $derived(countCategories(downloads.items, filter));
   const summary = $derived(summarize(downloads.items));
@@ -29,12 +31,12 @@
   );
   const filtering = $derived(prefs.group !== 'all' || prefs.category !== 'all' || prefs.query.trim() !== '');
 
-  const sortLabel = $derived(prefs.sort.dir === 'asc' ? 'Ascending' : 'Descending');
+  const sortLabel = $derived(t(`sort.${prefs.sort.dir}`));
 
   async function clearFinished(): Promise<void> {
     const n = finished;
     await downloads.clearFinished();
-    toast.success(`Removed ${n} finished ${n === 1 ? 'entry' : 'entries'} from the list`);
+    toast.success(t('downloads.cleared', { n }));
   }
 
   function resetFilters(): void {
@@ -46,21 +48,23 @@
 
 <header class="head">
   <div>
-    <h1>Downloads</h1>
+    <h1>{t('downloads.title')}</h1>
     <p class="summary" aria-live="off">
       {#if summary.active > 0}
-        <span class="speed"><Icon name="down" size={15} />{formatSpeed(summary.speed)}</span>
-        · {summary.active} active{summary.queued > 0 ? ` · ${summary.queued} queued` : ''}
+        <span class="speed"><Icon name="down" size={15} />{i18n.speed(summary.speed)}</span>
+        · {t('downloads.summary.active', { n: summary.active })}{summary.queued > 0
+          ? ` · ${t('downloads.summary.queued', { n: summary.queued })}`
+          : ''}
       {:else if summary.queued > 0}
-        {summary.queued} queued
+        {t('downloads.summary.queued', { n: summary.queued })}
       {:else}
-        Nothing running
+        {t('downloads.summary.idle')}
       {/if}
     </p>
   </div>
   {#if finished > 0}
     <button class="btn" onclick={clearFinished}>
-      <Icon name="trash" size={17} />Clear finished ({finished})
+      <Icon name="trash" size={17} />{t('downloads.clearFinished', { n: finished })}
     </button>
   {/if}
 </header>
@@ -68,28 +72,28 @@
 <div class="toolbar">
   <div class="search">
     <Icon name="search" size={18} />
-    <label class="sr-only" for="q">Search downloads</label>
+    <label class="sr-only" for="q">{t('downloads.search.label')}</label>
     <input
       id="q"
       class="input"
       type="search"
-      placeholder="Search by name or address"
+      placeholder={t('downloads.search.placeholder')}
       autocomplete="off"
       bind:value={prefs.query}
     />
   </div>
 
   <div class="sort">
-    <label class="sr-only" for="sort">Sort by</label>
+    <label class="sr-only" for="sort">{t('downloads.sort.label')}</label>
     <select id="sort" class="select" value={prefs.sort.key} onchange={(e) => prefs.setSortKey(e.currentTarget.value as SortKey)}>
       {#each SORT_OPTIONS as o (o.key)}
-        <option value={o.key}>{o.label}</option>
+        <option value={o.key}>{t(`sort.${o.key}`)}</option>
       {/each}
     </select>
     <button
       class="btn icon"
       onclick={() => prefs.toggleSortDir()}
-      aria-label={`Sort direction: ${sortLabel}. Activate to reverse.`}
+      aria-label={t('downloads.sort.direction', { direction: sortLabel })}
       title={sortLabel}
     >
       <Icon name={prefs.sort.dir === 'asc' ? 'up' : 'down'} />
@@ -97,17 +101,17 @@
   </div>
 </div>
 
-<div class="chips" role="group" aria-label="Filter by status">
+<div class="chips" role="group" aria-label={t('downloads.filter.status')}>
   {#each GROUPS as g (g.id)}
     <button class="chip" aria-pressed={prefs.group === g.id} onclick={() => prefs.setGroup(g.id)}>
-      {g.label}<span class="count">{groupCounts[g.id]}</span>
+      {t(`group.${g.id}`)}<span class="count">{groupCounts[g.id]}</span>
     </button>
   {/each}
 </div>
 
-<div class="chips" role="group" aria-label="Filter by category">
+<div class="chips" role="group" aria-label={t('downloads.filter.category')}>
   <button class="chip" aria-pressed={prefs.category === 'all'} onclick={() => prefs.setCategory('all')}>
-    All categories<span class="count">{categoryCounts.all}</span>
+    {t('downloads.filter.allCategories')}<span class="count">{categoryCounts.all}</span>
   </button>
   {#each CATEGORIES as c (c)}
     <button
@@ -115,28 +119,28 @@
       aria-pressed={prefs.category === c}
       onclick={() => prefs.setCategory(c as Category)}
     >
-      <CategoryIcon category={c} size={15} />{CATEGORY_LABELS[c]}<span class="count">{categoryCounts[c]}</span>
+      <CategoryIcon category={c} size={15} />{t(`category.${c}`)}<span class="count">{categoryCounts[c]}</span>
     </button>
   {/each}
 </div>
 
 {#if !downloads.loaded && !downloads.loadError}
-  <p class="empty" role="status">Loading…</p>
+  <p class="empty" role="status">{t('common.loading')}</p>
 {:else if downloads.loadError && !downloads.loaded}
   <div class="empty" role="alert">
-    <p>Could not load the list: {downloads.loadError}</p>
-    <button class="btn" onclick={() => downloads.reload()}>Try again</button>
+    <p>{t('downloads.loadFailed', { error: i18n.errorText(downloads.loadError) })}</p>
+    <button class="btn" onclick={() => downloads.reload()}>{t('common.tryAgain')}</button>
   </div>
 {:else if downloads.items.length === 0}
   <div class="empty">
     <Icon name="down" size={32} />
-    <p>No downloads yet.</p>
-    <a class="btn primary" href="#/add"><Icon name="plus" size={18} />Add a download</a>
+    <p>{t('downloads.empty')}</p>
+    <a class="btn primary" href="#/add"><Icon name="plus" size={18} />{t('downloads.empty.add')}</a>
   </div>
 {:else if visible.length === 0}
   <div class="empty">
-    <p>No downloads match{filtering ? ' these filters' : ''}.</p>
-    {#if filtering}<button class="btn" onclick={resetFilters}>Clear filters</button>{/if}
+    <p>{t('downloads.noMatch')}</p>
+    {#if filtering}<button class="btn" onclick={resetFilters}>{t('downloads.clearFilters')}</button>{/if}
   </div>
 {:else}
   <ul class="list">

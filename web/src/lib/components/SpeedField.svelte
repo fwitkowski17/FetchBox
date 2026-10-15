@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../i18n';
   import type { SpeedDraft } from '../util/settingsForm';
   import Toggle from './Toggle.svelte';
 
@@ -17,7 +18,7 @@
   <Toggle bind:checked={value.limited} {hint}>{label}</Toggle>
   {#if value.limited}
     <div class="row">
-      <label class="sr-only" for={id}>{label}: maximum speed</label>
+      <label class="sr-only" for={id}>{t('settings.speed.max', { label })}</label>
       <input
         {id}
         class="input"
@@ -28,14 +29,14 @@
         bind:value={value.value}
         aria-invalid={error ? 'true' : undefined}
       />
-      <label class="sr-only" for={`${id}-unit`}>Unit</label>
+      <label class="sr-only" for={`${id}-unit`}>{t('settings.speed.unit')}</label>
       <select id={`${id}-unit`} class="select unit" bind:value={value.unit}>
         <option value="KB">KB/s</option>
         <option value="MB">MB/s</option>
       </select>
     </div>
   {:else}
-    <p class="unlimited">Unlimited</p>
+    <p class="unlimited">{t('settings.speed.unlimited')}</p>
   {/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </div>

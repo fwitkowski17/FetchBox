@@ -78,6 +78,19 @@ describe('sortDownloads', () => {
     expect(ids(sortDownloads(items, { key: 'added', dir: 'asc' }))).toEqual([1, 2, 3]);
   });
 
+  it('orders names by the alphabet of the given language', () => {
+    const items = [
+      dl(1, { filename: 'zebra.zip' }),
+      dl(2, { filename: 'ćma.zip' }),
+      dl(3, { filename: 'cebula.zip' }),
+      dl(4, { filename: 'dom.zip' }),
+    ];
+    const byName = (locale?: string) =>
+      ids(sortDownloads(items, { key: 'name', dir: 'asc' }, locale));
+    // Polish puts "ć" right after "c", before "d"; plain codepoint order would put it last.
+    expect(byName('pl')).toEqual([3, 2, 4, 1]);
+  });
+
   it('does not mutate its input', () => {
     const items = [dl(2), dl(1)];
     sortDownloads(items, { key: 'added', dir: 'asc' });
