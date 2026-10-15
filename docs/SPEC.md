@@ -272,8 +272,8 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
   respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
   their duration from `util/motion.ts`, which is 0 then.
-- Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, theme
-  switch, disk ring); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
+- Layout: side menu. From 64rem a permanent left panel (Downloads link, status and category filters with counts, then, pinned
+  to the bottom, speed, the Statistics and Settings links, theme switch and the disk ring last); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
   Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
 - First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
@@ -282,7 +282,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   only button goes to the downloads. No download limits, speed unit or other options are asked: they have sensible
   defaults and live in Settings. Back goes to the previous step until the account exists; the final step already runs
   signed in, and reloading after the password step simply opens the app.
-- Password: Settings has a "Password" card. For an account created in the UI it has a "Change password..." button that
+- Password: Settings has a "Password" card (the sign-out card comes after it: signing out is the last thing on the page). For an account created in the UI it has a "Change password..." button that
   opens a dialog (`ChangePasswordDialog`) with the current password, the new one and the new one again (hidden text,
   `autocomplete` hints for password managers). The checks are the server's (8 to 256 characters, both new entries equal)
   plus "not the same as the current one"; a wrong current password (`403`) and too many attempts (`429`) are shown in the

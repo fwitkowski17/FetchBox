@@ -121,13 +121,13 @@
 
   {#if auth.required}
     <div class="mt-4 grid gap-4">
+      <PasswordCard />
       <section class={CARD}>
         <h2 class="font-semibold tracking-tight">{t('settings.account')}</h2>
         <button type="button" class="btn" onclick={() => auth.logout()}>
           <Icon name="logout" size={18} />{t('settings.signOut')}
         </button>
       </section>
-      <PasswordCard />
     </div>
   {/if}
 </div>

@@ -28,6 +28,9 @@
     'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left font-medium text-text no-underline transition-colors hover:bg-surface-2 aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:text-accent aria-[current=page]:bg-accent-soft aria-[current=page]:font-semibold aria-[current=page]:text-accent';
   const COUNT = 'ml-auto text-sm font-normal tabular-nums opacity-60';
   const HEADING = 'mb-1 px-3 text-[0.7rem] font-bold tracking-widest text-muted uppercase';
+  // Downloads heads the panel; the other pages sit above the disk ring, next to the other controls.
+  const mainRoutes = routes.filter((r) => r.id === 'downloads');
+  const otherRoutes = routes.filter((r) => r.id !== 'downloads');
   const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', stats: 'chart', settings: 'sliders' };
   const THEME_ICONS: Record<ThemePref, IconName> = {
     system: 'monitor',
@@ -87,7 +90,7 @@
 
   <nav aria-label={t('nav.main')}>
     <ul class="grid gap-0.5">
-      {#each routes as r (r.id)}
+      {#each mainRoutes as r (r.id)}
         <li>
           <a
             class={ITEM}
@@ -141,6 +144,22 @@
         ↓ {i18n.speed(summary.speed)}
       </p>
     {/if}
+    <nav aria-label={t('nav.more')}>
+      <ul class="grid gap-0.5">
+        {#each otherRoutes as r (r.id)}
+          <li>
+            <a
+              class={ITEM}
+              href={'#' + r.path}
+              aria-current={$route === r.id ? 'page' : undefined}
+              onclick={onclose}
+            >
+              <Icon name={NAV_ICONS[r.id]} size={20} />{t(`nav.${r.id}`)}
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </nav>
     <button
       class={ITEM}
       onclick={() => theme.cycle()}
