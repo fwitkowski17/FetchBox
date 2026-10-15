@@ -5,6 +5,7 @@
   import Icon from '../lib/components/Icon.svelte';
   import { LOCALES, i18n, t } from '../lib/i18n';
   import SpeedField from '../lib/components/SpeedField.svelte';
+  import AccentPicker from '../lib/components/AccentPicker.svelte';
   import ThemePicker from '../lib/components/ThemePicker.svelte';
   import Toggle from '../lib/components/Toggle.svelte';
   import { auth } from '../lib/stores/auth.svelte';
@@ -177,6 +178,11 @@
       <h2 class="font-semibold tracking-tight">{t('settings.appearance')}</h2>
       <ThemePicker />
       <p class="hint">{t('settings.theme.hint')}</p>
+
+      <div class="field">
+        <span class="label">{t('settings.accent')}</span>
+        <AccentPicker />
+      </div>
 
       <div class="field">
         <label for="language">{t('settings.language')}</label>

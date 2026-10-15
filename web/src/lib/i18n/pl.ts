@@ -182,6 +182,7 @@ const pl: Messages = {
   'settings.theme': 'Motyw',
   'settings.theme.hint':
     '„Systemowy” podąża za jasnym lub ciemnym trybem urządzenia. „Czarny” to ciemny motyw z całkowicie czarnym tłem, oszczędniejszy na ekranach OLED.',
+  'settings.accent': 'Kolor akcentu',
   'settings.language': 'Język',
   'settings.language.auto': 'Automatyczny (język przeglądarki)',
   'settings.account': 'Konto',
@@ -189,6 +190,16 @@ const pl: Messages = {
   'settings.error.connections': 'Podaj liczbę całkowitą od 1 do {max}.',
   'settings.error.concurrent': 'Podaj liczbę całkowitą od 1 do {max}.',
   'settings.error.speed': 'Podaj prędkość większą od 0 albo wyłącz limit.',
+
+  // ---- accent colours
+  'accent.blue': 'Niebieski',
+  'accent.violet': 'Fioletowy',
+  'accent.pink': 'Różowy',
+  'accent.red': 'Czerwony',
+  'accent.orange': 'Pomarańczowy',
+  'accent.green': 'Zielony',
+  'accent.teal': 'Turkusowy',
+  'accent.graphite': 'Grafitowy',
 
   // ---- errors shown to the user
   'error.network': 'Nie można połączyć się z serwerem.',

@@ -29,7 +29,8 @@ Svelte 5 + Vite + TypeScript in `web/`, mobile-first, styled with Tailwind CSS 4
 - Sorting (date, name, size, progress, speed, status; either direction), status and category filters and search; the choices are remembered.
 - Add by URL with optional name and category; name conflicts open a dialog (keep both / replace / cancel).
 - Settings: connections, simultaneous downloads, speed limits (KB/s or MB/s), category folders. Applied live; other open tabs follow.
-- Light, dark, black (pure black background for OLED screens) or follow-the-system theme, applied before first paint; login screen, automatic return to it when the session ends.
+- Light, dark, black (pure black background for OLED screens) or follow-the-system theme, plus a choice of eight accent colours (blue, violet, pink, red, orange, green, teal, graphite); both are applied before first paint. Login screen, automatic return to it when the session ends.
+- Status filters (all, active, paused, completed, failed) have icons coloured by state, in the side panel and in the filter tags on phones.
 - English and Polish, chosen from the browser language or in Settings; numbers, dates and name sorting follow the language.
 
 ### Adding a language
@@ -44,6 +45,8 @@ That is all: the language appears in Settings, is loaded on demand as its own sm
 `npm run check` (types), `npm test` (vitest, logic only) and `npm run build` run in CI.
 
 ### Styling and font
+
+Accent colours are one hue on top of the theme: lightness and saturation come from the theme (`--accent-l`, `--accent-c` in `app.css`, which is what keeps text on the accent readable), the hue is the user's choice (`web/src/lib/util/accent.ts`, a table of ids, hue and a saturation factor). A test computes the contrast of every accent in every theme from the real CSS values and fails below WCAG AA, so a new accent or a changed token cannot silently make buttons or links unreadable. Adding an accent is one line in that table plus its name in each dictionary.
 
 Tailwind runs at build time only (the final image still has no Node). Colours are CSS variables defined per theme in `web/src/app.css` and exposed to Tailwind through `@theme inline`, so classes such as `bg-surface`, `text-muted` or `border-border` follow light, dark and black without any `dark:` variants. Shared controls (`.btn`, `.input`, `.select`, `.field`) are defined once in the same file with `@apply`.
 

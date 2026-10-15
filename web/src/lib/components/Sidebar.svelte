@@ -6,6 +6,7 @@
   import { route, routes, type Route } from '../stores/route';
   import { theme, type ThemePref } from '../stores/theme.svelte';
   import { GROUPS, countCategories, countGroups, summarize, type Group } from '../util/downloads';
+  import { GROUP_COLOR, GROUP_ICON } from '../util/groupStyle';
   import CategoryIcon from './CategoryIcon.svelte';
   import Icon, { type IconName } from './Icon.svelte';
 
@@ -113,6 +114,7 @@
       {#each GROUPS as g (g.id)}
         <li>
           <button class={ITEM} aria-pressed={prefs.group === g.id} onclick={() => pickGroup(g.id)}>
+            <span class={GROUP_COLOR[g.id]}><Icon name={GROUP_ICON[g.id]} size={18} /></span>
             {t(`group.${g.id}`)}<span class={COUNT}>{groupCounts[g.id]}</span>
           </button>
         </li>

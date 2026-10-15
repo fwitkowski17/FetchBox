@@ -1,10 +1,12 @@
 <script lang="ts">
+  import CategoryIcon from '../lib/components/CategoryIcon.svelte';
   import DownloadCard from '../lib/components/DownloadCard.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import { i18n, t } from '../lib/i18n';
   import { downloads } from '../lib/stores/downloads.svelte';
   import { prefs } from '../lib/stores/prefs.svelte';
   import { toast } from '../lib/stores/toast.svelte';
+  import { GROUP_COLOR, GROUP_ICON } from '../lib/util/groupStyle';
   import {
     SORT_OPTIONS,
     filterDownloads,
@@ -106,13 +108,18 @@
      the ones in effect are listed here and can be removed with one tap. -->
 {#if prefs.group !== 'all' || prefs.category !== 'all'}
   <div class="mb-3 flex flex-wrap gap-1.5 lg:hidden" role="group" aria-label={t('filters.active')}>
-    {#each [prefs.group !== 'all' ? { name: t(`group.${prefs.group}`), clear: () => prefs.setGroup('all') } : null, prefs.category !== 'all' ? { name: t(`category.${prefs.category}`), clear: () => prefs.setCategory('all') } : null] as tag (tag?.name)}
+    {#each [prefs.group !== 'all' ? { name: t(`group.${prefs.group}`), group: prefs.group, clear: () => prefs.setGroup('all') } : null, prefs.category !== 'all' ? { name: t(`category.${prefs.category}`), category: prefs.category, clear: () => prefs.setCategory('all') } : null] as tag (tag?.name)}
       {#if tag}
         <button
           class="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-accent bg-accent-soft py-0.5 pr-2.5 pl-3.5 text-sm font-semibold text-accent"
           aria-label={t('filters.remove', { name: tag.name })}
           onclick={tag.clear}
         >
+          {#if tag.group}
+            <span class={GROUP_COLOR[tag.group]}><Icon name={GROUP_ICON[tag.group]} size={16} /></span>
+          {:else if tag.category}
+            <CategoryIcon category={tag.category} size={16} />
+          {/if}
           {tag.name}<Icon name="x" size={14} />
         </button>
       {/if}

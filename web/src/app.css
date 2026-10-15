@@ -34,9 +34,10 @@
   --border: #d9dee6;
   --text: #141821;
   --muted: #566070;
-  --accent: #1f5fd6;
+  --accent-l: 0.51;
+  --accent-c: 0.19;
   --accent-contrast: #ffffff;
-  --accent-soft: #dce8ff;
+  --soft-mix: 14%;
   --success: #17794a;
   --success-soft: #d9f3e5;
   --warning: #8f5400;
@@ -66,9 +67,10 @@
   --border: #2a3140;
   --text: #e7eaf0;
   --muted: #9aa5b5;
-  --accent: #6aa8ff;
-  --accent-contrast: #06142b;
-  --accent-soft: #1b2c4a;
+  --accent-l: 0.76;
+  --accent-c: 0.14;
+  --accent-contrast: #070b13;
+  --soft-mix: 20%;
   --success: #52c98e;
   --success-soft: #153326;
   --warning: #f0b84f;
@@ -96,9 +98,10 @@
     --border: #2a3140;
     --text: #e7eaf0;
     --muted: #9aa5b5;
-    --accent: #6aa8ff;
-    --accent-contrast: #06142b;
-    --accent-soft: #1b2c4a;
+    --accent-l: 0.76;
+    --accent-c: 0.14;
+    --accent-contrast: #070b13;
+    --soft-mix: 20%;
     --success: #52c98e;
     --success-soft: #153326;
     --warning: #f0b84f;
@@ -128,9 +131,10 @@
   --border: #23262d;
   --text: #eceef2;
   --muted: #9aa3b0;
-  --accent: #6aa8ff;
-  --accent-contrast: #06142b;
-  --accent-soft: #14233d;
+  --accent-l: 0.76;
+  --accent-c: 0.14;
+  --accent-contrast: #070b13;
+  --soft-mix: 18%;
   --success: #52c98e;
   --success-soft: #0e2a1e;
   --warning: #f0b84f;
@@ -146,6 +150,14 @@
   --cat-program: #4fd1d1;
   --cat-archive: #e5be55;
   --cat-other: #9aa5b5;
+}
+
+/* ---- Accent. Lightness and saturation belong to the theme (they are what keeps text readable
+   on the accent); the hue is the user's choice. `--accent-h` and `--accent-k` (saturation
+   factor) are set from JavaScript, see stores/accent.svelte.ts. */
+:root {
+  --accent: oklch(var(--accent-l) calc(var(--accent-c) * var(--accent-k, 1)) var(--accent-h, 258));
+  --accent-soft: color-mix(in oklab, var(--accent) var(--soft-mix), var(--surface));
 }
 
 /* ---- Tailwind: utilities read the theme variables above, so `bg-surface`, `text-muted`,

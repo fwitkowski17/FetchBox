@@ -185,6 +185,7 @@ export const en = {
   'settings.theme': 'Theme',
   'settings.theme.hint':
     '“System” follows the light or dark setting of your device. “Black” is dark with a pure black background, easier on OLED screens.',
+  'settings.accent': 'Accent color',
   'settings.language': 'Language',
   'settings.language.auto': 'Automatic (browser language)',
   'settings.account': 'Account',
@@ -192,6 +193,16 @@ export const en = {
   'settings.error.connections': 'Use a whole number from 1 to {max}.',
   'settings.error.concurrent': 'Use a whole number from 1 to {max}.',
   'settings.error.speed': 'Enter a speed above 0, or turn the limit off.',
+
+  // ---- accent colours
+  'accent.blue': 'Blue',
+  'accent.violet': 'Violet',
+  'accent.pink': 'Pink',
+  'accent.red': 'Red',
+  'accent.orange': 'Orange',
+  'accent.green': 'Green',
+  'accent.teal': 'Teal',
+  'accent.graphite': 'Graphite',
 
   // ---- errors shown to the user
   'error.network': 'Cannot reach the server.',
