@@ -90,6 +90,7 @@ mod tests {
                 category: Category::Other,
                 source_kind: SourceKind::Http,
                 overwrite: false,
+                ignore_space: false,
                 subdir: String::new(),
             },
         )

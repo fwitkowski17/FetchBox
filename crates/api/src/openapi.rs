@@ -8,12 +8,12 @@ use utoipa::{Modify, OpenApi};
 use crate::auth::{
     self, AuthStatus, ChangePasswordRequest, LockedBody, LoginRequest, LoginResponse, SetupRequest,
 };
-use crate::error::{ConflictBody, ErrorBody};
+use crate::error::{ConflictBody, ErrorBody, SpaceBody};
 use crate::routes::{self, Health, UpdateDownload};
 use crate::sse;
 
 use dlm_core::{
-    AddRequest, Category, Conflict, ConflictKind, Download, Event, OnConflict, Settings,
+    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, OnConflict, Settings,
     SourceKind, Status,
 };
 
@@ -37,6 +37,7 @@ token as `Authorization: Bearer`.",
         routes::cancel,
         routes::get_settings,
         routes::put_settings,
+        routes::disk,
         sse::events,
         auth::login,
         auth::logout,
@@ -46,7 +47,7 @@ token as `Authorization: Bearer`.",
     ),
     components(schemas(
         Download, Status, Category, SourceKind, Settings, AddRequest, OnConflict, Conflict,
-        ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, LoginRequest,
+        ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, LoginRequest,
         LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest,
     )),
     modifiers(&Runtime),
@@ -113,6 +114,7 @@ mod tests {
             ("/api/downloads/{id}/cancel", "post"),
             ("/api/settings", "get"),
             ("/api/settings", "put"),
+            ("/api/disk", "get"),
             ("/api/events", "get"),
             ("/api/auth/login", "post"),
             ("/api/auth/logout", "post"),

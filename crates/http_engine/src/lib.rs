@@ -3,6 +3,7 @@
 //! The engine owns no database. It reports what happened through [`Event`]s on a
 //! channel; the server wiring persists them (batched, never on the hot path).
 
+pub mod disk;
 pub mod error;
 pub mod policy;
 pub mod probe;
@@ -186,6 +187,11 @@ impl HttpDownloader {
         }
     }
 
+    /// The directory a download with this `subdir` is written to (it may not exist yet).
+    pub fn dir_for(&self, subdir: &str) -> PathBuf {
+        target_dir(&self.inner.dir, subdir)
+    }
+
     /// The `.part` file of a download: `<subdir>/<name>.<id>.part` (ids keep same-name
     /// downloads apart). It lives next to the final file so the finishing move stays on
     /// one filesystem.
@@ -222,6 +228,22 @@ impl HttpDownloader {
 }
 
 impl Inner {
+    /// Bytes the running downloads on file system `dev` (all but `except`) still have to write;
+    /// unknown sizes count 0.
+    fn running_remaining(&self, except: Option<Id>, dev: u64) -> u64 {
+        let entries = self.entries();
+        entries
+            .iter()
+            .filter(|(id, _)| Some(**id) != except)
+            .filter(|(_, e)| {
+                // A directory whose device cannot be read is assumed to be on the same disk.
+                disk::volume(&target_dir(&self.dir, &e.job.subdir)).map_or(true, |v| v.dev == dev)
+            })
+            .filter_map(|(_, e)| e.shared.remote.get())
+            .map(|r| r.size.map_or(0, |size| size.saturating_sub(r.downloaded())))
+            .sum()
+    }
+
     fn entries(&self) -> MutexGuard<'_, HashMap<Id, Entry>> {
         self.entries.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -337,6 +359,28 @@ async fn download(
         && job.etag == info.etag
         && plan_end == info.size
         && tokio::fs::metadata(&part).await.is_ok();
+
+    // Refuse early when the rest of the file, plus what the other running downloads on the same
+    // disk still have to write, cannot fit: otherwise the disk would fill up halfway and the
+    // download would die with a bare write error. (The server reserves room for queued ones when
+    // they are added.) Nothing can be checked without a known size, and a download the user added
+    // anyway is left alone: they know better, and if the disk really fills up the write fails.
+    if let (Some(size), false) = (info.size, job.ignore_space) {
+        let have: u64 = if reuse {
+            job.segments.iter().map(|s| s.downloaded).sum()
+        } else {
+            0
+        };
+        match disk::volume(&dir) {
+            Ok(v) => disk::ensure_fits(
+                size.saturating_sub(have),
+                inner.running_remaining(Some(job.id), v.dev),
+                v.space.available,
+            )?,
+            // Free space unknown (exotic file system): do not block downloads over it.
+            Err(e) => tracing::warn!(error = %e, "cannot read free disk space; skipping the check"),
+        }
+    }
 
     let remote = if reuse {
         build_remote(&info, &job.segments)
@@ -580,6 +624,7 @@ mod tests {
             etag: None,
             segments: Vec::new(),
             overwrite: false,
+            ignore_space: false,
             subdir: String::new(),
         }
     }
@@ -777,6 +822,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_larger_than_the_disk_fails_before_anything_is_written() {
+        // Ten exabytes (10^19 bytes): more than any disk, so the test needs no way to fill one.
+        let server = TestServer::claiming(10_000_000_000_000_000_000).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+        dl.start(&job(1, &server, 4)).await.expect("start");
+        let mut started = None;
+        let failed = loop {
+            if let Some(ev) = next_terminal_or_started(&mut rx, &mut started).await {
+                break ev;
+            }
+        };
+        let Event::Failed { error, .. } = failed else {
+            panic!("expected a failure, got {failed:?}");
+        };
+        assert!(error.starts_with("not enough disk space: "), "{error}");
+        assert!(error.contains("9094947 TB needed"), "{error}");
+        assert!(started.is_none(), "must fail before the plan is announced");
+        // Nothing was created, in particular no sparse .part file of that size.
+        assert_eq!(std::fs::read_dir(dir.path()).expect("ls").count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_download_added_anyway_skips_the_space_check() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let free = disk::volume(dir.path()).expect("volume").space.available;
+        // Twice the free space (sparse, so nothing is really taken): would be refused otherwise.
+        let server = TestServer::claiming(free.saturating_mul(2)).await;
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+
+        dl.start(&job(1, &server, 1)).await.expect("start");
+        let refused = next_terminal(&mut rx).await;
+        assert!(
+            matches!(&refused, Event::Failed { error, .. } if error.starts_with("not enough disk space")),
+            "{refused:?}"
+        );
+
+        let mut anyway = job(2, &server, 1);
+        anyway.ignore_space = true;
+        dl.start(&anyway).await.expect("start");
+        loop {
+            match rx.recv().await.expect("closed") {
+                Event::Started { id: 2, .. } => break, // got past the check
+                Event::Failed { id: 2, error } => {
+                    assert!(!error.starts_with("not enough disk space"), "{error}");
+                    break; // failed for another reason (the fake server), but not for space
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn running_remaining_follows_running_downloads() {
+        let server = TestServer::spawn(256 * 1024, true, Duration::from_millis(40)).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+        let dev = disk::volume(dir.path()).expect("volume").dev;
+        assert_eq!(dl.inner.running_remaining(None, dev), 0);
+        dl.start(&job(1, &server, 1)).await.expect("start");
+        loop {
+            if matches!(rx.recv().await.expect("closed"), Event::Started { .. }) {
+                break;
+            }
+        }
+        let left = dl.inner.running_remaining(None, dev);
+        assert!(left > 0 && left <= server.len() as u64, "{left}");
+        assert_eq!(
+            dl.inner.running_remaining(Some(1), dev),
+            0,
+            "a download does not count against itself"
+        );
+        assert_eq!(
+            dl.inner.running_remaining(None, dev.wrapping_add(1)),
+            0,
+            "other file systems are not affected"
+        );
+        assert!(matches!(
+            next_terminal(&mut rx).await,
+            Event::Completed { .. }
+        ));
+        assert_eq!(
+            dl.inner.running_remaining(None, dev),
+            0,
+            "finished downloads need nothing"
+        );
+    }
+
+    #[tokio::test]
     async fn http_error_fails_the_download() {
         let server = TestServer::spawn(10, true, Duration::ZERO).await;
         let dir = tempfile::tempdir().expect("tmp");
@@ -807,6 +944,7 @@ mod tests {
             etag: None,
             segments: Vec::new(),
             overwrite: false,
+            ignore_space: false,
             subdir: String::new(),
         };
         assert!(matches!(

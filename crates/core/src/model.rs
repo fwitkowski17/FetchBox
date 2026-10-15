@@ -144,6 +144,33 @@ pub struct Download {
     /// Current speed in bytes/s. Not persisted: filled in for running downloads.
     #[serde(default)]
     pub speed: u64,
+    /// Held back because the file does not fit on the disk: it was added on purpose but not
+    /// started (status `paused`). Free some space and resume it.
+    #[serde(default)]
+    pub waiting_space: bool,
+}
+
+/// Free space on the file system that holds the download directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DiskSpace {
+    /// Bytes this program can use on the file system: what is used plus what is available
+    /// (blocks reserved for root are not counted, like `df`'s `Use%`).
+    pub total: u64,
+    /// Bytes available for new files.
+    pub available: u64,
+    /// Bytes reserved by running downloads: what they still have to write on this file system
+    /// (size known). Queued, paused and held downloads reserve nothing. New downloads must fit into
+    /// `available - reserved`; when `reserved` exceeds `available` (something else filled the disk)
+    /// the queue will not fit.
+    pub reserved: u64,
+}
+
+impl DiskSpace {
+    /// Bytes in use.
+    pub fn used(&self) -> u64 {
+        self.total.saturating_sub(self.available)
+    }
 }
 
 /// Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.
@@ -223,6 +250,11 @@ pub struct AddRequest {
     pub category: Option<Category>,
     #[serde(default)]
     pub on_conflict: OnConflict,
+    /// Add the download even though it does not fit into the free space left after the space
+    /// reserved by running downloads (`507` otherwise). The user's call: files may be moved away
+    /// or deleted before it starts. If it still does not fit when it starts, it fails then.
+    #[serde(default)]
+    pub ignore_space: bool,
 }
 
 /// Why an add request collided with something.
@@ -322,6 +354,9 @@ pub struct Job {
     /// The user explicitly chose to replace an existing file with the same name.
     /// When `false` the engine never overwrites: it picks a free name instead.
     pub overwrite: bool,
+    /// The user added it although it did not fit: skip the free-space check at start. If the disk
+    /// really fills up, the download fails with the write error.
+    pub ignore_space: bool,
 }
 
 /// Opaque reference to a started job.

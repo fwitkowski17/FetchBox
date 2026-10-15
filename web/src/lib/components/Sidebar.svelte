@@ -8,6 +8,7 @@
   import { GROUPS, countCategories, countGroups, summarize, type Group } from '../util/downloads';
   import { GROUP_COLOR, GROUP_ICON } from '../util/groupStyle';
   import CategoryIcon from './CategoryIcon.svelte';
+  import DiskRing from './DiskRing.svelte';
   import Icon, { type IconName } from './Icon.svelte';
 
   interface Props {
@@ -160,5 +161,6 @@
     >
       <Icon name={THEME_ICONS[theme.pref]} size={20} />{t(`theme.${theme.pref}`)}
     </button>
+    <DiskRing />
   </div>
 </aside>

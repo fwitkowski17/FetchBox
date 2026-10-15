@@ -16,23 +16,26 @@ pub struct NewDownload {
     pub overwrite: bool,
     /// Subdirectory below the download directory; empty = none.
     pub subdir: String,
+    /// The user added it although it did not fit; the engine does not check free space for it.
+    pub ignore_space: bool,
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             new.url,
             new.filename,
             new.category.as_str(),
             new.source_kind.as_str(),
             new.overwrite,
-            new.subdir
+            new.subdir,
+            new.ignore_space
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -67,16 +70,27 @@ pub fn list_by_status(conn: &Connection, status: Status) -> Result<Vec<Download>
 }
 
 /// Change status. `error` is stored as given (cleared when `None`).
-/// Terminal statuses set `finished_at`; other statuses clear it.
+/// Terminal statuses set `finished_at`; other statuses clear it. Leaving `paused` also ends a
+/// "waiting for space" hold.
 pub fn set_status(conn: &Connection, id: Id, status: Status, error: Option<&str>) -> Result<bool> {
     let n = conn.execute(
         "UPDATE downloads
             SET status = ?2, error = ?3,
-                finished_at = CASE WHEN ?4 THEN unixepoch() ELSE NULL END
+                finished_at = CASE WHEN ?4 THEN unixepoch() ELSE NULL END,
+                waiting_space = CASE WHEN ?2 = 'paused' THEN waiting_space ELSE 0 END
           WHERE id = ?1",
         params![id, status.as_str(), error, status.is_terminal()],
     )?;
     Ok(n > 0)
+}
+
+/// Mark a (paused) download as held back because it does not fit on the disk, or clear the mark.
+pub fn set_waiting_space(conn: &Connection, id: Id, waiting: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE downloads SET waiting_space = ?2 WHERE id = ?1",
+        params![id, waiting],
+    )?;
+    Ok(())
 }
 
 /// Change status only if the current one is in `from` (guards against late engine events).
@@ -103,6 +117,18 @@ pub fn overwrite_flag(conn: &Connection, id: Id) -> Result<bool> {
         .query_row("SELECT overwrite FROM downloads WHERE id = ?1", [id], |r| {
             r.get(0)
         })
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// Whether the user chose to add this download although it did not fit.
+pub fn ignore_space_flag(conn: &Connection, id: Id) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT ignore_space FROM downloads WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
         .optional()?
         .unwrap_or(false))
 }
@@ -223,6 +249,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let etag = row.get(9)?;
     let error = row.get(10)?;
     let subdir = row.get(11)?;
+    let waiting_space = row.get(12)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -242,6 +269,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             error,
             subdir,
             speed: 0,
+            waiting_space,
         })
     })();
     Ok(mapped)
@@ -259,6 +287,7 @@ mod tests {
             category: Category::Other,
             source_kind: SourceKind::Http,
             overwrite: false,
+            ignore_space: false,
             subdir: String::new(),
         }
     }
@@ -394,6 +423,38 @@ mod tests {
             .is_none());
         set_status(&conn, a, Status::Cancelled, None).expect("s");
         assert!(find_by_url(&conn, "http://x/a").expect("f").is_empty());
+    }
+
+    #[test]
+    fn waiting_space_hold_ends_when_the_download_leaves_paused() {
+        let conn = open_in_memory().expect("db");
+        let id = insert(&conn, &new("http://x/a")).expect("insert");
+        assert!(!get(&conn, id).expect("get").expect("row").waiting_space);
+
+        set_status(&conn, id, Status::Paused, None).expect("pause");
+        set_waiting_space(&conn, id, true).expect("hold");
+        assert!(get(&conn, id).expect("get").expect("row").waiting_space);
+        // Staying paused keeps the hold...
+        set_status(&conn, id, Status::Paused, None).expect("pause again");
+        assert!(get(&conn, id).expect("get").expect("row").waiting_space);
+        // ...queueing it (resume) ends it.
+        set_status(&conn, id, Status::Queued, None).expect("queue");
+        assert!(!get(&conn, id).expect("get").expect("row").waiting_space);
+    }
+
+    #[test]
+    fn ignore_space_flag_is_stored() {
+        let conn = open_in_memory().expect("db");
+        let mut n = new("http://x/a");
+        n.ignore_space = true;
+        let id = insert(&conn, &n).expect("insert");
+        assert!(ignore_space_flag(&conn, id).expect("flag"));
+        let id2 = insert(&conn, &new("http://x/b")).expect("insert");
+        assert!(!ignore_space_flag(&conn, id2).expect("flag"));
+        assert!(
+            !ignore_space_flag(&conn, 999).expect("flag"),
+            "unknown id: false"
+        );
     }
 
     #[test]

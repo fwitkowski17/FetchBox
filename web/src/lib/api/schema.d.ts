@@ -95,6 +95,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/disk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Free space on the disk that holds the download directory, and how much of it the running
+         *     downloads still have to write.
+         */
+        get: operations["disk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/downloads": {
         parameters: {
             query?: never;
@@ -261,6 +281,12 @@ export interface components {
             category?: null | components["schemas"]["Category"];
             /** @description Override the file name suggested by the server. */
             filename?: string | null;
+            /**
+             * @description Add the download even though it does not fit into the free space left after the space
+             *     reserved by running downloads (`507` otherwise). The user's call: files may be moved away
+             *     or deleted before it starts. If it still does not fit when it starts, it fails then.
+             */
+            ignore_space?: boolean;
             on_conflict?: components["schemas"]["OnConflict"];
             url: string;
         };
@@ -322,6 +348,28 @@ export interface components {
          * @enum {string}
          */
         ConflictKind: "duplicate_url" | "file_exists" | "name_reserved";
+        /** @description Free space on the file system that holds the download directory. */
+        DiskSpace: {
+            /**
+             * Format: int64
+             * @description Bytes available for new files.
+             */
+            available: number;
+            /**
+             * Format: int64
+             * @description Bytes reserved by running downloads: what they still have to write on this file system
+             *     (size known). Queued, paused and held downloads reserve nothing. New downloads must fit into
+             *     `available - reserved`; when `reserved` exceeds `available` (something else filled the disk)
+             *     the queue will not fit.
+             */
+            reserved: number;
+            /**
+             * Format: int64
+             * @description Bytes this program can use on the file system: what is used plus what is available
+             *     (blocks reserved for root are not counted, like `df`'s `Use%`).
+             */
+            total: number;
+        };
         /** @description A download as stored and shown to the user. */
         Download: {
             category: components["schemas"]["Category"];
@@ -348,6 +396,11 @@ export interface components {
             /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
             subdir?: string;
             url: string;
+            /**
+             * @description Held back because the file does not fit on the disk: it was added on purpose but not
+             *     started (status `paused`). Free some space and resume it.
+             */
+            waiting_space?: boolean;
         };
         /** @description Error body used by every non-2xx response. */
         ErrorBody: {
@@ -447,6 +500,30 @@ export interface components {
          * @enum {string}
          */
         SourceKind: "http" | "magnet" | "torrent_file";
+        /**
+         * @description `507` body of `POST /downloads` when the file does not fit. The UI explains the numbers and
+         *     offers to add the download anyway (`ignore_space`).
+         */
+        SpaceBody: {
+            /** @description Always `"insufficient storage"`. */
+            error: string;
+            /**
+             * Format: int64
+             * @description Bytes free on the disk.
+             */
+            free: number;
+            /**
+             * Format: int64
+             * @description Bytes the download needs.
+             */
+            needed: number;
+            /**
+             * Format: int64
+             * @description Part of `free` that the running downloads still have to write. The download fits when
+             *     `needed <= free - reserved`.
+             */
+            reserved: number;
+        };
         /**
          * @description Lifecycle status of a download.
          * @enum {string}
@@ -671,6 +748,34 @@ export interface operations {
             };
         };
     };
+    disk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskSpace"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: never;
@@ -755,6 +860,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The file does not fit into the free disk space that the running downloads have not claimed. Send the request again with `ignore_space` to add it anyway. */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceBody"];
                 };
             };
         };

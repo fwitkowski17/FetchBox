@@ -175,6 +175,15 @@ const pl: Messages = {
   'add.submit': 'Rozpocznij pobieranie',
   'add.submitting': 'Dodawanie…',
   'add.failed': 'Nie udało się dodać pobrania.',
+
+  // ---- not enough space for a new download
+  'nospace.title': 'Za mało wolnego miejsca',
+  'nospace.reserved':
+    'Plik potrzebuje {needed}. Na dysku jest {free} wolnego, ale trwające pobrania jeszcze zapiszą {reserved}, więc zostaje {left}.',
+  'nospace.plain': 'Plik potrzebuje {needed}, a na dysku jest tylko {free} wolnego.',
+  'nospace.hint':
+    'Możesz go mimo to dodać, na przykład jeśli zaraz usuniesz lub przeniesiesz pliki. Zostanie dodane i uruchomione jak każde pobranie. Jeśli dysk faktycznie się zapełni, zakończy się błędem i będzie można je wznowić później.',
+  'nospace.add': 'Dodaj mimo to',
   'add.added': 'Dodano „{name}”',
 
   // ---- name conflict dialog
@@ -242,6 +251,25 @@ const pl: Messages = {
   'settings.error.concurrent': 'Podaj liczbę całkowitą od 1 do {max}.',
   'settings.error.speed': 'Podaj prędkość większą od 0 albo wyłącz limit.',
 
+  // ---- disk space
+  'disk.free': '{size} wolne',
+  'disk.of': 'z {size}',
+  'disk.summary': 'Miejsce na dysku: wolne {free} z {total} (zajęte {percent})',
+  'disk.reserved': 'Trwające pobrania jeszcze zapiszą {size}',
+  'disk.short': 'Trwające pobrania potrzebują o {size} więcej, niż jest wolne.',
+
+  // ---- a download held back for lack of space
+  'status.waitingSpace': 'Czeka na miejsce',
+  'space.hint': 'Nie rozpoczęto: na dysku nie ma dość wolnego miejsca. Zwolnij miejsce i wznów pobieranie.',
+  'space.free': 'Wolne',
+  'space.needs': 'Potrzeba',
+  'space.missing': 'Brakuje',
+  'space.room': 'Miejsca jest już dość. Wznów pobieranie, aby je rozpocząć.',
+  'space.aria': 'Wolne {free} z {needed}, których potrzebuje to pobranie',
+  'resumeSpace.title': 'Nie można jeszcze wznowić',
+  'resumeSpace.text': 'Zwolnij trochę miejsca na dysku i spróbuj ponownie. Pasek pokazuje, ile jeszcze brakuje.',
+  'add.held': 'Dodano „{name}”, ale nie rozpoczęto: za mało wolnego miejsca na dysku.',
+
   // ---- accent colours
   'accent.blue': 'Niebieski',
   'accent.violet': 'Fioletowy',
@@ -256,6 +284,7 @@ const pl: Messages = {
   'error.network': 'Nie można połączyć się z serwerem.',
   'error.http': 'Serwer zwrócił błąd ({status}).',
   'error.unexpected': 'Coś poszło nie tak.',
+  'error.noSpace': 'Nadal za mało wolnego miejsca na dysku: potrzeba {needed}, wolne {free}.',
 };
 
 export default pl;

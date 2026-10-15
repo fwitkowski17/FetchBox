@@ -178,6 +178,15 @@ export const en = {
   'add.submit': 'Start download',
   'add.submitting': 'Adding…',
   'add.failed': 'Could not add the download.',
+
+  // ---- not enough space for a new download
+  'nospace.title': 'Not enough free space',
+  'nospace.reserved':
+    'The file needs {needed}. The disk has {free} free, but running downloads still have to write {reserved} of it, which leaves {left}.',
+  'nospace.plain': 'The file needs {needed}, but only {free} is free on the disk.',
+  'nospace.hint':
+    'You can still add it, for example if you are about to delete or move files. It is added and started like any download. If the disk really fills up, it fails with an error and you can resume it later.',
+  'nospace.add': 'Add anyway',
   'add.added': 'Added “{name}”',
 
   // ---- name conflict dialog
@@ -245,6 +254,25 @@ export const en = {
   'settings.error.concurrent': 'Use a whole number from 1 to {max}.',
   'settings.error.speed': 'Enter a speed above 0, or turn the limit off.',
 
+  // ---- disk space
+  'disk.free': '{size} free',
+  'disk.of': 'of {size}',
+  'disk.summary': 'Disk space: {free} free of {total} ({percent} used)',
+  'disk.reserved': '{size} still to be written by running downloads',
+  'disk.short': 'Running downloads need {size} more than is free.',
+
+  // ---- a download held back for lack of space
+  'status.waitingSpace': 'Waiting for space',
+  'space.hint': 'Not started: the disk does not have enough free space. Free some up, then resume.',
+  'space.free': 'Free',
+  'space.needs': 'Needs',
+  'space.missing': 'Missing',
+  'space.room': 'There is room now. Resume to start the download.',
+  'space.aria': '{free} free of the {needed} this download needs',
+  'resumeSpace.title': 'Cannot resume yet',
+  'resumeSpace.text': 'Free up some disk space, then try again. The bar shows how much is still missing.',
+  'add.held': 'Added “{name}”, but not started: not enough free disk space.',
+
   // ---- accent colours
   'accent.blue': 'Blue',
   'accent.violet': 'Violet',
@@ -259,6 +287,7 @@ export const en = {
   'error.network': 'Cannot reach the server.',
   'error.http': 'The server answered with an error ({status}).',
   'error.unexpected': 'Something went wrong.',
+  'error.noSpace': 'Still not enough free disk space: {needed} needed, {free} free.',
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;

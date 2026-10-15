@@ -17,6 +17,16 @@ pub enum Error {
     /// The new download collides with an existing one; the user must choose.
     #[error("conflict: {0:?}")]
     Conflict(Box<crate::model::Conflict>),
+    /// The file will not fit on the disk next to what running downloads still have to write.
+    #[error("{}", no_space_message(*.needed, *.free, *.reserved))]
+    InsufficientSpace {
+        /// Bytes the download needs.
+        needed: u64,
+        /// Bytes free on the disk.
+        free: u64,
+        /// Bytes of `free` that other unfinished downloads still have to write.
+        reserved: u64,
+    },
     /// Unexpected internal failure (database, ...).
     #[error("internal error: {0}")]
     Internal(String),
@@ -27,3 +37,76 @@ pub enum Error {
 
 /// Result alias for core operations.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// The text of [`Error::InsufficientSpace`], also used by the engine's own error.
+pub fn no_space_message(needed: u64, free: u64, reserved: u64) -> String {
+    let mut m = format!(
+        "not enough disk space: {} needed, {} free",
+        human_bytes(needed),
+        human_bytes(free)
+    );
+    if reserved > 0 {
+        m.push_str(&format!(
+            " ({} of it still to be written by running downloads)",
+            human_bytes(reserved)
+        ));
+    }
+    m
+}
+
+/// `1.5 GB`-style size for messages. Binary steps (1024) and the same rounding as the web UI
+/// (one decimal below 10, none above), so a message and the screen next to it agree.
+pub fn human_bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = n as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{n} B")
+    } else if value >= 10.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sizes_read_like_a_file_manager() {
+        assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(1023), "1023 B");
+        assert_eq!(human_bytes(1024), "1.0 KB");
+        assert_eq!(human_bytes(1536), "1.5 KB");
+        assert_eq!(human_bytes(15 * 1024 * 1024), "15 MB");
+        assert_eq!(human_bytes(4 * 1024 * 1024 * 1024), "4.0 GB");
+        assert_eq!(human_bytes(u64::MAX), "16777216 TB");
+    }
+
+    #[test]
+    fn insufficient_space_message_names_both_sizes() {
+        let e = Error::InsufficientSpace {
+            needed: 4 * 1024 * 1024 * 1024,
+            free: 3 * 1024 * 1024 * 1024,
+            reserved: 0,
+        };
+        assert_eq!(
+            e.to_string(),
+            "not enough disk space: 4.0 GB needed, 3.0 GB free"
+        );
+        let e = Error::InsufficientSpace {
+            needed: 4 * 1024 * 1024 * 1024,
+            free: 20 * 1024 * 1024 * 1024,
+            reserved: 18 * 1024 * 1024 * 1024,
+        };
+        assert_eq!(
+            e.to_string(),
+            "not enough disk space: 4.0 GB needed, 20 GB free (18 GB of it still to be written by running downloads)"
+        );
+    }
+}

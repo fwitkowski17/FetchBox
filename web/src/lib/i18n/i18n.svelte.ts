@@ -72,6 +72,12 @@ class I18n {
   errorText = (e: unknown): string => {
     if (e instanceof ApiError) {
       if (e.status === 0) return this.t('error.network');
+      if (e.status === 507 && e.space) {
+        return this.t('error.noSpace', {
+          needed: this.bytes(e.space.needed),
+          free: this.bytes(Math.max(0, e.space.free - e.space.reserved)),
+        });
+      }
       // The server's own wording is shown as it is (the backend is not translated).
       return e.serverMessage ?? this.t('error.http', { status: e.status });
     }

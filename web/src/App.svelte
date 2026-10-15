@@ -3,10 +3,12 @@
   import { setUnauthorizedHandler } from './lib/api/client';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
   import Icon from './lib/components/Icon.svelte';
+  import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import { i18n, t } from './lib/i18n';
   import { auth } from './lib/stores/auth.svelte';
+  import { disk } from './lib/stores/disk.svelte';
   import { downloads } from './lib/stores/downloads.svelte';
   import { media } from './lib/stores/media.svelte';
   import { route } from './lib/stores/route';
@@ -34,16 +36,28 @@
           onSettings: (s) => settings.received(s),
         });
         if (!settings.value) void settings.load();
+        disk.start();
       });
     } else {
       untrack(() => {
         downloads.stop();
         settings.clear();
+        disk.stop();
       });
     }
   });
 
   const summary = $derived(summarize(downloads.items));
+
+  // The disk figures depend on which downloads exist and which are still unfinished: refresh when a
+  // download is added, finishes, fails or is removed (not on every progress tick).
+  const diskKey = $derived(
+    `${downloads.items.length}/${downloads.items.filter((d) => d.status !== 'downloading' && d.status !== 'queued').length}`,
+  );
+  $effect(() => {
+    void diskKey;
+    if (auth.state === 'ready') untrack(() => void disk.refresh());
+  });
 
   // Current speed in the tab title, handy when the tab is in the background.
   $effect(() => {
@@ -180,4 +194,5 @@
 {/if}
 
 <ConfirmHost />
+<ResumeSpaceDialog />
 <Toasts />

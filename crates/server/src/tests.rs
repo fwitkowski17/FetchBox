@@ -14,19 +14,24 @@ use dlm_api::service::Service;
 use dlm_core::{
     AddRequest, Category, ConflictKind, Download, Error, Id, OnConflict, Settings, Status,
 };
-use futures_util::stream;
+use futures_util::{stream, StreamExt};
 
 use crate::manager::Manager;
 
 const BODY_LEN: usize = 40 * 1024;
+/// 4 * 10^18 bytes (4 EB; SQLite stores sizes as signed 64-bit): what `/huge/...` claims to have.
+const HUGE_CLAIM: u64 = 4_000_000_000_000_000_000;
 
 fn body() -> Vec<u8> {
     (0..BODY_LEN).map(|i| (i % 251) as u8).collect()
 }
 
-/// `/fast/<name>` answers at once, `/slow/<name>` takes about a second.
+/// `/fast/<name>` answers at once, `/slow/<name>` takes about a second, `/huge/<name>` claims
+/// to be four exabytes (more than any disk) and only has the usual 40 KiB, `/claim/<bytes>` claims
+/// that many bytes, sends 40 KiB and then hangs, so the download stays "running" for as long as
+/// a test needs it to hold its reservation.
 async fn spawn_files() -> SocketAddr {
-    async fn serve(UrlPath((kind, _name)): UrlPath<(String, String)>) -> impl IntoResponse {
+    async fn serve(UrlPath((kind, name)): UrlPath<(String, String)>) -> impl IntoResponse {
         let data = body();
         let slow = kind == "slow";
         let chunks: Vec<Bytes> = data.chunks(1024).map(Bytes::copy_from_slice).collect();
@@ -43,12 +48,22 @@ async fn spawn_files() -> SocketAddr {
         } else {
             "application/octet-stream"
         };
+        let claimed = match (kind.as_str(), name.parse::<u64>()) {
+            ("huge", _) => HUGE_CLAIM.to_string(),
+            ("claim", Ok(bytes)) => bytes.to_string(),
+            _ => BODY_LEN.to_string(),
+        };
+        let body = if kind == "claim" {
+            Body::from_stream(s.chain(stream::pending()))
+        } else {
+            Body::from_stream(s)
+        };
         (
             [
-                (CONTENT_LENGTH, BODY_LEN.to_string()),
+                (CONTENT_LENGTH, claimed),
                 (CONTENT_TYPE, content_type.to_string()),
             ],
-            Body::from_stream(s),
+            body,
         )
     }
     let app = axum::Router::new().route("/{kind}/{name}", get(serve));
@@ -96,6 +111,7 @@ impl Harness {
             filename: None,
             category: None,
             on_conflict,
+            ignore_space: false,
         }
     }
 
@@ -162,6 +178,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         filename: None,
         category: None,
         on_conflict: OnConflict::Reject,
+        ignore_space: false,
     };
     assert!(matches!(h.mgr.add(bad).await, Err(Error::InvalidInput(_))));
     let dead = AddRequest {
@@ -169,6 +186,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         filename: None,
         category: None,
         on_conflict: OnConflict::Reject,
+        ignore_space: false,
     };
     assert!(matches!(h.mgr.add(dead).await, Err(Error::Engine(_))));
 }
@@ -649,6 +667,274 @@ async fn sse_streams_download_events() {
         seen.push_str(&String::from_utf8_lossy(&chunk));
     }
     assert!(seen.contains("event: progress") || seen.contains("\"status\":\"downloading\""));
+}
+
+// ---- disk space -------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_file_that_really_does_not_fit_is_added_but_held_back() {
+    let h = Harness::new().await;
+    // Four exabytes: more than the disk really has, whatever else is queued.
+    let d = h
+        .mgr
+        .add(h.req("huge", "big.bin", OnConflict::Reject))
+        .await
+        .expect("added, not refused");
+    assert_eq!(d.status, Status::Paused, "held back, not started");
+    assert!(d.waiting_space);
+    assert_eq!(d.size, Some(HUGE_CLAIM));
+    assert_eq!(d.downloaded, 0);
+    // Nothing was written for it, and it is in the list.
+    assert_eq!(std::fs::read_dir(h.dir.path()).expect("ls").count(), 0);
+    assert_eq!(h.mgr.list().await.expect("list").len(), 1);
+
+    // Trying again while there is still no room says so and changes nothing.
+    let Err(Error::InsufficientSpace {
+        needed,
+        free,
+        reserved,
+    }) = h.mgr.resume(d.id).await
+    else {
+        panic!("resume must be refused while there is no room");
+    };
+    assert_eq!(needed, HUGE_CLAIM);
+    assert!(free < needed);
+    assert_eq!(reserved, 0);
+    let rows = h.mgr.list().await.expect("list");
+    assert!(rows[0].waiting_space && rows[0].status == Status::Paused);
+
+    // It can be cancelled like any other download.
+    h.mgr.cancel(d.id).await.expect("cancel");
+}
+
+#[tokio::test]
+async fn a_held_download_starts_once_there_is_room() {
+    let h = Harness::new().await;
+    let free = h.mgr.disk_space().await.expect("space").available;
+    // Held because it claims more than the disk has free right now...
+    let d = h
+        .mgr
+        .add(h.req("claim", &(free + free / 2).to_string(), OnConflict::Reject))
+        .await
+        .expect("added");
+    assert!(d.waiting_space && d.status == Status::Paused);
+    // ...and refused again on resume, while that is still true.
+    assert!(matches!(
+        h.mgr.resume(d.id).await,
+        Err(Error::InsufficientSpace { .. })
+    ));
+}
+
+/// A fraction of the free space, so these tests work on any disk. The claimed files are sparse
+/// and never really written (the server hangs after 40 KiB).
+fn share(available: u64, tenths: u64) -> u64 {
+    available / 10 * tenths
+}
+
+/// Percent of the free space (finer than `share`).
+fn pct(available: u64, percent: u64) -> u64 {
+    available / 100 * percent
+}
+
+#[tokio::test]
+async fn running_downloads_reserve_space_for_the_next_ones() {
+    let h = Harness::new().await;
+    let free = h.mgr.disk_space().await.expect("space").available;
+    let claim = |percent: u64| h.req("claim", &pct(free, percent).to_string(), OnConflict::Reject);
+
+    // 60 % of the free space is claimed by the first, running download...
+    let first = h.mgr.add(claim(60)).await.expect("first fits");
+    let space = h.mgr.disk_space().await.expect("space");
+    assert!(
+        space.reserved > pct(free, 50) && space.reserved <= pct(free, 60),
+        "{space:?}"
+    );
+
+    // ...so one of 61 % is refused even though the disk itself is still empty.
+    let Err(Error::InsufficientSpace {
+        needed,
+        free: seen_free,
+        reserved,
+    }) = h.mgr.add(claim(61)).await
+    else {
+        panic!("61 % must not fit next to the running 60 %");
+    };
+    assert_eq!(needed, pct(free, 61));
+    // The error lets the UI explain itself: plenty free, but mostly claimed by the first one.
+    assert!(seen_free > needed, "the disk itself has room: {seen_free}");
+    assert!(reserved > pct(free, 50), "{reserved}");
+    assert!(seen_free - reserved < needed);
+    assert_eq!(
+        h.mgr.list().await.expect("list").len(),
+        1,
+        "nothing was stored"
+    );
+
+    // A smaller one still fits next to it (60 + 30 < 100) and is running too.
+    let third = h.mgr.add(claim(30)).await.expect("30 % fits");
+    assert!(h.mgr.disk_space().await.expect("space").reserved > pct(free, 80));
+
+    // Pausing gives the reservation back: a paused download is not writing anything.
+    h.mgr.pause(third.id).await.expect("pause");
+    h.wait_status(third.id, Status::Paused).await;
+    let space = h.mgr.disk_space().await.expect("space");
+    assert!(space.reserved <= pct(free, 60), "{space:?}");
+    h.mgr
+        .add(claim(35))
+        .await
+        .expect("fits now that the 30 % is paused");
+
+    // Cancelling the big one gives its share back as well.
+    h.mgr.cancel(first.id).await.expect("cancel");
+    assert!(h.mgr.disk_space().await.expect("space").reserved < pct(free, 40));
+}
+
+#[tokio::test]
+async fn queued_downloads_reserve_nothing() {
+    let h = Harness::new().await;
+    // One slot: the second download has to wait.
+    let mut settings = h.mgr.settings().await.expect("settings");
+    settings.max_concurrent = 1;
+    h.mgr.update_settings(settings).await.expect("update");
+
+    let free = h.mgr.disk_space().await.expect("space").available;
+    let claim = |percent: u64| h.req("claim", &pct(free, percent).to_string(), OnConflict::Reject);
+    h.mgr.add(claim(60)).await.expect("running");
+    let waiting = h.mgr.add(claim(30)).await.expect("queued");
+    assert_eq!(waiting.status, Status::Queued);
+
+    // Only the running one counts, so the queued 30 % does not stand in the way of a 35 %.
+    let space = h.mgr.disk_space().await.expect("space");
+    assert!(space.reserved <= pct(free, 60), "{space:?}");
+    h.mgr
+        .add(claim(35))
+        .await
+        .expect("fits: the queued download holds no space yet");
+}
+
+#[tokio::test]
+async fn the_user_can_add_a_download_anyway() {
+    let h = Harness::new().await;
+    let free = h.mgr.disk_space().await.expect("space").available;
+    let claim = |tenths: u64, ignore_space: bool| AddRequest {
+        ignore_space,
+        ..h.req(
+            "claim",
+            &share(free, tenths).to_string(),
+            OnConflict::Reject,
+        )
+    };
+
+    h.mgr.add(claim(6, false)).await.expect("first");
+    assert!(matches!(
+        h.mgr.add(claim(7, false)).await,
+        Err(Error::InsufficientSpace { .. })
+    ));
+    // Same request with `ignore_space`: accepted, and the disk is now over-committed, which the
+    // ring will show (`reserved` above `available`).
+    h.mgr.add(claim(7, true)).await.expect("added anyway");
+    let space = h.mgr.disk_space().await.expect("space");
+    assert!(space.reserved > space.available, "{space:?}");
+    assert_eq!(h.mgr.list().await.expect("list").len(), 2);
+}
+
+#[tokio::test]
+async fn a_download_added_anyway_is_started_and_not_failed_for_space() {
+    let h = Harness::new().await;
+    let free = h.mgr.disk_space().await.expect("space").available;
+    let claim = |tenths: u64, ignore_space: bool| AddRequest {
+        ignore_space,
+        ..h.req(
+            "claim",
+            &share(free, tenths).to_string(),
+            OnConflict::Reject,
+        )
+    };
+
+    // Together they want 130 % of the disk and both start at once (three slots). The engine would
+    // refuse the second at its start, since the first is still running, if the user had not said go.
+    let first = h.mgr.add(claim(6, false)).await.expect("first");
+    let second = h.mgr.add(claim(7, true)).await.expect("anyway");
+    h.wait_status(first.id, Status::Downloading).await;
+    // `wait_status` panics if the download failed instead.
+    h.wait_status(second.id, Status::Downloading).await;
+
+    let flagged = h
+        .mgr
+        .list()
+        .await
+        .expect("list")
+        .into_iter()
+        .filter(|d| d.status == Status::Downloading)
+        .count();
+    assert_eq!(flagged, 2);
+}
+
+#[tokio::test]
+async fn disk_endpoint_is_protected_and_refusals_are_507() {
+    let h = Harness::new().await;
+    let api = spawn_api_with(&h, dlm_api::Auth::with_password("correct-horse")).await;
+    let c = reqwest::Client::new();
+    assert_eq!(aget(&c, &api, "/disk", None).await.status().as_u16(), 401);
+
+    let login = alogin(&c, &api, "correct-horse").await;
+    let cookie = session_cookie(&login);
+    let ok = aget(&c, &api, "/disk", Some(("cookie", &cookie))).await;
+    assert_eq!(ok.status().as_u16(), 200);
+    let v: serde_json::Value = serde_json::from_str(&ok.text().await.expect("body")).expect("json");
+    assert!(v["total"].as_u64().is_some_and(|n| n > 0), "{v}");
+    assert!(v["available"].is_u64() && v["reserved"] == 0, "{v}");
+
+    // 60 % of the free space is reserved by a first download; a second 70 % fits the disk but not
+    // next to it: `507` with the figures.
+    let free = v["available"].as_u64().expect("available");
+    let add = |tenths: u64, extra: &'static str| {
+        let url = h.url("claim", &(free / 10 * tenths).to_string());
+        format!(r#"{{"url":"{url}"{extra}}}"#)
+    };
+    let first = apost(
+        &c,
+        &api,
+        "/downloads",
+        &add(6, ""),
+        Some(("cookie", &cookie)),
+    )
+    .await;
+    assert_eq!(first.status().as_u16(), 201);
+    let refused = apost(
+        &c,
+        &api,
+        "/downloads",
+        &add(7, ""),
+        Some(("cookie", &cookie)),
+    )
+    .await;
+    assert_eq!(refused.status().as_u16(), 507);
+    let v: serde_json::Value =
+        serde_json::from_str(&refused.text().await.expect("body")).expect("json");
+    assert_eq!(v["error"], "insufficient storage");
+    assert_eq!(v["needed"].as_u64(), Some(free / 10 * 7));
+    assert!(v["free"].as_u64().is_some_and(|n| n > free / 10 * 7), "{v}");
+    assert!(v["reserved"].as_u64().is_some_and(|n| n > free / 2), "{v}");
+
+    // The same request with `ignore_space` is accepted over HTTP too.
+    let ok = apost(
+        &c,
+        &api,
+        "/downloads",
+        &add(7, r#","ignore_space":true"#),
+        Some(("cookie", &cookie)),
+    )
+    .await;
+    assert_eq!(ok.status().as_u16(), 201);
+
+    // A file the disk really cannot hold is added, held back, and says so in the list.
+    let huge = format!(r#"{{"url":"{}"}}"#, h.url("huge", "big.bin"));
+    let held = apost(&c, &api, "/downloads", &huge, Some(("cookie", &cookie))).await;
+    assert_eq!(held.status().as_u16(), 201);
+    let text = held.text().await.expect("body");
+    assert!(text.contains(r#""status":"paused""#), "{text}");
+    assert!(text.contains(r#""waiting_space":true"#), "{text}");
 }
 
 // ---- authentication over real HTTP --------------------------------------------------
@@ -1372,6 +1658,7 @@ fn killed_process_resumes_from_saved_offsets() {
             filename: None,
             category: None,
             on_conflict: OnConflict::Reject,
+            ignore_space: false,
         };
         let id = mgr.add(req).await.expect("add").id;
         let probe = dlm_storage::open(&db_path).expect("second connection");

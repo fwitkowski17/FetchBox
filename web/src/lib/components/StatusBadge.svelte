@@ -2,7 +2,8 @@
   import type { Status } from '../api/types';
   import { t } from '../i18n';
 
-  let { status }: { status: Status } = $props();
+  /** `waiting`: paused because the disk is full (shown as "Waiting for space"). */
+  let { status, waiting = false }: { status: Status; waiting?: boolean } = $props();
 
   const STYLE: Record<Status, string> = {
     queued: 'bg-surface-2 text-muted',
@@ -16,11 +17,12 @@
 
 <span
   data-status={status}
+  data-waiting={waiting ? 'space' : undefined}
   class={[
     'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap',
     STYLE[status],
   ]}
 >
   <span class={['size-1.5 rounded-full bg-current', status === 'downloading' && 'animate-pulse']}></span>
-  {t(`status.${status}`)}
+  {waiting ? t('status.waitingSpace') : t(`status.${status}`)}
 </span>

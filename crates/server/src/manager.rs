@@ -5,7 +5,7 @@
 //! this module persists it (once per tick, never from the download hot path) and
 //! turns it into UI events.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::UNIX_EPOCH;
@@ -17,8 +17,8 @@ use dlm_core::filename::sanitize;
 use dlm_core::limiter::RateLimiter;
 use dlm_core::scheduler::Scheduler;
 use dlm_core::{
-    AddRequest, Category, Conflict, ConflictKind, Download, Downloader, Error, Event, Id, Job,
-    OnConflict, Result, Settings, SourceKind, Status,
+    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
+    Id, Job, OnConflict, Result, Settings, SourceKind, Status,
 };
 use dlm_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use dlm_storage::downloads::{self, NewDownload};
@@ -175,11 +175,12 @@ impl Manager {
     /// Build the job from persisted state and hand it to the engine.
     /// `Ok(false)` means the download is no longer waiting (its slot must be released).
     async fn try_start(&self, id: Id) -> Result<bool> {
-        let (d, segs, overwrite) = self.with_db(|c| {
+        let (d, segs, overwrite, ignore_space) = self.with_db(|c| {
             let d = downloads::get(c, id)?;
             let segs = segments::list(c, id)?;
             let overwrite = downloads::overwrite_flag(c, id)?;
-            Ok((d, segs, overwrite))
+            let ignore_space = downloads::ignore_space_flag(c, id)?;
+            Ok((d, segs, overwrite, ignore_space))
         })?;
         let Some(d) = d else { return Ok(false) };
         if d.status != Status::Queued {
@@ -196,6 +197,7 @@ impl Manager {
             etag: d.etag,
             segments: if d.downloaded > 0 { segs } else { Vec::new() },
             overwrite,
+            ignore_space,
         };
         self.engine.start(&job).await?;
         Ok(true)
@@ -422,6 +424,61 @@ impl Manager {
     }
 }
 
+impl Manager {
+    /// Bytes that the running downloads still have to write on file system `dev`: the space
+    /// reserved for them. "Running" means holding a download slot, whether or not the engine has
+    /// reported its start yet, so two downloads added in quick succession see each other.
+    /// Queued downloads waiting for a slot, paused and held ones, and finished, failed and
+    /// cancelled ones reserve nothing. A running download's reservation shrinks as the disk fills.
+    fn reserved_on(&self, dev: u64) -> Result<u64> {
+        let all = self.with_db(|c| downloads::list(c))?;
+        // Category subdirectories may sit on other disks; look each directory up once.
+        let mut same_disk: HashMap<String, bool> = HashMap::new();
+        let mut total = 0u64;
+        for d in all {
+            let running = d.status == Status::Downloading
+                || (d.status == Status::Queued && self.sched().is_running(d.id));
+            if !running {
+                continue;
+            }
+            let d = self.view(d);
+            let Some(size) = d.size else { continue };
+            let here = *same_disk.entry(d.subdir.clone()).or_insert_with(|| {
+                dlm_http_engine::disk::volume(&self.engine.dir_for(&d.subdir))
+                    .map_or(true, |v| v.dev == dev)
+            });
+            if here {
+                total = total.saturating_add(size.saturating_sub(d.downloaded));
+            }
+        }
+        Ok(total)
+    }
+
+    /// Where does a new download of `needed` bytes stand on its disk?
+    /// - `Ok(false)`: it fits, next to what the running downloads still have to write.
+    /// - `Ok(true)`: it does not fit even into the space that is really free; it should be added
+    ///   but held back, not started.
+    /// - `Err(InsufficientSpace)`: it fits into the free space but not next to what the running
+    ///   downloads still have to write; the user decides (`ignore_space`).
+    ///
+    /// A disk whose space cannot be read is not checked: that must not stop downloads.
+    fn check_room(&self, subdir: &str, needed: u64) -> Result<bool> {
+        let vol = match dlm_http_engine::disk::volume(&self.engine.dir_for(subdir)) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "cannot read free disk space; skipping the check");
+                return Ok(false);
+            }
+        };
+        if needed > vol.space.available {
+            return Ok(true);
+        }
+        let others = self.reserved_on(vol.dev)?;
+        dlm_http_engine::disk::ensure_fits(needed, others, vol.space.available)?;
+        Ok(false)
+    }
+}
+
 fn io_err(e: std::io::Error) -> Error {
     Error::Internal(e.to_string())
 }
@@ -450,8 +507,15 @@ impl Service for Manager {
         };
         let url = req.url.trim().to_owned();
 
-        let id = {
+        let (id, hold) = {
             let _guard = self.add_lock.lock().await;
+            // Reserve room for it: tell the user now, not when the download dies halfway. Inside
+            // the lock, so two adds cannot both claim the last free gigabytes.
+            // `ignore_space`: the user knows better (files may be moved away before it starts).
+            let hold = match (info.size, req.ignore_space) {
+                (Some(size), false) => self.check_room(&subdir, size)?,
+                _ => false,
+            };
             let found = self.detect_conflict(&url, &subdir, &name).await?;
             let (filename, overwrite) = match (found.conflict, req.on_conflict) {
                 (None, _) => (name, false),
@@ -467,7 +531,7 @@ impl Service for Manager {
                     (name, found.name_taken)
                 }
             };
-            self.with_db(|c| {
+            let id = self.with_db(|c| {
                 let id = downloads::insert(
                     c,
                     &NewDownload {
@@ -476,14 +540,26 @@ impl Service for Manager {
                         category,
                         source_kind: SourceKind::Http,
                         overwrite,
+                        ignore_space: req.ignore_space,
                         subdir,
                     },
                 )?;
                 downloads::set_remote_info(c, id, info.size, info.resumable, info.etag.as_deref())?;
+                if hold {
+                    // Really no room: keep the entry, but do not start it.
+                    downloads::set_status(c, id, Status::Paused, None)?;
+                    downloads::set_waiting_space(c, id, true)?;
+                }
                 Ok(id)
-            })?
+            })?;
+            (id, hold)
         };
 
+        if hold {
+            tracing::info!(id, "not enough free disk space: added but held back");
+            self.publish_download(id);
+            return self.get(id).map(|d| self.view(d));
+        }
         let start = self.sched().enqueue(id);
         self.publish_download(id);
         self.launch(start).await;
@@ -517,6 +593,23 @@ impl Service for Manager {
                 "cannot resume a {} download",
                 d.status.as_str()
             )));
+        }
+        // Resuming into a disk that is still really full would only fail again (or fill it): say so
+        // and leave the download as it is. The user's own `ignore_space` choice is respected.
+        if let Some(size) = d.size {
+            let ignore = self.with_db(|c| downloads::ignore_space_flag(c, id))?;
+            let needed = size.saturating_sub(d.downloaded);
+            if !ignore {
+                if let Ok(v) = dlm_http_engine::disk::volume(&self.engine.dir_for(&d.subdir)) {
+                    if needed > v.space.available {
+                        return Err(Error::InsufficientSpace {
+                            needed,
+                            free: v.space.available,
+                            reserved: 0,
+                        });
+                    }
+                }
+            }
         }
         self.with_db(|c| downloads::set_status(c, id, Status::Queued, None).map(|_| ()))?;
         let start = self.sched().enqueue(id);
@@ -553,6 +646,13 @@ impl Service for Manager {
         }
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
+    }
+
+    async fn disk_space(&self) -> Result<DiskSpace> {
+        let vol = dlm_http_engine::disk::volume(&self.dir).map_err(io_err)?;
+        let mut space = vol.space;
+        space.reserved = self.reserved_on(vol.dev)?;
+        Ok(space)
     }
 
     async fn settings(&self) -> Result<Settings> {
