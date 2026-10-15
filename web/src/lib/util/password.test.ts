@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_PASSWORD_LEN, MIN_PASSWORD_LEN, checkNewPassword } from './password';
+import { MAX_PASSWORD_LEN, MIN_PASSWORD_LEN, checkNewPassword, checkPasswordChange } from './password';
 
 describe('checkNewPassword', () => {
   it('accepts a long enough matching password', () => {
@@ -26,3 +26,23 @@ describe('checkNewPassword', () => {
     expect(checkNewPassword('short', 'other')).toBe('short');
   });
 });
+
+describe('checkPasswordChange', () => {
+  it('passes a proper change', () => {
+    expect(checkPasswordChange('old-password', 'new-password', 'new-password')).toBeNull();
+  });
+
+  it('reports the problems of the new password first', () => {
+    expect(checkPasswordChange('old-password', 'short', 'short')).toBe('short');
+    expect(checkPasswordChange('old-password', 'new-password', 'other-password')).toBe('mismatch');
+  });
+
+  it('refuses to change a password to itself', () => {
+    expect(checkPasswordChange('same-password', 'same-password', 'same-password')).toBe('same');
+  });
+
+  it('does not call an empty current password "the same"', () => {
+    expect(checkPasswordChange('', 'new-password', 'new-password')).toBeNull();
+  });
+});
+

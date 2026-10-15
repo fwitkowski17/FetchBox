@@ -7,7 +7,7 @@
   import { i18n, t } from '../lib/i18n';
   import SettingsFields from '../lib/components/SettingsFields.svelte';
   import AppearanceFields from '../lib/components/AppearanceFields.svelte';
-  import PasswordForm from '../lib/components/PasswordForm.svelte';
+  import PasswordCard from '../lib/components/PasswordCard.svelte';
   import { auth } from '../lib/stores/auth.svelte';
   import { settings } from '../lib/stores/settings.svelte';
   import { toast } from '../lib/stores/toast.svelte';
@@ -127,7 +127,7 @@
           <Icon name="logout" size={18} />{t('settings.signOut')}
         </button>
       </section>
-      <PasswordForm />
+      <PasswordCard />
     </div>
   {/if}
 </div>

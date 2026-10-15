@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ApiError } from '../lib/api/client';
+  import ForgotPasswordDialog from '../lib/components/ForgotPasswordDialog.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import { i18n, t } from '../lib/i18n';
   import { auth } from '../lib/stores/auth.svelte';
@@ -7,6 +8,7 @@
   let password = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let forgot = $state(false);
 
   async function submit(e: SubmitEvent): Promise<void> {
     e.preventDefault();
@@ -66,5 +68,16 @@
     <button class="btn primary" type="submit" disabled={busy || !password}>
       {busy ? t('login.submitting') : t('login.submit')}
     </button>
+
+    <button
+      type="button"
+      class="justify-self-center rounded text-sm text-muted underline underline-offset-2 hover:text-text"
+      onclick={() => (forgot = true)}
+      data-part="forgot-link"
+    >
+      {t('login.forgot')}
+    </button>
   </form>
 </div>
+
+<ForgotPasswordDialog open={forgot} onclose={() => (forgot = false)} />

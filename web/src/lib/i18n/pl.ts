@@ -4,6 +4,9 @@ import type { Messages } from './en';
 const pl: Messages = {
   // ---- common
   'common.cancel': 'Anuluj',
+  'common.close': 'Zamknij',
+  'common.copy': 'Kopiuj',
+  'common.copied': 'Skopiowano.',
   'common.tryAgain': 'Spróbuj ponownie',
   'common.loading': 'Ładowanie…',
   'common.dismiss': 'Zamknij',
@@ -38,6 +41,20 @@ const pl: Messages = {
   'login.submitting': 'Logowanie…',
   'login.wrong': 'Nieprawidłowe hasło.',
   'login.locked': 'Zbyt wiele prób. Spróbuj ponownie za {n} s.',
+  'login.forgot': 'Nie pamiętasz hasła?',
+  'forgot.title': 'Nie pamiętasz hasła?',
+  'forgot.intro':
+    'FetchBox nie wyśle maila z resetem: serwer przechowuje hasło tylko jako skrót. Resetujesz je na maszynie, na której działa FetchBox. Pobrania i ustawienia zostają.',
+  'forgot.docker': 'Docker Compose',
+  'forgot.dockerSteps':
+    'Zatrzymaj kontener, usuń hasło, uruchom go ponownie, a potem znajdź kod konfiguracji (setup code) w jego logu:',
+  'forgot.plain': 'Bez Dockera',
+  'forgot.plainSteps':
+    'Zatrzymaj FetchBox, wykonaj to polecenie z tym samym --data-dir, co serwer, uruchom FetchBox ponownie i znajdź kod konfiguracji (setup code) w jego logu:',
+  'forgot.after':
+    'Otwórz FetchBox, wpisz kod z logu i utwórz nowe hasło, tak jak przy pierwszym uruchomieniu.',
+  'forgot.external':
+    'Hasło jest ustawione na serwerze zmienną FETCHBOX_PASSWORD albo plikiem z hasłem. Zmień je tam i uruchom FetchBox ponownie.',
   'login.failed': 'Logowanie nie powiodło się.',
 
   // ---- first-run setup
@@ -242,6 +259,9 @@ const pl: Messages = {
   'settings.account': 'Konto',
   'settings.signOut': 'Wyloguj',
   'settings.password': 'Hasło',
+  'settings.password.title': 'Zmiana hasła',
+  'settings.password.button': 'Zmień hasło…',
+  'settings.password.same': 'Nowe hasło jest takie samo jak obecne.',
   'settings.password.hint': 'Zmiana hasła wylogowuje Cię ze wszystkich innych urządzeń.',
   'settings.password.external':
     'Hasło jest ustawione na serwerze (FETCHBOX_PASSWORD lub plik z hasłem), więc nie można go tutaj zmienić.',

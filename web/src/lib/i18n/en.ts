@@ -10,6 +10,9 @@ import type { Message } from './types';
 export const en = {
   // ---- common
   'common.cancel': 'Cancel',
+  'common.close': 'Close',
+  'common.copy': 'Copy',
+  'common.copied': 'Copied.',
   'common.tryAgain': 'Try again',
   'common.loading': 'Loading…',
   'common.dismiss': 'Dismiss',
@@ -45,6 +48,20 @@ export const en = {
   'login.wrong': 'Wrong password.',
   'login.locked': 'Too many attempts. Try again in {n} s.',
   'login.failed': 'Login failed.',
+  'login.forgot': 'Forgot your password?',
+  'forgot.title': 'Forgot your password?',
+  'forgot.intro':
+    'FetchBox cannot send a reset e-mail: your server only keeps the password as a hash. You reset it on the machine that runs FetchBox. Your downloads and settings stay.',
+  'forgot.docker': 'With Docker Compose',
+  'forgot.dockerSteps':
+    'Stop the container, remove the password, start it again, then find the setup code in its log:',
+  'forgot.plain': 'Without Docker',
+  'forgot.plainSteps':
+    'Stop FetchBox, run this with the same --data-dir as the server, start FetchBox again, then find the setup code in its log:',
+  'forgot.after':
+    'Open FetchBox, enter the setup code from the log and create a new password, just like on the first start.',
+  'forgot.external':
+    'The password is set on the server with FETCHBOX_PASSWORD or a password file. Change it there and restart FetchBox.',
 
   // ---- first-run setup
   'setup.title': 'Welcome to FetchBox',
@@ -245,6 +262,9 @@ export const en = {
   'settings.account': 'Account',
   'settings.signOut': 'Sign out',
   'settings.password': 'Password',
+  'settings.password.title': 'Change password',
+  'settings.password.button': 'Change password…',
+  'settings.password.same': 'The new password is the same as the current one.',
   'settings.password.hint': 'Changing the password signs out all your other devices.',
   'settings.password.external':
     'The password is set on the server (FETCHBOX_PASSWORD or a password file), so it cannot be changed here.',
