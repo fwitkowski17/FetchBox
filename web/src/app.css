@@ -371,4 +371,10 @@ dialog[data-modal][data-closing]::backdrop {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+
+  /* A spinner is not decoration: it says "still trying". Slower and calmer, but not frozen. */
+  .spinner {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
 }

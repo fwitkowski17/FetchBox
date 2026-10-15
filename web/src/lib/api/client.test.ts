@@ -84,4 +84,47 @@ describe('api client', () => {
     await api.login('wrong').catch(() => undefined);
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  describe('answers the page asked for early', () => {
+    function early(path: string, res: Promise<Response>) {
+      vi.stubGlobal('window', { __fetchboxEarly: { startedAt: Date.now(), [path]: res } });
+    }
+
+    it('uses a good early answer instead of asking again', async () => {
+      const fn = mockFetch(respond(200, []));
+      early('/downloads', Promise.resolve(respond(200, [{ id: 1 }])));
+      expect(await api.listDownloads()).toEqual([{ id: 1 }]);
+      expect(fn).not.toHaveBeenCalled();
+      // Only once: the next call is a real request.
+      expect(await api.listDownloads()).toEqual([]);
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks again when the early answer was a refusal (asked before sign-in)', async () => {
+      const fn = mockFetch(respond(200, [{ id: 2 }]));
+      const handler = vi.fn();
+      setUnauthorizedHandler(handler);
+      early('/downloads', Promise.resolve(respond(401, { error: 'unauthorized' })));
+      expect(await api.listDownloads()).toEqual([{ id: 2 }]);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(handler).not.toHaveBeenCalled(); // a stale 401 must not sign anybody out
+    });
+
+    it('asks again when the early request failed', async () => {
+      const fn = mockFetch(respond(200, { auth_required: true }));
+      const failed = Promise.reject(new TypeError('failed to fetch'));
+      failed.catch(() => {});
+      early('/auth/status', failed);
+      await expect(api.authStatus()).resolves.toEqual({ auth_required: true });
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('never reuses an early answer for a command', async () => {
+      const fn = mockFetch(respond(200, { id: 3 }));
+      early('/downloads', Promise.resolve(respond(200, [])));
+      await api.addDownload({ url: 'http://x/a', on_conflict: 'rename' });
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+  });
 });
+

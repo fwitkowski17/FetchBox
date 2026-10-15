@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use dlm_core::limiter::DownloadLimiter;
+use fetchbox_core::limiter::DownloadLimiter;
 use futures_util::StreamExt;
 use reqwest::header::RANGE;
 use reqwest::{Client, StatusCode, Url};

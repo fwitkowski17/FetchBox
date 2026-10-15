@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "dlmanager API",
-    "description": "Self-hosted download manager. Commands over REST, live updates over SSE.\n\nEverything except `/api/health`, `/api/openapi.json` and `/api/auth/*` needs a session: log in with `POST /api/auth/login` (sets the `dlm_session` cookie) or send the returned token as `Authorization: Bearer`.",
+    "title": "FetchBox API",
+    "description": "Self-hosted download manager. Commands over REST, live updates over SSE.\n\nEverything except `/api/health`, `/api/openapi.json` and `/api/auth/*` needs a session: log in with `POST /api/auth/login` (sets the `fetchbox_session` cookie) or send the returned token as `Authorization: Bearer`.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -29,7 +29,7 @@
         },
         "responses": {
           "200": {
-            "description": "Logged in; sets the `dlm_session` cookie",
+            "description": "Logged in; sets the `fetchbox_session` cookie",
             "content": {
               "application/json": {
                 "schema": {
@@ -178,7 +178,7 @@
         },
         "responses": {
           "200": {
-            "description": "Account created and logged in; sets the `dlm_session` cookie",
+            "description": "Account created and logged in; sets the `fetchbox_session` cookie",
             "content": {
               "application/json": {
                 "schema": {
@@ -1012,7 +1012,7 @@
           },
           "can_change_password": {
             "type": "boolean",
-            "description": "The password was created in the UI and can be changed (`POST /api/auth/password`);\nfalse for a password from `DLM_PASSWORD` / `--password-file`."
+            "description": "The password was created in the UI and can be changed (`POST /api/auth/password`);\nfalse for a password from `FETCHBOX_PASSWORD` / `--password-file`."
           },
           "setup_required": {
             "type": "boolean",
@@ -1398,7 +1398,7 @@
       },
       "LoginResponse": {
         "type": "object",
-        "description": "Successful login. The same token is also set as the `dlm_session` cookie.",
+        "description": "Successful login. The same token is also set as the `fetchbox_session` cookie.",
         "required": [
           "token"
         ],
@@ -1573,7 +1573,7 @@
       "session": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "dlm_session"
+        "name": "fetchbox_session"
       }
     }
   },

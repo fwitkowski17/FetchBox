@@ -1,12 +1,12 @@
 [package]
-name = "dlm-core"
+name = "fetchbox-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [features]
-# Derive OpenAPI schemas for the public types (enabled by `dlm-api`).
+# Derive OpenAPI schemas for the public types (enabled by `fetchbox-api`).
 openapi = ["dep:utoipa"]
 
 [dependencies]

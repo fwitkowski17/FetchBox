@@ -16,8 +16,8 @@ import { FALLBACK_LOCALE, LOCALES } from './locales';
 import { translate, translateParts, type Part } from './translate';
 import type { Params } from './types';
 
-const KEY = 'dlm.locale';
-const SPEED_KEY = 'dlm.speedUnit';
+const KEY = 'fetchbox.locale';
+const SPEED_KEY = 'fetchbox.speedUnit';
 const CODES = LOCALES.map((l) => l.code);
 const isSpeedDisplay = (v: unknown): v is SpeedDisplay => SPEED_DISPLAYS.includes(v as SpeedDisplay);
 const isPref = (v: unknown): v is string => v === AUTO || (typeof v === 'string' && CODES.includes(v));

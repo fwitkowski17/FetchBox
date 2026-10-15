@@ -3,7 +3,7 @@
 //
 // Conventions
 //   - `{name}` is a placeholder. A plural message is an object and takes its form from `{n}`.
-//   - Keep the brand name "dlmanager" out of the dictionaries; it is not translated.
+//   - The brand name "FetchBox" is not translated.
 //   - Avoid building sentences from pieces: translators need whole sentences.
 import type { Message } from './types';
 
@@ -27,12 +27,10 @@ export const en = {
   'filters.categories': 'Categories',
   'filters.active': 'Active filters',
   'filters.remove': 'Remove filter: {name}',
-  'app.offline': 'Cannot reach the server.',
   'app.totalSpeed': 'Total download speed',
-  'connection.live': 'Live',
-  'connection.connecting': 'Reconnecting…',
-  'connection.offline': 'Offline',
-  'connection.title': 'Connection to the server: {state}',
+  'connection.lost.title': 'Connection lost',
+  'connection.lost.text': 'Trying to reconnect to the server…',
+  'connection.lost.hint': 'Downloads keep running on the server.',
   'theme.system': 'System',
   'theme.light': 'Light',
   'theme.dark': 'Dark',
@@ -49,7 +47,7 @@ export const en = {
   'login.failed': 'Login failed.',
 
   // ---- first-run setup
-  'setup.title': 'Welcome to dlmanager',
+  'setup.title': 'Welcome to FetchBox',
   'setup.step': 'Step {current} of {total}',
   'setup.steps': 'Setup progress',
   'setup.step.look': 'Look',
@@ -60,10 +58,10 @@ export const en = {
   'setup.look.hint': 'Pick a language, a theme and an accent colour. You can change them later in Settings.',
   'setup.account.title': 'Create your account',
   'setup.account.hint':
-    'dlmanager is protected by a password. To make sure it is you, creating the account needs a one-time code from the server log.',
+    'FetchBox is protected by a password. To make sure it is you, creating the account needs a one-time code from the server log.',
   'setup.code.label': 'Setup code',
   'setup.code.hint':
-    'Find the line with “setup code” in the server log, for example with “docker compose logs dlmanager”.',
+    'Find the line with “setup code” in the server log, for example with “docker compose logs fetchbox”.',
   'setup.password.label': 'Password',
   'setup.password.hint': 'At least {min} characters.',
   'setup.confirm.label': 'Repeat the password',
@@ -78,7 +76,7 @@ export const en = {
   'setup.downloads.hint':
     'The defaults are fine for most setups. Everything here can be changed later in Settings.',
   'setup.done.title': 'All set',
-  'setup.done.hint': 'dlmanager is ready. Add your first download, or look around first.',
+  'setup.done.hint': 'FetchBox is ready. Add your first download, or look around first.',
   'setup.done.add': 'Add a download',
   'setup.done.list': 'Go to downloads',
   'setup.next': 'Next',
@@ -249,7 +247,7 @@ export const en = {
   'settings.password': 'Password',
   'settings.password.hint': 'Changing the password signs out all your other devices.',
   'settings.password.external':
-    'The password is set on the server (DLM_PASSWORD or a password file), so it cannot be changed here.',
+    'The password is set on the server (FETCHBOX_PASSWORD or a password file), so it cannot be changed here.',
   'settings.password.current': 'Current password',
   'settings.password.new': 'New password',
   'settings.password.confirm': 'Repeat the new password',

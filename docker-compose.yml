@@ -1,16 +1,16 @@
 services:
-  dlmanager:
+  fetchbox:
     build: .
-    container_name: dlmanager
+    container_name: fetchbox
     restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
       # Optional (min. 8 characters). Leave it empty to create the account in the browser
-      # on first run: open the UI and enter the setup code that `docker compose logs dlmanager`
+      # on first run: open the UI and enter the setup code that `docker compose logs fetchbox`
       # prints. A password set here wins and cannot be changed in the UI. Put it in a .env
       # file next to this one, or use a Docker secret + --password-file instead.
-      DLM_PASSWORD: ${DLM_PASSWORD:-}
+      FETCHBOX_PASSWORD: ${FETCHBOX_PASSWORD:-}
     # Extra flags go here, e.g. when the manager is reachable from outside your network:
     # command: ["--block-private-urls"]
     volumes:

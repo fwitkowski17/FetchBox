@@ -21,12 +21,10 @@ const pl: Messages = {
   'filters.categories': 'Kategorie',
   'filters.active': 'Aktywne filtry',
   'filters.remove': 'Usuń filtr: {name}',
-  'app.offline': 'Nie można połączyć się z serwerem.',
   'app.totalSpeed': 'Łączna prędkość pobierania',
-  'connection.live': 'Połączono',
-  'connection.connecting': 'Łączenie…',
-  'connection.offline': 'Brak połączenia',
-  'connection.title': 'Połączenie z serwerem: {state}',
+  'connection.lost.title': 'Utracono połączenie',
+  'connection.lost.text': 'Próbuję ponownie połączyć się z serwerem…',
+  'connection.lost.hint': 'Pobieranie trwa dalej na serwerze.',
   'theme.system': 'Systemowy',
   'theme.light': 'Jasny',
   'theme.dark': 'Ciemny',
@@ -43,7 +41,7 @@ const pl: Messages = {
   'login.failed': 'Logowanie nie powiodło się.',
 
   // ---- first-run setup
-  'setup.title': 'Witaj w dlmanagerze',
+  'setup.title': 'Witaj w FetchBox',
   'setup.step': 'Krok {current} z {total}',
   'setup.steps': 'Postęp konfiguracji',
   'setup.step.look': 'Wygląd',
@@ -54,10 +52,10 @@ const pl: Messages = {
   'setup.look.hint': 'Wybierz język, motyw i kolor akcentu. Zmienisz je później w Ustawieniach.',
   'setup.account.title': 'Utwórz konto',
   'setup.account.hint':
-    'dlmanager jest chroniony hasłem. Aby mieć pewność, że to Ty, utworzenie konta wymaga jednorazowego kodu z logu serwera.',
+    'FetchBox jest chroniony hasłem. Aby mieć pewność, że to Ty, utworzenie konta wymaga jednorazowego kodu z logu serwera.',
   'setup.code.label': 'Kod konfiguracji',
   'setup.code.hint':
-    'Znajdziesz go w logu serwera, w linii z napisem „setup code”, na przykład poleceniem „docker compose logs dlmanager”.',
+    'Znajdziesz go w logu serwera, w linii z napisem „setup code”, na przykład poleceniem „docker compose logs fetchbox”.',
   'setup.password.label': 'Hasło',
   'setup.password.hint': 'Co najmniej {min} znaków.',
   'setup.confirm.label': 'Powtórz hasło',
@@ -72,7 +70,7 @@ const pl: Messages = {
   'setup.downloads.hint':
     'Domyślne wartości pasują do większości zastosowań. Wszystko zmienisz później w Ustawieniach.',
   'setup.done.title': 'Wszystko gotowe',
-  'setup.done.hint': 'dlmanager jest gotowy. Dodaj pierwsze pobieranie albo najpierw się rozejrzyj.',
+  'setup.done.hint': 'FetchBox jest gotowy. Dodaj pierwsze pobieranie albo najpierw się rozejrzyj.',
   'setup.done.add': 'Dodaj pobranie',
   'setup.done.list': 'Przejdź do pobrań',
   'setup.next': 'Dalej',
@@ -246,7 +244,7 @@ const pl: Messages = {
   'settings.password': 'Hasło',
   'settings.password.hint': 'Zmiana hasła wylogowuje Cię ze wszystkich innych urządzeń.',
   'settings.password.external':
-    'Hasło jest ustawione na serwerze (DLM_PASSWORD lub plik z hasłem), więc nie można go tutaj zmienić.',
+    'Hasło jest ustawione na serwerze (FETCHBOX_PASSWORD lub plik z hasłem), więc nie można go tutaj zmienić.',
   'settings.password.current': 'Obecne hasło',
   'settings.password.new': 'Nowe hasło',
   'settings.password.confirm': 'Powtórz nowe hasło',

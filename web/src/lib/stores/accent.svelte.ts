@@ -3,7 +3,7 @@
 import { ACCENTS, DEFAULT_ACCENT, accentById, isAccentId, type AccentId } from '../util/accent';
 import { readJson, writeJson } from '../util/storage';
 
-const KEY = 'dlm.accent';
+const KEY = 'fetchbox.accent';
 
 interface Stored {
   id: AccentId;

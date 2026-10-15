@@ -4,7 +4,7 @@ import { CATEGORIES } from '../api/types';
 import { GROUPS, SORT_OPTIONS, defaultDir, type Group, type SortKey, type SortSpec } from '../util/downloads';
 import { readJson, writeJson } from '../util/storage';
 
-const KEY = 'dlm.list';
+const KEY = 'fetchbox.list';
 
 interface Stored {
   sort: SortSpec;

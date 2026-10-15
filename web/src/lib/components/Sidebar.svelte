@@ -28,12 +28,6 @@
     'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left font-medium text-text no-underline transition-colors hover:bg-surface-2 aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:text-accent aria-[current=page]:bg-accent-soft aria-[current=page]:font-semibold aria-[current=page]:text-accent';
   const COUNT = 'ml-auto text-sm font-normal tabular-nums opacity-60';
   const HEADING = 'mb-1 px-3 text-[0.7rem] font-bold tracking-widest text-muted uppercase';
-  const DOT: Record<string, string> = {
-    live: 'bg-success',
-    connecting: 'animate-pulse bg-warning',
-    offline: 'bg-danger',
-  };
-
   const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', settings: 'sliders' };
   const THEME_ICONS: Record<ThemePref, IconName> = {
     system: 'monitor',
@@ -46,7 +40,6 @@
   const groupCounts = $derived(countGroups(downloads.items, filter));
   const categoryCounts = $derived(countCategories(downloads.items, filter));
   const summary = $derived(summarize(downloads.items));
-  const connectionLabel = $derived(t(`connection.${downloads.connection}`));
 
   /** Filters apply to the list, so choosing one from another page goes back to the list. */
   function showList(): void {
@@ -85,7 +78,7 @@
       <span class="grid size-8 place-items-center rounded-lg bg-accent text-accent-contrast">
         <Icon name="down" size={18} />
       </span>
-      dlmanager
+      FetchBox
     </span>
     <button class="btn icon ghost lg:hidden" aria-label={t('nav.close')} onclick={onclose}>
       <Icon name="x" />
@@ -148,12 +141,6 @@
         ↓ {i18n.speed(summary.speed)}
       </p>
     {/if}
-    <p
-      class="flex items-center gap-2 px-3 text-sm text-muted"
-      title={t('connection.title', { state: connectionLabel })}
-    >
-      <span class={['size-2 rounded-full', DOT[downloads.connection]]} aria-hidden="true"></span>{connectionLabel}
-    </p>
     <button
       class={ITEM}
       onclick={() => theme.cycle()}

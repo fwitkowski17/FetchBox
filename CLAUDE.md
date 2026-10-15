@@ -1,4 +1,4 @@
-# dlmanager
+# FetchBox
 
 Self-hosted download manager web app for a homelab. Single Rust binary serves REST API + SSE + embedded Svelte frontend. BitTorrent support is planned later (librqbit).
 
@@ -26,7 +26,7 @@ The user (Filip) communicates in Polish. Reply in Polish. Code, identifiers, com
 - Backend check: `cargo check --workspace`
 - Backend tests: `cargo test --workspace`
 - Lint: `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check`
-- Frontend dev: `cd web && npm run dev` (Vite proxies `/api` to `localhost:8080`)
+- Frontend dev: `cd web && npm run dev` (Vite proxies `/api` to `127.0.0.1:8080`)
 - Frontend check: `cd web && npm run check`
 - Full build: `./scripts/build.sh` (web build, then `cargo build --release`)
 - Dev backend: `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`

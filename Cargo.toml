@@ -17,11 +17,11 @@ publish = false
 
 [workspace.dependencies]
 # Internal crates
-dlm-core = { path = "crates/core" }
-dlm-http-engine = { path = "crates/http_engine" }
-dlm-torrent-engine = { path = "crates/torrent_engine" }
-dlm-storage = { path = "crates/storage" }
-dlm-api = { path = "crates/api" }
+fetchbox-core = { path = "crates/core" }
+fetchbox-http-engine = { path = "crates/http_engine" }
+fetchbox-torrent-engine = { path = "crates/torrent_engine" }
+fetchbox-storage = { path = "crates/storage" }
+fetchbox-api = { path = "crates/api" }
 
 # Async runtime + web server (one runtime, one HTTP stack)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }

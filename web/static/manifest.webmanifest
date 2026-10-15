@@ -1,6 +1,6 @@
 {
-  "name": "dlmanager",
-  "short_name": "dlmanager",
+  "name": "FetchBox",
+  "short_name": "FetchBox",
   "description": "Self-hosted download manager",
   "start_url": "/",
   "scope": "/",

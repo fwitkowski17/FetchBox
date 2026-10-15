@@ -1,4 +1,4 @@
-# dlmanager — specification
+# FetchBox — specification
 
 ## 1. Goal
 
@@ -42,7 +42,7 @@ axum API ──> Scheduler ──> Downloader (HttpDownloader | TorrentDownloade
 ## 5. Directory structure
 
 ```
-dlmanager/
+FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
@@ -184,7 +184,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
   `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
-  `docs/openapi.json`; `dlmanager --print-openapi` prints it. `utoipa` is an optional feature of `dlm-core`, so the core
+  `docs/openapi.json`; `fetchbox --print-openapi` prints it. `utoipa` is an optional feature of `fetchbox-core`, so the core
   crate stays free of it unless the API enables it. Frontend types are generated with `openapi-typescript` into
   `web/src/lib/api/schema.d.ts` by `scripts/gen-api.sh`; a Rust test and a CI step fail on stale generated files.
 
@@ -260,8 +260,8 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
   respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
   their duration from `util/motion.ts`, which is 0 then.
-- Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
-  state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
+- Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, theme
+  switch, disk ring); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
   Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
 - First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
@@ -269,6 +269,39 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   download defaults (the same fields as Settings, optional), done. The steps after the account one run signed in;
   reloading in between simply opens the app. Settings has a "change password" card for UI-created accounts and an
   explanation for an external password.
+- Start-up speed (the app is used over Wi-Fi, VPN or a phone connection to small hardware, so round trips and bytes
+  matter): the server sends hashed build output (`assets/*`) with `Cache-Control: public, max-age=31536000, immutable`
+  and everything else (`index.html`, manifest, icons) with `no-cache` plus an `ETag`, so a repeat visit costs one `304`
+  and loads nothing else. Text files are served precompressed: `npm run build` writes `<file>.br` and `<file>.gz` next
+  to them (Node's own zlib, in `vite.config.ts`), the server embeds them and picks the variant from `Accept-Encoding`
+  (Brotli before gzip, each with its own `ETag`, `Vary: accept-encoding`); the server compresses nothing at request
+  time. `index.html` starts `GET /api/auth/status`, `/api/downloads` and `/api/settings` itself before the bundle has
+  loaded (`window.__fetchboxEarly`, `api/early.ts`); the app takes those answers once instead of asking again, falls back to
+  a normal request when one failed or is not `ok` (before sign-in two of them are `401`, which must never sign anyone
+  out), and ignores them after 10 s. The session check also runs while the language file loads, and the list is
+  fetched while the event stream opens (the reload on open stays: it closes any gap between the two). The first disk
+  reading is the app's own (it refreshes whenever the list changes), not asked twice.
+- Reconnecting: the event stream starts with a comment and `retry: 1000` (a browser then reconnects after one second, not
+  about three) and carries `X-Accel-Buffering: no`, so a reverse proxy such as nginx does not hold it back until the
+  first keep-alive. The client retries with 0.5, 1, 2, 4, then 5 s steps, reconnects at once when the tab becomes
+  visible or the network comes back (and refreshes the list when the stream looked alive, since a background tab may
+  have frozen it), and the "server unreachable" screen tries again by itself with the same steps.
+- Lost connection: there is no status line for the connection (when everything works there is nothing to show). Once the
+  event stream has been open, a stream that is not live covers the whole app with a modal dialog that cannot be dismissed
+  (no Escape, no backdrop click; the page behind is inert): a spinner, "Connection lost", "Trying to reconnect to the
+  server..." and "Downloads keep running on the server." It appears only after 1.5 s without a connection, so a quick
+  restart or a network hiccup does not flash it, and goes away by itself when the stream is back (or when the session
+  ended and the login screen takes over). The same dialog covers the two other ways of being cut off: the server is not
+  there when the app starts (the page behind says "Loading..."; the session check retries by itself), and the server
+  dies while the login screen or the first-run wizard is up. Nobody can check a password then, so none is asked for:
+  the login screen stays mounted under the dialog (what was typed is kept), keeps asking `GET /api/auth/status` every
+  3 s (not while the tab is hidden; coming back to the tab asks at once) and a sign-in that fails because the server
+  is gone checks immediately. When the server answers again the dialog goes away and the screen is usable as before.
+  "Not there" includes a reverse proxy that answers for a dead backend (502/503/504, or 500 from the Vite dev proxy):
+  `GET /api/auth/status` is public and the server always answers it, so any other answer is never "please sign in".
+  A signed-in app stays on screen under the dialog (nothing is torn down); it goes to the login screen only when the
+  server is back and says the session is gone (a restart forgets sessions).
+  The spinner is the one animation kept under `prefers-reduced-motion` (slower, not frozen): it says "still trying".
 - SSE store keeps list in sync; REST for commands. Command responses are not patched into the list (they can be older
   than the event that followed); the stream is the single source of truth, and the list is re-fetched on every
   (re)connect and on `resync`.
@@ -276,7 +309,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   search; remembered in `localStorage`. System / light / dark / black theme via CSS tokens (`[data-theme]` plus
   `prefers-color-scheme`; black is dark with a pure black background for OLED), applied before first paint.
 - Speed unit shown in the app: a display choice in Settings > Appearance (and the setup wizard), kept per browser in
-  `localStorage` (`dlm.speedUnit`), not a server setting. `Automatic` (B, KB, MB... as before), `Automatic in bits` (bit,
+  `localStorage` (`fetchbox.speedUnit`), not a server setting. `Automatic` (B, KB, MB... as before), `Automatic in bits` (bit,
   Kbit, Mbit, Gbit...) or one fixed unit (KB/s, MB/s, Kbit/s, Mbit/s). It applies to every speed the UI writes (list header,
   side panel, cards, limits on cards and in menus); the limit fields keep the unit of their own field. Fixed and bit units
   show three significant figures (123, 12.3, 1.23).
@@ -301,7 +334,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 ### 6.7 Security
 
 - Single-user auth, HTTPS via reverse proxy. One shared password, from the first source that applies:
-  `DLM_PASSWORD` / `--password-file` (external: wins, cannot be changed in the UI), the account created in the
+  `FETCHBOX_PASSWORD` / `--password-file` (external: wins, cannot be changed in the UI), the account created in the
   first-run setup (below), or none at all with an explicit `--no-auth`. Without any of them the server still starts
   but stays locked until setup is done, so a forgotten password never exposes it. Passwords have 8 to 256 characters.
   `POST /api/auth/login` returns a random 256-bit session token, set as an `HttpOnly; SameSite=Strict` cookie
@@ -326,6 +359,17 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   names (also stops DNS rebinding), and every redirect hop. Violations are `400` (literal) or `502` (name).
 - Crash safety: progress is persisted once per tick; after a kill the interrupted downloads are re-queued and resume
   from the saved segment offsets (verified by a test that kills a runtime mid-download).
+
+### 6.8 Shutdown
+
+- `SIGINT` (Ctrl-C) and, on Unix, `SIGTERM` (`kill`, `docker stop`, launchd, systemd) start a graceful shutdown: the
+  listener closes, requests in flight finish, and the event streams (`/api/events`), which never end by themselves, are
+  ended by the server (`Service::closing`). Without that a single open browser tab kept the process alive for ever.
+  Connections that still hang on after 5 s (a client that never finished its request) are dropped, and a second signal
+  exits at once (status 130). When the async runtime is torn down it waits at most 3 s for blocking work (a name lookup
+  stuck in the OS, a slow disk) instead of for ever. Running downloads need no step of their own: offsets are persisted
+  every tick and whatever was running is re-queued at the next start (see "Crash safety"); at most one tick of progress
+  is fetched again.
 
 ## 7. Dependencies (Rust)
 

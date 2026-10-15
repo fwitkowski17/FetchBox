@@ -1,4 +1,4 @@
-# dlmanager
+# FetchBox
 
 Self-hosted download manager for a homelab. One Rust binary serves the REST API, SSE and the embedded Svelte frontend. See [docs/SPEC.md](docs/SPEC.md).
 
@@ -8,7 +8,7 @@ Status: usable; BitTorrent support is planned.
 
 ```bash
 cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads
-cd web && npm install && npm run dev   # Vite proxies /api to localhost:8080
+cd web && npm install && npm run dev   # Vite proxies /api to 127.0.0.1:8080
 ```
 
 Checks:
@@ -67,20 +67,20 @@ After changing anything in the HTTP API run:
 ./scripts/gen-api.sh   # rewrites docs/openapi.json and web/src/lib/api/schema.d.ts
 ```
 
-A test fails when `docs/openapi.json` is stale, and CI fails when the generated TypeScript is. `dlmanager --print-openapi` prints the document without starting the server.
+A test fails when `docs/openapi.json` is stale, and CI fails when the generated TypeScript is. `fetchbox --print-openapi` prints the document without starting the server.
 
 ## Authentication
 
 The API is protected by a single shared password. There are three ways to set it up, in order of precedence:
 
-1. **From the environment or a file** (`DLM_PASSWORD`, or `--password-file /run/secrets/dlm_password`): at least 8 characters. It wins over everything and cannot be changed in the UI.
+1. **From the environment or a file** (`FETCHBOX_PASSWORD`, or `--password-file /run/secrets/fetchbox_password`): at least 8 characters. It wins over everything and cannot be changed in the UI.
 2. **In the browser, on first run** (the default when neither is set): the server starts locked and prints a one-time **setup code** to its log:
 
    ```text
-   WARN dlmanager: first run: open the web UI and enter the setup code K7QM2XPD to create your account ...
+   WARN fetchbox: first run: open the web UI and enter the setup code K7QM2XPD to create your account ...
    ```
 
-   Open the UI (`docker compose logs dlmanager` shows the line in Docker), walk through the setup wizard (look, account, download defaults) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
+   Open the UI (`docker compose logs fetchbox` shows the line in Docker), walk through the setup wizard (look, account, download defaults) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
 3. **No authentication**, only on a fully trusted network: `--no-auth`.
 
 Log in with `POST /api/auth/login {"password": "..."}`: the response sets an `HttpOnly` session cookie and also returns a token usable as `Authorization: Bearer <token>`. After 5 failed attempts logins are locked for up to a minute. Sessions are kept in memory (a restart logs everyone out). Serve it over HTTPS via a reverse proxy when exposed beyond the LAN (send `X-Forwarded-Proto: https` so the cookie gets `Secure`).
@@ -88,13 +88,22 @@ Log in with `POST /api/auth/login {"password": "..."}`: the response sets an `Ht
 ## Build
 
 ```bash
-./scripts/build.sh          # web build, then cargo build --release -> target/release/dlmanager
+./scripts/build.sh          # web build, then cargo build --release -> target/release/fetchbox
 docker compose up --build   # UI on http://localhost:8080, volumes ./data and ./downloads
 ```
 
+## Upgrading from `dlmanager`
+
+The project used to be called `dlmanager`. An existing installation keeps working:
+
+- the database `dlmanager.db` in the data directory is renamed to `fetchbox.db` on the first start (nothing else to do; the account and the downloads stay),
+- `DLM_PASSWORD` is still read (with a warning) when `FETCHBOX_PASSWORD` is not set; the theme, language, accent and list filters in the browser are carried over to the new storage keys,
+- everybody has to sign in once more (the session cookie has a new name),
+- in Docker the service and container are now called `fetchbox`: run `docker compose up -d --build --remove-orphans` to replace the old `dlmanager` container; `./data` and `./downloads` are reused.
+
 ## Layout
 
-Workspace crates live in `crates/` (`core`, `http_engine`, `torrent_engine`, `storage`, `api`, `server`); package names are prefixed `dlm-` to avoid clashing with std `core`. The frontend is in `web/`.
+Workspace crates live in `crates/` (`core`, `http_engine`, `torrent_engine`, `storage`, `api`, `server`); package names are prefixed `fetchbox-` to avoid clashing with std `core`. The frontend is in `web/`.
 
 ## Dependency notes
 

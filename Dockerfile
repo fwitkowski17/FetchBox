@@ -18,7 +18,7 @@ RUN cargo build --release -p server
 
 # --- Stage 3: minimal runtime (glibc + libgcc only)
 FROM gcr.io/distroless/cc-debian12:nonroot
-COPY --from=build /app/target/release/dlmanager /usr/local/bin/dlmanager
+COPY --from=build /app/target/release/fetchbox /usr/local/bin/fetchbox
 EXPOSE 8080
 VOLUME ["/data", "/downloads"]
-ENTRYPOINT ["/usr/local/bin/dlmanager", "--data-dir", "/data", "--download-dir", "/downloads", "--port", "8080"]
+ENTRYPOINT ["/usr/local/bin/fetchbox", "--data-dir", "/data", "--download-dir", "/downloads", "--port", "8080"]

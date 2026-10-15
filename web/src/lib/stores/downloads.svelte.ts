@@ -4,6 +4,7 @@ import type { AppEvent, Category, Settings } from '../api/types';
 import type { Download } from '../api/types';
 import type { BulkResult } from '../util/bulk';
 import { applyEvent } from '../util/downloads';
+import { retryDelay } from '../util/retry';
 import { i18n } from '../i18n';
 import { toast } from './toast.svelte';
 
@@ -17,12 +18,14 @@ interface Hooks {
 }
 
 const EVENT_NAMES = ['download', 'progress', 'removed', 'settings'] as const;
-const RETRY_MS = 4000;
 
 class DownloadsStore {
   items = $state.raw<Download[]>([]);
   loaded = $state(false);
   connection = $state<Connection>('connecting');
+  /** The stream has been open at least once since sign-in: from then on a stream that is not
+   *  `live` means the connection was lost (before that it is just the app starting up). */
+  everLive = $state(false);
   /** The error from the last failed load (shown through `i18n.errorText`). */
   loadError = $state.raw<unknown>(null);
   /** Id of a download whose resume was refused because the disk is still full. A dialog with the
@@ -31,7 +34,9 @@ class DownloadsStore {
 
   #source: EventSource | null = null;
   #retry: ReturnType<typeof setTimeout> | null = null;
+  #attempt = 0;
   #hooks: Hooks | null = null;
+  #watching = false;
 
   /** Open the stream (idempotent). Subscribing first means no update is missed between
    *  the list fetch and the first event. */
@@ -41,9 +46,15 @@ class DownloadsStore {
     this.connection = 'connecting';
     const es = new EventSource('/api/events');
     this.#source = es;
+    this.#watchTheTab();
+    // The list does not wait for the stream to open: both travel at once, and the reload on open
+    // below still closes any gap between them.
+    if (!this.loaded) void this.reload();
 
     es.onopen = () => {
       this.connection = 'live';
+      this.everLive = true;
+      this.#attempt = 0;
       // Also after a reconnect: events sent while we were away are gone, the list is not.
       void this.reload();
     };
@@ -67,11 +78,14 @@ class DownloadsStore {
   /** Close the stream and forget everything (logout). */
   stop(): void {
     this.#close();
+    this.#unwatchTheTab();
+    this.#attempt = 0;
     if (this.#retry) clearTimeout(this.#retry);
     this.#retry = null;
     this.items = [];
     this.noSpaceFor = null;
     this.loaded = false;
+    this.everLive = false;
     this.connection = 'connecting';
   }
 
@@ -167,8 +181,43 @@ class DownloadsStore {
     this.#retry = setTimeout(() => {
       this.#retry = null;
       if (this.#hooks) this.start(this.#hooks);
-    }, RETRY_MS);
+    }, retryDelay(this.#attempt++));
   }
+
+  // A phone that was asleep, a laptop that changed network: the browser may sit on a dead stream or
+  // wait out its own retry timer. Coming back to the tab (or the network coming back) does not
+  // wait: reconnect at once if the stream is not live, and refresh the list if it is, since a
+  // stream that was frozen in the background missed whatever happened meanwhile.
+  #watchTheTab(): void {
+    if (this.#watching || typeof document === 'undefined') return;
+    this.#watching = true;
+    document.addEventListener('visibilitychange', this.#onVisible);
+    window.addEventListener('online', this.#onBack);
+  }
+
+  #unwatchTheTab(): void {
+    if (!this.#watching) return;
+    this.#watching = false;
+    document.removeEventListener('visibilitychange', this.#onVisible);
+    window.removeEventListener('online', this.#onBack);
+  }
+
+  #onVisible = (): void => {
+    if (!document.hidden) this.#onBack();
+  };
+
+  #onBack = (): void => {
+    if (!this.#hooks) return;
+    if (this.connection === 'live') {
+      void this.reload();
+      return;
+    }
+    this.#close();
+    if (this.#retry) clearTimeout(this.#retry);
+    this.#retry = null;
+    this.#attempt = 0;
+    this.start(this.#hooks);
+  };
 }
 
 export const downloads = new DownloadsStore();

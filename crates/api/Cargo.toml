@@ -1,12 +1,12 @@
 [package]
-name = "dlm-api"
+name = "fetchbox-api"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-dlm-core = { workspace = true, features = ["openapi"] }
+fetchbox-core = { workspace = true, features = ["openapi"] }
 utoipa.workspace = true
 axum.workspace = true
 serde.workspace = true

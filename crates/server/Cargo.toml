@@ -6,14 +6,14 @@ license.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "dlmanager"
+name = "fetchbox"
 path = "src/main.rs"
 
 [dependencies]
-dlm-core.workspace = true
-dlm-api.workspace = true
-dlm-storage.workspace = true
-dlm-http-engine.workspace = true
+fetchbox-core.workspace = true
+fetchbox-api.workspace = true
+fetchbox-storage.workspace = true
+fetchbox-http-engine.workspace = true
 axum.workspace = true
 tokio.workspace = true
 async-trait.workspace = true

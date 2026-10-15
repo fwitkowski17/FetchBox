@@ -1,5 +1,5 @@
 //! OpenAPI document (`utoipa`), served at `/api/openapi.json` and printed by
-//! `dlmanager --print-openapi`. The frontend generates its types from it.
+//! `fetchbox --print-openapi`. The frontend generates its types from it.
 
 use axum::Json;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -12,7 +12,7 @@ use crate::error::{ConflictBody, ErrorBody, SpaceBody};
 use crate::routes::{self, Health, UpdateDownload};
 use crate::sse;
 
-use dlm_core::{
+use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, OnConflict, Settings,
     SourceKind, Status,
 };
@@ -20,10 +20,10 @@ use dlm_core::{
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "dlmanager API",
+        title = "FetchBox API",
         description = "Self-hosted download manager. Commands over REST, live updates over SSE.\n\n\
 Everything except `/api/health`, `/api/openapi.json` and `/api/auth/*` needs a session: \
-log in with `POST /api/auth/login` (sets the `dlm_session` cookie) or send the returned \
+log in with `POST /api/auth/login` (sets the `fetchbox_session` cookie) or send the returned \
 token as `Authorization: Bearer`.",
     ),
     paths(
@@ -70,7 +70,7 @@ impl Modify for Runtime {
         let components = openapi.components.get_or_insert_with(Default::default);
         components.add_security_scheme(
             "session",
-            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("dlm_session"))),
+            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("fetchbox_session"))),
         );
         components.add_security_scheme(
             "bearer",

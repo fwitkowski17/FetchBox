@@ -1,6 +1,6 @@
 //! Segment planning: split a file into N byte ranges.
 
-pub use dlm_core::SegmentState as Segment;
+pub use fetchbox_core::SegmentState as Segment;
 
 /// Smallest segment worth a separate connection.
 const MIN_SEGMENT: u64 = 256 * 1024;

@@ -1,6 +1,6 @@
 //! Learn what the server offers before downloading: size, range support, `ETag`, name.
 
-use dlm_core::filename::sanitize;
+use fetchbox_core::filename::sanitize;
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_RANGE, CONTENT_TYPE, ETAG, RANGE};
 use reqwest::{Client, StatusCode, Url};
 

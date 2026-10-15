@@ -379,64 +379,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dlm-api"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "async-trait",
- "axum",
- "dlm-core",
- "futures-util",
- "getrandom 0.3.4",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "utoipa",
-]
-
-[[package]]
-name = "dlm-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "thiserror",
- "tokio",
- "utoipa",
-]
-
-[[package]]
-name = "dlm-http-engine"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "dlm-core",
- "futures-util",
- "reqwest",
- "rustix",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "dlm-storage"
-version = "0.1.0"
-dependencies = [
- "dlm-core",
- "rusqlite",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "dlm-torrent-engine"
-version = "0.1.0"
-
-[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -469,6 +411,64 @@ name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
+name = "fetchbox-api"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "async-trait",
+ "axum",
+ "fetchbox-core",
+ "futures-util",
+ "getrandom 0.3.4",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "utoipa",
+]
+
+[[package]]
+name = "fetchbox-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "thiserror",
+ "tokio",
+ "utoipa",
+]
+
+[[package]]
+name = "fetchbox-http-engine"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fetchbox-core",
+ "futures-util",
+ "reqwest",
+ "rustix",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "fetchbox-storage"
+version = "0.1.0"
+dependencies = [
+ "fetchbox-core",
+ "rusqlite",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "fetchbox-torrent-engine"
+version = "0.1.0"
 
 [[package]]
 name = "find-msvc-tools"
@@ -1425,10 +1425,10 @@ dependencies = [
  "async-trait",
  "axum",
  "clap",
- "dlm-api",
- "dlm-core",
- "dlm-http-engine",
- "dlm-storage",
+ "fetchbox-api",
+ "fetchbox-core",
+ "fetchbox-http-engine",
+ "fetchbox-storage",
  "futures-util",
  "mime_guess",
  "reqwest",

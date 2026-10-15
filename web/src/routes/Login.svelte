@@ -21,8 +21,11 @@
         error = t('login.wrong');
       } else if (err instanceof ApiError && err.status === 429) {
         error = t('login.locked', { n: err.retryAfter ?? 60 });
+      } else if (err instanceof ApiError && err.status === 0) {
+        void auth.check(); // the server is gone: the connection dialog takes over
+        error = i18n.errorText(err);
       } else {
-        error = err instanceof ApiError && err.status === 0 ? i18n.errorText(err) : t('login.failed');
+        error = t('login.failed');
       }
     } finally {
       busy = false;
@@ -39,7 +42,7 @@
       <Icon name="lock" size={26} />
     </div>
     <div>
-      <h1 class="text-2xl font-bold tracking-tight">dlmanager</h1>
+      <h1 class="text-2xl font-bold tracking-tight">FetchBox</h1>
       <p class="hint mt-1">{t('login.prompt')}</p>
     </div>
 

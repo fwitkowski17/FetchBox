@@ -1,12 +1,12 @@
 [package]
-name = "dlm-http-engine"
+name = "fetchbox-http-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-dlm-core.workspace = true
+fetchbox-core.workspace = true
 reqwest.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util"] }

@@ -4,6 +4,7 @@
   import { setUnauthorizedHandler } from './lib/api/client';
   import AddDownloadDialog from './lib/components/AddDownloadDialog.svelte';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
+  import ConnectionOverlay from './lib/components/ConnectionOverlay.svelte';
   import DeleteDownloadDialog from './lib/components/DeleteDownloadDialog.svelte';
   import Icon from './lib/components/Icon.svelte';
   import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
@@ -38,7 +39,6 @@
     openLegacyAddLink();
     theme.init();
     setUnauthorizedHandler(() => auth.expire());
-    void auth.check();
   });
 
   // Data is only fetched (and the event stream only open) while signed in.
@@ -75,7 +75,7 @@
 
   // Current speed in the tab title, handy when the tab is in the background.
   $effect(() => {
-    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · dlmanager` : 'dlmanager';
+    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · FetchBox` : 'FetchBox';
   });
 
   // ---- the menu: a permanent panel on wide screens, a drawer on narrow ones
@@ -103,26 +103,14 @@
     if (media.desktop) untrack(() => (menuOpen = false));
   });
 
-  const DOT: Record<string, string> = {
-    live: 'bg-success',
-    connecting: 'animate-pulse bg-warning',
-    offline: 'bg-danger',
-  };
-
   const drawerOpen = $derived(menuOpen && !media.desktop);
-  const connectionLabel = $derived(t(`connection.${downloads.connection}`));
 </script>
 
 <svelte:window onhashchange={openLegacyAddLink} onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeMenu()} />
 
-{#if auth.state === 'loading'}
+{#if auth.state === 'loading' || auth.state === 'offline'}
+  <!-- Offline at start: the connection dialog (after a moment) says what is wrong and retries. -->
   <p class="grid min-h-dvh place-content-center text-muted" role="status">{t('common.loading')}</p>
-{:else if auth.state === 'offline'}
-  <div class="grid min-h-dvh content-center justify-items-center gap-3 text-center text-muted">
-    <Icon name="alert" size={32} />
-    <p>{t('app.offline')}</p>
-    <button class="btn primary" onclick={() => auth.check()}>{t('common.tryAgain')}</button>
-  </div>
 {:else if auth.wizard}
   <!-- Also while signed in: the wizard continues after the account step. -->
   <Setup />
@@ -164,23 +152,18 @@
         >
           <Icon name="menu" />
         </button>
-        <span class="flex items-center gap-2 font-bold tracking-tight">
-          <span class="grid size-7 place-items-center rounded-md bg-accent text-accent-contrast">
+        <span class="flex min-w-0 items-center gap-2 font-bold tracking-tight">
+          <span class="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-accent-contrast">
             <Icon name="down" size={16} />
           </span>
-          dlmanager
+          <span class="truncate">FetchBox</span>
         </span>
         <span class="flex-1"></span>
         {#if summary.active > 0}
-          <span class="text-sm font-semibold text-accent tabular-nums" title={t('app.totalSpeed')}>
+          <span class="shrink-0 text-sm font-semibold text-accent tabular-nums" title={t('app.totalSpeed')}>
             ↓ {i18n.speed(summary.speed)}
           </span>
         {/if}
-        <!-- Normally just a dot; the words appear when something is wrong. -->
-        <span class="mr-2 flex items-center gap-1.5 text-sm text-muted" title={connectionLabel}>
-          <span class={['size-2.5 rounded-full', DOT[downloads.connection]]} aria-hidden="true"></span>
-          <span class={[downloads.connection === 'live' && 'sr-only']}>{connectionLabel}</span>
-        </span>
       </header>
 
       <main class="mx-auto max-w-[76rem] px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-8 lg:pt-6 lg:pb-12">
@@ -216,6 +199,8 @@
   <SpeedLimitDialog />
 {/if}
 
+<!-- Outside the screens above: it must also cover the login screen and the first-run wizard. -->
+<ConnectionOverlay />
 <ConfirmHost />
 <ResumeSpaceDialog />
 <Toasts />

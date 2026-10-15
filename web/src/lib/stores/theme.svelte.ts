@@ -4,7 +4,7 @@ import { readJson, writeJson } from '../util/storage';
 
 export type ThemePref = 'system' | 'light' | 'dark' | 'black';
 
-const KEY = 'dlm.theme';
+const KEY = 'fetchbox.theme';
 const isPref = (v: unknown): v is ThemePref =>
   v === 'system' || v === 'light' || v === 'dark' || v === 'black';
 
