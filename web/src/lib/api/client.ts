@@ -84,6 +84,10 @@ export const api = {
   authStatus: () => request<AuthStatus>('GET', '/auth/status'),
   login: (password: string) => request<{ token: string }>('POST', '/auth/login', { password }),
   logout: () => request<void>('POST', '/auth/logout'),
+  setup: (code: string, password: string) =>
+    request<{ token: string }>('POST', '/auth/setup', { code, password }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<void>('POST', '/auth/password', { current_password, new_password }),
 
   listDownloads: () => request<Download[]>('GET', '/downloads'),
   addDownload: (req: AddRequest) => request<Download>('POST', '/downloads', req),

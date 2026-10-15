@@ -17,6 +17,7 @@
   import Downloads from './routes/Downloads.svelte';
   import Login from './routes/Login.svelte';
   import Settings from './routes/Settings.svelte';
+  import Setup from './routes/Setup.svelte';
 
   onMount(() => {
     theme.init();
@@ -94,6 +95,9 @@
     <p>{t('app.offline')}</p>
     <button class="btn primary" onclick={() => auth.check()}>{t('common.tryAgain')}</button>
   </div>
+{:else if auth.wizard}
+  <!-- Also while signed in: the wizard continues after the account step. -->
+  <Setup />
 {:else if auth.state === 'login'}
   <Login />
 {:else}
