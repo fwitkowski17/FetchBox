@@ -20,10 +20,16 @@ const status = (over: Record<string, unknown> = {}) => ({
 });
 const down = () => new ApiError(0, undefined);
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers();
   authStatus.mockReset();
   login.mockReset();
+  // The store is a singleton: one good answer resets what an earlier test left behind (the
+  // backoff counter, a pending probe).
+  authStatus.mockResolvedValueOnce(status());
+  await auth.check();
+  vi.clearAllTimers();
+  authStatus.mockReset();
   auth.state = 'loading';
   auth.unreachable = false;
   auth.wizard = false;
@@ -94,9 +100,44 @@ describe('auth store and a server that is not there', () => {
     expect(authStatus).not.toHaveBeenCalled();
   });
 
-  it('a refusal is not a dead server', async () => {
-    authStatus.mockRejectedValue(new ApiError(500, 'boom'));
+  it('an error page from a proxy in front of a dead server is a dead server, not a login screen', async () => {
+    authStatus.mockResolvedValueOnce(status());
     await auth.check();
+    for (const code of [500, 502, 503, 504]) {
+      authStatus.mockRejectedValueOnce(new ApiError(code, undefined));
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(auth.unreachable, String(code)).toBe(true);
+      expect(auth.state).toBe('login');
+      authStatus.mockResolvedValue(status());
+      await vi.advanceTimersByTimeAsync(600);
+      expect(auth.unreachable).toBe(false);
+    }
+  });
+
+  it('is offline, not on the login screen, when the first answer is a gateway error', async () => {
+    authStatus.mockRejectedValue(new ApiError(502, undefined));
+    await auth.check();
+    expect(auth.state).toBe('offline');
+  });
+
+  it('keeps a signed-in app on screen when the server stops answering, and recovers', async () => {
+    auth.state = 'ready';
+    authStatus.mockRejectedValueOnce(new ApiError(502, undefined));
+    await auth.check();
+    expect(auth.state).toBe('ready'); // the dialog covers it; nothing is torn down
+    expect(auth.unreachable).toBe(true);
+    authStatus.mockResolvedValue(status({ authenticated: true }));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(auth.unreachable).toBe(false);
+    expect(auth.state).toBe('ready');
+  });
+
+  it('goes to the login screen when the server is back but forgot the session', async () => {
+    auth.state = 'ready';
+    authStatus.mockRejectedValueOnce(down());
+    await auth.check();
+    authStatus.mockResolvedValue(status({ authenticated: false }));
+    await vi.advanceTimersByTimeAsync(600);
     expect(auth.state).toBe('login');
     expect(auth.unreachable).toBe(false);
   });

@@ -12,11 +12,13 @@
    *  not flash a dialog: only an outage that lasts shows it. */
   const SHOW_AFTER_MS = 1500;
 
-  // Three ways to be cut off: the stream dropped while using the app, the server is not there when
-  // the app starts, or it is not there while the login screen waits for a password.
+  // Ways to be cut off: the stream dropped while using the app, the server is not there when the
+  // app starts, or it is not there while the login screen waits for a password. A reverse proxy
+  // that answers 502 for a dead server counts as "not there" too.
+  // A signed-in app whose stream is live is connected, whatever an old failed check said.
   const lost = $derived(
     auth.state === 'offline' ||
-      auth.unreachable ||
+      (auth.unreachable && !(auth.state === 'ready' && downloads.connection === 'live')) ||
       (downloads.everLive && downloads.connection !== 'live'),
   );
   let shown = $state(false);

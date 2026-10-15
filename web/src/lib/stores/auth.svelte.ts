@@ -1,5 +1,5 @@
 // Is the user allowed in? Decides between the login screen and the app.
-import { ApiError, api } from '../api/client';
+import { api } from '../api/client';
 import { retryDelay } from '../util/retry';
 
 /** How often the login screen checks that the server is still there. */
@@ -47,17 +47,14 @@ class AuthStore {
       if (s.setup_required) this.wizard = true;
       this.state = s.authenticated ? 'ready' : 'login';
       this.#watchWhileLoggedOut();
-    } catch (e) {
-      if (e instanceof ApiError && e.status !== 0) {
-        this.unreachable = false;
-        this.state = 'login';
-        this.#watchWhileLoggedOut();
-        return;
-      }
-      // Unreachable. On the login screen keep the screen (the dialog covers it); anywhere else
-      // there is nothing worth keeping.
-      if (this.state === 'login') this.unreachable = true;
-      else this.state = 'offline';
+    } catch {
+      // The status endpoint is public: our server always answers it. Whatever came back instead is
+      // not "please sign in" but "nobody is home": no network, or a proxy in front of a dead server
+      // (502/503/504 from a reverse proxy, 500 from the Vite dev proxy). Keep the screen that is up
+      // (the connection dialog covers it, a signed-in session survives a blip); before any screen
+      // exists there is only the placeholder.
+      if (this.state === 'loading' || this.state === 'offline') this.state = 'offline';
+      else this.unreachable = true;
       this.#timer(retryDelay(this.#attempt++));
     }
   }
