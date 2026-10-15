@@ -207,6 +207,14 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
   success clears it), the name-conflict and "does not fit" dialogs open on top of it, and a success closes everything and
   shows the list. Old `#/add` links still work: they open the dialog and the hash goes back to `#/`.
+- Motion: short and functional (about 150-250 ms), never decorative loops. Dialogs fade and rise in and fade and sink out
+  (the native `<dialog>` is closed only after the exit has played; reopening during the exit cancels it); toasts fly in,
+  fade out and the rest glide into place; the drawer scrim fades; the floating button pops in; a card added to an existing
+  list rises in (the first card of an empty list and the cards of a freshly opened page do not animate, and the list is
+  never re-ordered with animation because sorting by speed would make it jump every second); pages fade in on navigation;
+  progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
+  respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
+  their duration from `util/motion.ts`, which is 0 then.
 - Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.

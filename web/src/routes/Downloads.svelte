@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from 'svelte/transition';
   import CategoryIcon from '../lib/components/CategoryIcon.svelte';
   import DownloadCard from '../lib/components/DownloadCard.svelte';
   import Icon from '../lib/components/Icon.svelte';
@@ -8,6 +9,7 @@
   import { prefs } from '../lib/stores/prefs.svelte';
   import { toast } from '../lib/stores/toast.svelte';
   import { GROUP_COLOR, GROUP_ICON } from '../lib/util/groupStyle';
+  import { motion } from '../lib/util/motion';
   import {
     SORT_OPTIONS,
     filterDownloads,
@@ -151,7 +153,7 @@
 {:else}
   <ul class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,25rem),1fr))] gap-3">
     {#each visible as d (d.id)}
-      <li><DownloadCard download={d} /></li>
+      <li in:fly={{ y: 10, duration: motion(220) }}><DownloadCard download={d} /></li>
     {/each}
   </ul>
 {/if}

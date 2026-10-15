@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { flip } from 'svelte/animate';
+  import { fade, fly } from 'svelte/transition';
   import { t } from '../i18n';
   import { toast } from '../stores/toast.svelte';
+  import { motion } from '../util/motion';
   import Icon from './Icon.svelte';
 </script>
 
@@ -10,6 +13,9 @@
 >
   {#each toast.items as item (item.id)}
     <div
+      in:fly={{ y: -14, duration: motion(220) }}
+      out:fade={{ duration: motion(160) }}
+      animate:flip={{ duration: motion(200) }}
       class={[
         'pointer-events-auto flex items-center gap-2 rounded-lg border bg-surface py-1.5 pr-1.5 pl-3 text-sm shadow-card',
         item.kind === 'error' ? 'border-danger' : item.kind === 'warning' ? 'border-warning' : 'border-border',

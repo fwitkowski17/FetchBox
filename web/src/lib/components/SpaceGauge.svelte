@@ -45,7 +45,10 @@
       hidden={need.room}
     ></div>
     <div
-      class={['absolute inset-y-0 left-0 rounded-full', need.room ? 'bg-success' : 'bg-accent']}
+      class={[
+        'absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-500 ease-out',
+        need.room ? 'bg-success' : 'bg-accent',
+      ]}
       style:width="{percent}%"
       data-part="space-fill"
     ></div>

@@ -12,6 +12,8 @@
     warn: 'stroke-warning',
     full: 'stroke-danger',
   } as const;
+  /** The arcs glide to new values instead of jumping when the figures are refreshed. */
+  const RING_MOTION = 'transition-[stroke-dasharray,stroke-dashoffset,stroke] duration-700 ease-out';
   const TEXT = { ok: 'text-muted', warn: 'text-warning', full: 'text-danger' } as const;
 
   const value = $derived(disk.value);
@@ -43,7 +45,7 @@
             cy="18"
             r="15.9155"
             fill="none"
-            class={[STROKE[view.level], 'opacity-35']}
+            class={[STROKE[view.level], 'opacity-35', RING_MOTION]}
             stroke-width="4"
             pathLength="100"
             stroke-dasharray="{reservedLen} {100 - reservedLen}"
@@ -56,7 +58,7 @@
           cy="18"
           r="15.9155"
           fill="none"
-          class={STROKE[view.level]}
+          class={[STROKE[view.level], RING_MOTION]}
           stroke-width="4"
           stroke-linecap="butt"
           pathLength="100"

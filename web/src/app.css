@@ -268,7 +268,8 @@
   }
 
   .btn {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 font-semibold no-underline transition-colors;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 font-semibold no-underline transition-[background-color,border-color,filter,transform] duration-150;
+    @apply not-disabled:active:scale-[0.98];
     @apply hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-surface;
   }
 
@@ -296,6 +297,44 @@
 /* Forms read badly when they stretch across a wide screen. */
 .page-narrow {
   max-width: 42rem;
+}
+
+/* Dialogs: fade and rise in, fade and sink out. `data-closing` is set by Modal.svelte while the
+   exit plays, so the native <dialog> is only closed once it has finished. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+}
+@keyframes modal-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+
+dialog[data-modal][open] {
+  animation: modal-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+dialog[data-modal][open]::backdrop {
+  animation: backdrop-in 0.22s ease-out;
+}
+dialog[data-modal][data-closing] {
+  animation: modal-out 0.16s ease-in forwards;
+}
+dialog[data-modal][data-closing]::backdrop {
+  animation: backdrop-out 0.16s ease-in forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
