@@ -109,6 +109,10 @@ Log in with `POST /api/auth/login {"password": "..."}`: the response sets an `Ht
 docker compose up --build   # UI on http://localhost:8080, volumes ./data and ./downloads
 ```
 
+## Proxmox LXC
+
+`deploy/proxmox/` has an installer for a Proxmox VE container in the style of the [community-scripts](https://github.com/community-scripts/ProxmoxVE) (Debian, built from source, optional host directory for the downloads). See [deploy/proxmox/README.md](deploy/proxmox/README.md).
+
 ## Upgrading from `dlmanager`
 
 The project used to be called `dlmanager`. An existing installation keeps working:
