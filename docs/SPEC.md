@@ -197,6 +197,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   one bar that is the whole need, filled with what the free space covers (follows the disk figures, so it fills while the
   user frees space), the missing part striped, with "Free / Needs / Missing" below. Once the free space covers the need the
   text says so and the bar turns green; the user resumes by hand. Adding such a file shows a warning toast, not a dialog.
+  Pressing "Resume" while the disk is still too full (`507`, also for a failed download) opens a dialog with the same gauge
+  instead of a toast: it follows the disk figures, "Try again" retries, and once there is room the button reads "Resume" and
+  starts the download (the dialog closes when the resume works or the download is gone).
 - Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.

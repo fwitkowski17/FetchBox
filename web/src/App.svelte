@@ -3,6 +3,7 @@
   import { setUnauthorizedHandler } from './lib/api/client';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
   import Icon from './lib/components/Icon.svelte';
+  import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import { i18n, t } from './lib/i18n';
@@ -193,4 +194,5 @@
 {/if}
 
 <ConfirmHost />
+<ResumeSpaceDialog />
 <Toasts />

@@ -1,5 +1,5 @@
 // The live download list: one REST fetch plus a server-sent event stream that keeps it fresh.
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import type { AppEvent, Category, Settings } from '../api/types';
 import type { Download } from '../api/types';
 import { applyEvent } from '../util/downloads';
@@ -24,6 +24,9 @@ class DownloadsStore {
   connection = $state<Connection>('connecting');
   /** The error from the last failed load (shown through `i18n.errorText`). */
   loadError = $state.raw<unknown>(null);
+  /** Id of a download whose resume was refused because the disk is still full. A dialog with the
+   *  space gauge explains it (instead of a toast) until the user closes it or the resume works. */
+  noSpaceFor = $state<number | null>(null);
 
   #source: EventSource | null = null;
   #retry: ReturnType<typeof setTimeout> | null = null;
@@ -66,6 +69,7 @@ class DownloadsStore {
     if (this.#retry) clearTimeout(this.#retry);
     this.#retry = null;
     this.items = [];
+    this.noSpaceFor = null;
     this.loaded = false;
     this.connection = 'connecting';
   }
@@ -84,7 +88,11 @@ class DownloadsStore {
   // (A command's response can be older than the event that followed it.)
 
   pause = (id: number) => this.#run(() => api.pause(id));
-  resume = (id: number) => this.#run(() => api.resume(id));
+  resume = async (id: number): Promise<boolean> => {
+    const ok = await this.#run(() => api.resume(id), id);
+    if (ok && this.noSpaceFor === id) this.noSpaceFor = null;
+    return ok;
+  };
   cancel = (id: number) => this.#run(() => api.cancel(id));
   remove = (id: number) => this.#run(() => api.remove(id));
   setCategory = (id: number, category: Category) => this.#run(() => api.setCategory(id, category));
@@ -95,12 +103,18 @@ class DownloadsStore {
     await Promise.all(finished.map((d) => this.#run(() => api.remove(d.id))));
   }
 
-  async #run(call: () => Promise<unknown>): Promise<boolean> {
+  /** `resumeOf`: the download this call tries to resume; a "disk full" refusal then opens the
+   *  space dialog instead of showing a toast. */
+  async #run(call: () => Promise<unknown>, resumeOf?: number): Promise<boolean> {
     try {
       await call();
       if (this.connection !== 'live') await this.reload();
       return true;
     } catch (e) {
+      if (resumeOf !== undefined && e instanceof ApiError && e.status === 507 && e.space) {
+        this.noSpaceFor = resumeOf;
+        return false;
+      }
       toast.error(i18n.errorText(e));
       return false;
     }

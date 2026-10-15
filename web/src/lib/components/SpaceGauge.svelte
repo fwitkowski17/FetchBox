@@ -7,7 +7,14 @@
   import { disk } from '../stores/disk.svelte';
   import { spaceNeed } from '../util/space';
 
-  let { size, downloaded }: { size: number; downloaded: number } = $props();
+  interface Props {
+    size: number;
+    downloaded: number;
+    /** Say what to do while there is not enough room (the card does; a dialog has its own text). */
+    hint?: boolean;
+  }
+
+  let { size, downloaded, hint = true }: Props = $props();
 
   const need = $derived(spaceNeed(size, downloaded, disk.value?.available ?? null));
   const percent = $derived(Math.round(need.covered * 1000) / 10);
@@ -18,7 +25,11 @@
   data-part="space-gauge"
   data-state={need.room ? 'room' : 'short'}
 >
-  <p class="text-warning">{need.room ? t('space.room') : t('space.hint')}</p>
+  {#if need.room}
+    <p class="text-warning">{t('space.room')}</p>
+  {:else if hint}
+    <p class="text-warning">{t('space.hint')}</p>
+  {/if}
 
   <div
     class="relative h-3 overflow-hidden rounded-full bg-surface"

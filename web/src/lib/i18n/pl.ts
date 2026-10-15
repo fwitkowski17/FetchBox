@@ -266,6 +266,8 @@ const pl: Messages = {
   'space.missing': 'Brakuje',
   'space.room': 'Miejsca jest już dość. Wznów pobieranie, aby je rozpocząć.',
   'space.aria': 'Wolne {free} z {needed}, których potrzebuje to pobranie',
+  'resumeSpace.title': 'Nie można jeszcze wznowić',
+  'resumeSpace.text': 'Zwolnij trochę miejsca na dysku i spróbuj ponownie. Pasek pokazuje, ile jeszcze brakuje.',
   'add.held': 'Dodano „{name}”, ale nie rozpoczęto: za mało wolnego miejsca na dysku.',
 
   // ---- accent colours

@@ -269,6 +269,8 @@ export const en = {
   'space.missing': 'Missing',
   'space.room': 'There is room now. Resume to start the download.',
   'space.aria': '{free} free of the {needed} this download needs',
+  'resumeSpace.title': 'Cannot resume yet',
+  'resumeSpace.text': 'Free up some disk space, then try again. The bar shows how much is still missing.',
   'add.held': 'Added “{name}”, but not started: not enough free disk space.',
 
   // ---- accent colours
