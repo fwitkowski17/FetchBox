@@ -4,6 +4,7 @@ import type {
   AuthStatus,
   Category,
   Conflict,
+  DiskSpace,
   Download,
   Settings,
 } from './types';
@@ -17,11 +18,17 @@ export class ApiError extends Error {
   readonly conflict: Conflict | undefined;
   /** Seconds until logins are allowed again (`429`). */
   readonly retryAfter: number | undefined;
+  /** Set on `507` when a file will not fit on the disk. */
+  readonly space: { needed: number; available: number } | undefined;
 
   constructor(
     status: number,
     serverMessage: string | undefined,
-    extra: { conflict?: Conflict; retryAfter?: number } = {},
+    extra: {
+      conflict?: Conflict;
+      retryAfter?: number;
+      space?: { needed: number; available: number };
+    } = {},
   ) {
     // `message` is for logs and tests; the UI builds its own text (see `errorText`).
     super(serverMessage ?? `HTTP ${status}`);
@@ -30,6 +37,7 @@ export class ApiError extends Error {
     this.serverMessage = serverMessage;
     this.conflict = extra.conflict;
     this.retryAfter = extra.retryAfter;
+    this.space = extra.space;
   }
 }
 
@@ -50,7 +58,11 @@ function parseError(status: number, body: unknown): ApiError {
     isRecord(body) && isRecord(body.conflict) ? (body.conflict as Conflict) : undefined;
   const retryAfter =
     isRecord(body) && typeof body.retry_after === 'number' ? body.retry_after : undefined;
-  return new ApiError(status, message, { conflict, retryAfter });
+  const space =
+    isRecord(body) && typeof body.needed === 'number' && typeof body.available === 'number'
+      ? { needed: body.needed, available: body.available }
+      : undefined;
+  return new ApiError(status, message, { conflict, retryAfter, space });
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -98,6 +110,7 @@ export const api = {
   setCategory: (id: number, category: Category) =>
     request<Download>('PATCH', `/downloads/${id}`, { category }),
 
+  getDisk: () => request<DiskSpace>('GET', '/disk'),
   getSettings: () => request<Settings>('GET', '/settings'),
   putSettings: (settings: Settings) => request<Settings>('PUT', '/settings', settings),
 };

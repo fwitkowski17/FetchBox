@@ -830,7 +830,7 @@ mod tests {
             panic!("expected a failure, got {failed:?}");
         };
         assert!(error.starts_with("not enough disk space: "), "{error}");
-        assert!(error.contains("10000000.0 TB needed"), "{error}");
+        assert!(error.contains("9094947 TB needed"), "{error}");
         assert!(started.is_none(), "must fail before the plan is announced");
         // Nothing was created, in particular no sparse .part file of that size.
         assert_eq!(std::fs::read_dir(dir.path()).expect("ls").count(), 0);

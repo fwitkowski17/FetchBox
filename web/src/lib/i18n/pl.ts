@@ -175,6 +175,7 @@ const pl: Messages = {
   'add.submit': 'Rozpocznij pobieranie',
   'add.submitting': 'Dodawanie…',
   'add.failed': 'Nie udało się dodać pobrania.',
+  'add.noSpace': 'Za mało miejsca na dysku: plik potrzebuje {needed}, a wolne jest tylko {available}.',
   'add.added': 'Dodano „{name}”',
 
   // ---- name conflict dialog
@@ -241,6 +242,13 @@ const pl: Messages = {
   'settings.error.connections': 'Podaj liczbę całkowitą od 1 do {max}.',
   'settings.error.concurrent': 'Podaj liczbę całkowitą od 1 do {max}.',
   'settings.error.speed': 'Podaj prędkość większą od 0 albo wyłącz limit.',
+
+  // ---- disk space
+  'disk.free': '{size} wolne',
+  'disk.of': 'z {size}',
+  'disk.summary': 'Miejsce na dysku: wolne {free} z {total} (zajęte {percent})',
+  'disk.pending': 'Do pobrania jeszcze {size}',
+  'disk.short': 'Kolejka potrzebuje o {size} więcej, niż jest wolne.',
 
   // ---- accent colours
   'accent.blue': 'Niebieski',

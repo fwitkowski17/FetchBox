@@ -91,6 +91,14 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 - Pause = cancel tasks + flush offsets. Resume = restart from stored offsets; verify `ETag`/`Last-Modified` unchanged, else restart.
 - No `Accept-Ranges`: single connection, mark download as non-resumable in the UI.
 - On completion rename `.part` to final name, handle name collisions.
+- Disk space: files are pre-sized with `set_len` (sparse on ext4, xfs, btrfs, apfs, tmpfs), so free space only shrinks
+  as bytes are written. Before any byte is written the engine checks that the rest of the file (size minus what a
+  resumed `.part` already holds) plus what the other running downloads still have to write fits into the free space
+  of the target directory (`statvfs`); if not, the download fails with `not enough disk space: X needed, Y available`
+  and nothing is created. `POST /api/downloads` runs the same check right after the probe, so the user is told at
+  once (see 6.5). Unknown sizes (no `Content-Length`) cannot be checked, and a platform without `statvfs` skips the
+  check with a warning instead of blocking downloads. Two downloads probing at the very same moment can both pass;
+  the loser then fails on the write error like any full disk.
 
 ### 6.3 Scheduler and limits
 
@@ -122,6 +130,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id`
 - `PATCH /api/downloads/:id` (e.g. change category)
 - `GET /api/settings`, `PUT /api/settings`
+- `GET /api/disk` (free space of the download disk)
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -131,6 +140,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   `on_conflict`: `rename` (use `suggested_name`) or `overwrite` (replace the file when the download finishes);
   cancelling means not re-sending. Overwriting a name reserved by an unfinished download is refused (400).
   The engine never overwrites on its own: an unexpected collision at finalize picks the next free name.
+- `GET /api/disk` answers `{total, available, pending}`: `total` is used plus available (blocks reserved for root are
+  not counted, so the share matches `df`'s `Use%`), `pending` is what queued, running and paused downloads with a known
+  size still have to write. `POST /api/downloads` answers `507 {"error":"insufficient storage","needed","available"}`
+  when the file (plus what running downloads still need) does not fit; nothing is stored then.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
   `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
@@ -150,6 +163,11 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   light, dark and black. The choice is stored as `{id, hue, chroma}` so `index.html` can apply it before first paint without
   the table. A test derives the contrast of every accent in every theme from the CSS and requires WCAG AA (4.5:1 for text on the
   accent and accent text on cards, 4.2:1 on the tint). Status filters carry icons coloured by state.
+- Disk ring: at the bottom of the side menu (left bottom corner, also in the drawer) a ring shows the used share of the
+  download disk, a lighter arc what unfinished downloads will still write, "N free of M" next to it and, when the queue
+  does not fit, how much is missing. Accent colour up to 85 % used, amber from 85 %, red from 95 % or when the queue does
+  not fit. Polled every 10 s (not while the tab is hidden) and refreshed when a download finishes; hidden if the server
+  cannot tell. The add form shows the `507` as "needs X, only Y free".
 - Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
@@ -207,7 +225,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
 ## 7. Dependencies (Rust)
 
-`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash). Later: `librqbit`.
+`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix). Later: `librqbit`.
 
 ## 8. Milestones
 

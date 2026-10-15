@@ -178,6 +178,7 @@ export const en = {
   'add.submit': 'Start download',
   'add.submitting': 'Adding…',
   'add.failed': 'Could not add the download.',
+  'add.noSpace': 'Not enough disk space: the file needs {needed}, but only {available} is free.',
   'add.added': 'Added “{name}”',
 
   // ---- name conflict dialog
@@ -244,6 +245,13 @@ export const en = {
   'settings.error.connections': 'Use a whole number from 1 to {max}.',
   'settings.error.concurrent': 'Use a whole number from 1 to {max}.',
   'settings.error.speed': 'Enter a speed above 0, or turn the limit off.',
+
+  // ---- disk space
+  'disk.free': '{size} free',
+  'disk.of': 'of {size}',
+  'disk.summary': 'Disk space: {free} free of {total} ({percent} used)',
+  'disk.pending': '{size} still to download',
+  'disk.short': 'The queue needs {size} more than is free.',
 
   // ---- accent colours
   'accent.blue': 'Blue',

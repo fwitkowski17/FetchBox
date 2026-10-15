@@ -31,17 +31,20 @@ pub enum Error {
 /// Result alias for core operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// `1.5 GB`-style size for messages (decimal units, like file managers and `df -H`).
+/// `1.5 GB`-style size for messages. Binary steps (1024) and the same rounding as the web UI
+/// (one decimal below 10, none above), so a message and the screen next to it agree.
 pub fn human_bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = n as f64;
     let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
         unit += 1;
     }
     if unit == 0 {
         format!("{n} B")
+    } else if value >= 10.0 {
+        format!("{value:.0} {}", UNITS[unit])
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
@@ -54,22 +57,23 @@ mod tests {
     #[test]
     fn sizes_read_like_a_file_manager() {
         assert_eq!(human_bytes(0), "0 B");
-        assert_eq!(human_bytes(999), "999 B");
-        assert_eq!(human_bytes(1_000), "1.0 KB");
-        assert_eq!(human_bytes(1_500_000), "1.5 MB");
-        assert_eq!(human_bytes(4_200_000_000), "4.2 GB");
-        assert_eq!(human_bytes(u64::MAX), "18446744.1 TB");
+        assert_eq!(human_bytes(1023), "1023 B");
+        assert_eq!(human_bytes(1024), "1.0 KB");
+        assert_eq!(human_bytes(1536), "1.5 KB");
+        assert_eq!(human_bytes(15 * 1024 * 1024), "15 MB");
+        assert_eq!(human_bytes(4 * 1024 * 1024 * 1024), "4.0 GB");
+        assert_eq!(human_bytes(u64::MAX), "16777216 TB");
     }
 
     #[test]
     fn insufficient_space_message_names_both_sizes() {
         let e = Error::InsufficientSpace {
-            needed: 4_200_000_000,
-            available: 1_100_000_000,
+            needed: 4 * 1024 * 1024 * 1024,
+            available: 1536 * 1024 * 1024,
         };
         assert_eq!(
             e.to_string(),
-            "not enough disk space: 4.2 GB needed, 1.1 GB available"
+            "not enough disk space: 4.0 GB needed, 1.5 GB available"
         );
     }
 }

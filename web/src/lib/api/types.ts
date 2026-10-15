@@ -13,6 +13,7 @@ export type OnConflict = Schemas['OnConflict'];
 export type AddRequest = Schemas['AddRequest'];
 export type AppEvent = Schemas['Event'];
 export type AuthStatus = Schemas['AuthStatus'];
+export type DiskSpace = Schemas['DiskSpace'];
 
 export const CATEGORIES: readonly Category[] = [
   'photo',

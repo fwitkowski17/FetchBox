@@ -39,7 +39,15 @@
         conflict = e.conflict; // the dialog lets the user choose, then we send again
       } else {
         conflict = null;
-        error = e instanceof ApiError ? i18n.errorText(e) : t('add.failed');
+        error =
+          e instanceof ApiError && e.status === 507 && e.space
+            ? t('add.noSpace', {
+                needed: i18n.bytes(e.space.needed),
+                available: i18n.bytes(e.space.available),
+              })
+            : e instanceof ApiError
+              ? i18n.errorText(e)
+              : t('add.failed');
       }
     } finally {
       busy = false;
