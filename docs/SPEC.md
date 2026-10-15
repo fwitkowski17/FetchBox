@@ -123,7 +123,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `PATCH /api/downloads/:id` (e.g. change category)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/events` (SSE: progress, status changes)
-- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
   (b) file with that name in the download dir, (c) name reserved by an unfinished download. Without `on_conflict`
   it answers `409 {"error":"conflict","conflict":{kind,existing_name,existing_size,existing_modified,existing_id,suggested_name}}`
@@ -154,6 +154,11 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
   Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
+- First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
+  it: look (language, theme, accent; applied live, stored like in Settings), account (setup code, password, repeat),
+  download defaults (the same fields as Settings, optional), done. The steps after the account one run signed in;
+  reloading in between simply opens the app. Settings has a "change password" card for UI-created accounts and an
+  explanation for an external password.
 - SSE store keeps list in sync; REST for commands. Command responses are not patched into the list (they can be older
   than the event that followed); the stream is the single source of truth, and the list is re-fetched on every
   (re)connect and on `resync`.
@@ -173,13 +178,24 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
 ### 6.7 Security
 
-- Single-user auth, HTTPS via reverse proxy. One shared password from `DLM_PASSWORD` or `--password-file`
-  (min. 8 characters); the server refuses to start without one unless `--no-auth` is passed explicitly.
+- Single-user auth, HTTPS via reverse proxy. One shared password, from the first source that applies:
+  `DLM_PASSWORD` / `--password-file` (external: wins, cannot be changed in the UI), the account created in the
+  first-run setup (below), or none at all with an explicit `--no-auth`. Without any of them the server still starts
+  but stays locked until setup is done, so a forgotten password never exposes it. Passwords have 8 to 256 characters.
   `POST /api/auth/login` returns a random 256-bit session token, set as an `HttpOnly; SameSite=Strict` cookie
   (needed for SSE) and usable as `Authorization: Bearer`. Public: `/api/health`, `/api/auth/*` (`status` tells the
   UI whether to show the login screen) and the static frontend; everything else answers `401`. Sessions are in
   memory with a 7-day TTL and a cap of 100; failed logins are throttled globally (5 per minute, then `429` with
   `Retry-After`). `Secure` is added to the cookie when `X-Forwarded-Proto: https` is present.
+- First-run setup: while no account exists `GET /api/auth/status` reports `setup_required` and everything else
+  answers `401`. The server logs a one-time setup code (8 characters from an unambiguous alphabet, regenerated on
+  every start, never stored). `POST /api/auth/setup {code, password}` creates the account and logs in; wrong codes
+  (`403`) share the login throttle (5 per minute, then `429`), the code is compared in constant time, and the
+  endpoint answers `409` once an account exists or an external password is configured, so it cannot be used to take
+  over. The password is stored as an Argon2id hash (random salt, PHC string) under the `password_hash` key of the
+  `settings` table; it is not part of `Settings` and never leaves the database. `POST /api/auth/password
+  {current_password, new_password}` (logged in) changes it (`403` wrong current password, `409` for an external
+  password) and ends every other session. Hashing runs on the blocking thread pool.
 - Sanitize filenames, never write outside download dir.
 - Optional blocklist of private IP ranges for URLs (SSRF), `--block-private-urls`, off by default because fetching
   from a NAS in the LAN is normal use. It blocks loopback, RFC 1918, link-local (cloud metadata), CGNAT, multicast,
@@ -191,7 +207,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
 ## 7. Dependencies (Rust)
 
-`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`. Later: `librqbit`.
+`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash). Later: `librqbit`.
 
 ## 8. Milestones
 

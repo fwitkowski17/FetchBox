@@ -2,7 +2,7 @@
 
 Self-hosted download manager for a homelab. One Rust binary serves the REST API, SSE and the embedded Svelte frontend. See [docs/SPEC.md](docs/SPEC.md).
 
-Status: backend in progress (download engine, REST API, SSE and auth work; frontend not started).
+Status: usable; BitTorrent support is planned.
 
 ## Develop
 
@@ -71,13 +71,17 @@ A test fails when `docs/openapi.json` is stale, and CI fails when the generated 
 
 ## Authentication
 
-The API is protected by a single shared password. The server **refuses to start** without one:
+The API is protected by a single shared password. There are three ways to set it up, in order of precedence:
 
-```bash
-DLM_PASSWORD='at-least-8-chars' cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads
-# or: --password-file /run/secrets/dlm_password
-# or, only on a fully trusted network: --no-auth
-```
+1. **From the environment or a file** (`DLM_PASSWORD`, or `--password-file /run/secrets/dlm_password`): at least 8 characters. It wins over everything and cannot be changed in the UI.
+2. **In the browser, on first run** (the default when neither is set): the server starts locked and prints a one-time **setup code** to its log:
+
+   ```text
+   WARN dlmanager: first run: open the web UI and enter the setup code K7QM2XPD to create your account ...
+   ```
+
+   Open the UI (`docker compose logs dlmanager` shows the line in Docker), walk through the setup wizard (look, account, download defaults) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
+3. **No authentication**, only on a fully trusted network: `--no-auth`.
 
 Log in with `POST /api/auth/login {"password": "..."}`: the response sets an `HttpOnly` session cookie and also returns a token usable as `Authorization: Bearer <token>`. After 5 failed attempts logins are locked for up to a minute. Sessions are kept in memory (a restart logs everyone out). Serve it over HTTPS via a reverse proxy when exposed beyond the LAN (send `X-Forwarded-Proto: https` so the cookie gets `Secure`).
 
@@ -94,4 +98,4 @@ Workspace crates live in `crates/` (`core`, `http_engine`, `torrent_engine`, `st
 
 ## Dependency notes
 
-`tailwindcss` + `@tailwindcss/vite` (build-time only: consistent design tokens and no hand-written CSS to maintain; the output is a few kB), `@fontsource-variable/inter` (the font files, so no CDN), `tokio` + `axum` (one async stack), `rust-embed` + `mime_guess` (embedded SPA), `rusqlite` bundled (lighter than sqlx, no system SQLite), `clap` (CLI), `serde`/`serde_json`, `thiserror`/`anyhow`, `tracing`, `async-trait` (`Downloader` trait object).
+`tailwindcss` + `@tailwindcss/vite` (build-time only: consistent design tokens and no hand-written CSS to maintain; the output is a few kB), `@fontsource-variable/inter` (the font files, so no CDN), `tokio` + `axum` (one async stack), `rust-embed` + `mime_guess` (embedded SPA), `rusqlite` bundled (lighter than sqlx, no system SQLite), `argon2` (Argon2id hash of the password created in the first-run setup; pure Rust, no system library, no RNG framework since the salt comes from `getrandom`), `clap` (CLI), `serde`/`serde_json`, `thiserror`/`anyhow`, `tracing`, `async-trait` (`Downloader` trait object).
