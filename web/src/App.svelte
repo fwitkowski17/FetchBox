@@ -7,6 +7,7 @@
   import DeleteDownloadDialog from './lib/components/DeleteDownloadDialog.svelte';
   import Icon from './lib/components/Icon.svelte';
   import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
+  import SpeedLimitDialog from './lib/components/SpeedLimitDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import { i18n, t } from './lib/i18n';
@@ -212,6 +213,7 @@
 
   <AddDownloadDialog />
   <DeleteDownloadDialog />
+  <SpeedLimitDialog />
 {/if}
 
 <ConfirmHost />

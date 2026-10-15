@@ -118,6 +118,7 @@
     <p data-part="stats" class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted tabular-nums">
       {#if d.status === 'queued'}
         <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
+        {#if d.speed_limit}<span>{t('card.limit', { speed: i18n.speed(d.speed_limit) })}</span>{/if}
       {:else if d.status === 'completed'}
         <span>{i18n.bytes(d.size ?? d.downloaded)}</span>
       {:else if d.status === 'cancelled'}
@@ -132,6 +133,9 @@
         {#if live}
           <span>{i18n.speed(speed)}</span>
           {#if eta !== null}<span>{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
+        {/if}
+        {#if d.speed_limit && d.status !== 'failed'}
+          <span>{t('card.limit', { speed: i18n.speed(d.speed_limit) })}</span>
         {/if}
       {/if}
     </p>

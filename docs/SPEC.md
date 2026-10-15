@@ -14,8 +14,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 - Settings:
   - connections (segments) per download
   - max simultaneous downloads (extra ones are `Queued`)
-  - speed limit per download
-  - global speed limit
+  - global speed limit (a limit for one download is not a setting: it is set from that download's menu, see 6.6)
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
@@ -124,7 +123,10 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 ### 6.3 Scheduler and limits
 
 - `Semaphore` limits concurrent downloads; overflow = `Queued`.
-- Two-level token bucket: global and per-download. Every segment acquires tokens before reading from the socket.
+- Two-level token bucket: global and per-download. Every segment acquires tokens before reading from the socket. The global
+  rate is a setting; the per-download rate belongs to the download (`downloads.speed_limit`, bytes/s, `0` = none) and the
+  stricter of the two counts. It is changed with `PATCH` and applies live to a running download (and when a queued, paused
+  or failed one starts); finished and cancelled downloads have nothing to limit (`409`).
 - Settings changes are propagated live (watch channel).
 
 ### 6.3.1 Categories and directories
@@ -139,9 +141,9 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
+- `settings`: key/value (connections, max_concurrent, speed_global, category_subdirs)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -151,7 +153,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id[?delete_file=true]` (removes the entry; with
   `delete_file` also the finished file, only for a completed download and only the plain file name the engine finally
   chose, inside the download's own directory; a file that is already gone is fine, any other failure keeps the entry)
-- `PATCH /api/downloads/:id` (`category` and/or `archived`: archiving hides a finished, failed or cancelled download from
+- `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = none: archiving hides a finished, failed or cancelled download from
   the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
   checks)
 - `GET /api/settings`, `PUT /api/settings`
@@ -229,11 +231,15 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel
   (unfinished) or "remove from list, the file stays" (finished). The "more" menu (replacing the old category select) has
   "Copy link" (the clipboard API where the page is a secure context, a selection fallback on plain-HTTP LAN pages),
-  "Change category" (a second level with the current one checked) and "Delete...". It opens towards the side that has room
+  "Change category" (a second level with the current one checked), "Speed limit..." (only for a download that can still run;
+  it shows the current limit) and "Delete...". It opens towards the side that has room
   (up or down, left- or right-aligned), closes on Escape / outside click / Tab, and works with the arrow keys, Home and End.
   "Delete..." opens a dialog (`stores/deleteDialog`): for a finished download it offers "Also delete the file from the disk"
   (off by default, with a warning when ticked, and a button that then reads "Delete with file"); for an unfinished one it
   says that the download is stopped and the partial file goes too, and has no such option.
+  "Speed limit..." opens a dialog (`stores/speedDialog`, `SpeedLimitDialog`) with the same on/off + KB/MB field as Settings;
+  it names the global limit that still applies (the lower one counts), saves with `PATCH` and takes effect at once. A card
+  with a limit shows "Limit N MB/s" in its stats line. Settings has only the global limit.
 - Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
   floating button, the empty list and the end of the setup wizard (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a

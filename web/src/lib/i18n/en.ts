@@ -212,11 +212,10 @@ export const en = {
     'More connections can be faster, but only for servers that allow it. Applies to new downloads.',
   'settings.concurrent.label': 'Simultaneous downloads',
   'settings.concurrent.hint': 'Extra downloads wait in the queue. Changes take effect immediately.',
-  'settings.speed': 'Speed limits',
-  'settings.speed.each': 'Limit each download',
-  'settings.speed.eachHint': 'Applies to every download separately.',
+  'settings.speed': 'Speed limit',
   'settings.speed.total': 'Limit total speed',
-  'settings.speed.totalHint': 'Shared by all downloads together.',
+  'settings.speed.totalHint':
+    'Shared by all downloads together. A single download can have its own limit in its menu; the lower one counts.',
   'settings.speed.max': '{label}: maximum speed',
   'settings.speed.unit': 'Unit',
   'settings.speed.unlimited': 'Unlimited',
@@ -340,6 +339,14 @@ export const en = {
   },
   'delete.confirmMany': 'Delete {n}',
   'delete.confirmManyWithFiles': 'Delete {n} with files',
+
+  // ---- speed limit of one download
+  'menu.speed': 'Speed limit…',
+  'speed.title': 'Speed limit',
+  'speed.limitThis': 'Limit this download',
+  'speed.hint.global': 'Applies to this download only. The global limit of {speed} still applies; the lower one counts.',
+  'speed.hint.noGlobal': 'Applies to this download only. There is no global limit.',
+  'card.limit': 'Limit {speed}',
 
   // ---- accent colours
   'accent.blue': 'Blue',

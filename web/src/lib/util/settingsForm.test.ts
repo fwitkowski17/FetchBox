@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { Settings } from '../api/types';
-import { MAX_CONNECTIONS, fromDraft, isUntouched, sameSettings, toDraft, validate } from './settingsForm';
+import {
+  MAX_CONNECTIONS,
+  fromDraft,
+  isUntouched,
+  isValidSpeed,
+  sameSettings,
+  speedFromDraft,
+  speedToDraft,
+  toDraft,
+  validate,
+} from './settingsForm';
 
 const base: Settings = {
   connections: 4,
   max_concurrent: 3,
-  speed_per_download: 0,
   speed_global: 5 * 1024 * 1024,
   category_subdirs: true,
 };
@@ -13,13 +22,12 @@ const base: Settings = {
 describe('settings form', () => {
   it('round-trips the server settings', () => {
     expect(fromDraft(toDraft(base))).toEqual(base);
-    const odd: Settings = { ...base, speed_per_download: 300 * 1024, category_subdirs: false };
+    const odd: Settings = { ...base, speed_global: 300 * 1024, category_subdirs: false };
     expect(fromDraft(toDraft(odd))).toEqual(odd);
   });
 
   it('shows 0 as "no limit" and the rest in a friendly unit', () => {
     const d = toDraft(base);
-    expect(d.perDownload.limited).toBe(false);
     expect(d.global).toEqual({ limited: true, value: 5, unit: 'MB' });
   });
 
@@ -39,14 +47,30 @@ describe('settings form', () => {
     const d = toDraft(base);
     d.connections = 0;
     d.maxConcurrent = 2.5;
-    d.perDownload = { limited: true, value: 0, unit: 'KB' };
-    expect(validate(d)).toEqual({ connections: 'connections', maxConcurrent: 'concurrent', perDownload: 'speed' });
+    d.global = { limited: true, value: 0, unit: 'KB' };
+    expect(validate(d)).toEqual({ connections: 'connections', maxConcurrent: 'concurrent', global: 'speed' });
     d.connections = MAX_CONNECTIONS + 1;
     expect(validate(d).connections).toBeDefined();
     d.connections = MAX_CONNECTIONS;
     expect(validate(d).connections).toBeUndefined();
     d.global = { limited: true, value: Number.NaN, unit: 'MB' };
     expect(validate(d).global).toBeDefined();
+  });
+
+  it('knows what a usable speed limit is', () => {
+    expect(isValidSpeed({ limited: false, value: 0, unit: 'KB' })).toBe(true);
+    expect(isValidSpeed({ limited: true, value: 500, unit: 'KB' })).toBe(true);
+    expect(isValidSpeed({ limited: true, value: 0, unit: 'KB' })).toBe(false);
+    expect(isValidSpeed({ limited: true, value: -1, unit: 'MB' })).toBe(false);
+    expect(isValidSpeed({ limited: true, value: Number.NaN, unit: 'MB' })).toBe(false);
+  });
+
+  it('turns a stored per-download limit into the dialog field and back', () => {
+    expect(speedToDraft(0)).toEqual({ limited: false, value: 1, unit: 'MB' });
+    const d = speedToDraft(750 * 1024);
+    expect(d.limited).toBe(true);
+    expect(speedFromDraft(d)).toBe(750 * 1024);
+    expect(speedFromDraft({ ...d, limited: false })).toBe(0);
   });
 
   it('detects changes, treating missing and false subdirs as equal', () => {

@@ -98,6 +98,8 @@ class DownloadsStore {
   remove = (id: number, deleteFile = false) => this.#run(() => api.remove(id, deleteFile));
   setCategory = (id: number, category: Category) => this.#run(() => api.setCategory(id, category));
   setArchived = (id: number, archived: boolean) => this.#run(() => api.setArchived(id, archived));
+  setSpeedLimit = (id: number, bytesPerSecond: number) =>
+    this.#run(() => api.setSpeedLimit(id, bytesPerSecond));
 
   // ---- the same commands for a whole selection. No toast per download: the caller shows one
   // summary. The list follows the events as always.

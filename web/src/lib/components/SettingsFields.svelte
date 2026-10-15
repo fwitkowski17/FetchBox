@@ -64,13 +64,6 @@
   <section class={CARD}>
     <h2 class="font-semibold tracking-tight">{t('settings.speed')}</h2>
     <SpeedField
-      label={t('settings.speed.each')}
-      hint={t('settings.speed.eachHint')}
-      bind:value={draft.perDownload}
-      error={errors.perDownload ? errorText(errors.perDownload) : undefined}
-    />
-    <hr class="m-0 w-full border-0 border-t border-border" />
-    <SpeedField
       label={t('settings.speed.total')}
       hint={t('settings.speed.totalHint')}
       bind:value={draft.global}

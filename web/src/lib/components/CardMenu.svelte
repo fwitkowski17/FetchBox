@@ -6,8 +6,9 @@
   import { scale } from 'svelte/transition';
   import type { Category, Download } from '../api/types';
   import { CATEGORIES } from '../api/types';
-  import { t } from '../i18n';
+  import { i18n, t } from '../i18n';
   import { deleteDialog } from '../stores/deleteDialog.svelte';
+  import { speedDialog } from '../stores/speedDialog.svelte';
   import { downloads } from '../stores/downloads.svelte';
   import { toast } from '../stores/toast.svelte';
   import { copyText } from '../util/clipboard';
@@ -115,6 +116,14 @@
     if (category !== download.category) await downloads.setCategory(download.id, category);
   }
 
+  /** Only a download that can still run has a speed to limit. */
+  const limitable = $derived(['queued', 'downloading', 'paused', 'failed'].includes(download.status));
+
+  function openSpeed(): void {
+    close(false);
+    speedDialog.show(download.id);
+  }
+
   const archivable = $derived(['completed', 'failed', 'cancelled'].includes(download.status));
 
   async function toggleArchived(): Promise<void> {
@@ -175,6 +184,16 @@
           <CategoryIcon category={download.category} size={18} />{t('menu.category')}
           <span class="ml-auto text-muted"><Icon name="chevronRight" size={16} /></span>
         </button>
+        {#if limitable}
+          <button class={ITEM} role="menuitem" type="button" onclick={openSpeed}>
+            <Icon name="gauge" size={18} />{t('menu.speed')}
+            {#if download.speed_limit}
+              <span class="ml-auto text-sm font-normal text-muted tabular-nums">
+                {i18n.speed(download.speed_limit)}
+              </span>
+            {/if}
+          </button>
+        {/if}
         {#if download.archived || archivable}
           <button class={ITEM} role="menuitem" type="button" onclick={toggleArchived}>
             <Icon name={download.archived ? 'up' : 'archive'} size={18} />

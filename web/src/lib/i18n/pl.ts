@@ -209,11 +209,10 @@ const pl: Messages = {
     'Więcej połączeń może przyspieszyć pobieranie, ale tylko na serwerach, które na to pozwalają. Dotyczy nowych pobrań.',
   'settings.concurrent.label': 'Równoczesne pobrania',
   'settings.concurrent.hint': 'Pozostałe pobrania czekają w kolejce. Zmiana działa od razu.',
-  'settings.speed': 'Limity prędkości',
-  'settings.speed.each': 'Ogranicz każde pobranie',
-  'settings.speed.eachHint': 'Dotyczy każdego pobrania osobno.',
+  'settings.speed': 'Limit prędkości',
   'settings.speed.total': 'Ogranicz prędkość łączną',
-  'settings.speed.totalHint': 'Wspólna dla wszystkich pobrań.',
+  'settings.speed.totalHint':
+    'Wspólny dla wszystkich pobrań. Pojedyncze pobranie może mieć własny limit w swoim menu; obowiązuje niższy.',
   'settings.speed.max': '{label}: maksymalna prędkość',
   'settings.speed.unit': 'Jednostka',
   'settings.speed.unlimited': 'Bez limitu',
@@ -370,6 +369,14 @@ const pl: Messages = {
   },
   'delete.confirmMany': 'Usuń: {n}',
   'delete.confirmManyWithFiles': 'Usuń razem z plikami: {n}',
+
+  // ---- speed limit of one download
+  'menu.speed': 'Limit prędkości…',
+  'speed.title': 'Limit prędkości',
+  'speed.limitThis': 'Ogranicz to pobranie',
+  'speed.hint.global': 'Dotyczy tylko tego pobrania. Limit globalny {speed} nadal obowiązuje; liczy się niższy.',
+  'speed.hint.noGlobal': 'Dotyczy tylko tego pobrania. Limitu globalnego nie ustawiono.',
+  'card.limit': 'Limit {speed}',
 
   // ---- accent colours
   'accent.blue': 'Niebieski',
