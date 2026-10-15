@@ -4,6 +4,9 @@ import type { Messages } from './en';
 const pl: Messages = {
   // ---- common
   'common.cancel': 'Anuluj',
+  'common.close': 'Zamknij',
+  'common.copy': 'Kopiuj',
+  'common.copied': 'Skopiowano.',
   'common.tryAgain': 'Spróbuj ponownie',
   'common.loading': 'Ładowanie…',
   'common.dismiss': 'Zamknij',
@@ -38,18 +41,34 @@ const pl: Messages = {
   'login.submitting': 'Logowanie…',
   'login.wrong': 'Nieprawidłowe hasło.',
   'login.locked': 'Zbyt wiele prób. Spróbuj ponownie za {n} s.',
+  'login.forgot': 'Nie pamiętasz hasła?',
+  'forgot.title': 'Nie pamiętasz hasła?',
+  'forgot.intro':
+    'FetchBox nie wyśle maila z resetem: serwer przechowuje hasło tylko jako skrót. Resetujesz je na maszynie, na której działa FetchBox. Pobrania i ustawienia zostają.',
+  'forgot.docker': 'Docker Compose',
+  'forgot.dockerSteps':
+    'Zatrzymaj kontener, usuń hasło, uruchom go ponownie, a potem znajdź kod konfiguracji (setup code) w jego logu:',
+  'forgot.plain': 'Bez Dockera',
+  'forgot.plainSteps':
+    'Zatrzymaj FetchBox, wykonaj to polecenie z tym samym --data-dir, co serwer, uruchom FetchBox ponownie i znajdź kod konfiguracji (setup code) w jego logu:',
+  'forgot.after':
+    'Otwórz FetchBox, wpisz kod z logu i utwórz nowe hasło, tak jak przy pierwszym uruchomieniu.',
+  'forgot.external':
+    'Hasło jest ustawione na serwerze zmienną FETCHBOX_PASSWORD albo plikiem z hasłem. Zmień je tam i uruchom FetchBox ponownie.',
   'login.failed': 'Logowanie nie powiodło się.',
 
   // ---- first-run setup
   'setup.title': 'Witaj w FetchBox',
   'setup.step': 'Krok {current} z {total}',
   'setup.steps': 'Postęp konfiguracji',
+  'setup.step.language': 'Język',
   'setup.step.look': 'Wygląd',
-  'setup.step.account': 'Konto',
-  'setup.step.downloads': 'Pobieranie',
+  'setup.step.account': 'Hasło',
   'setup.step.done': 'Gotowe',
   'setup.look.title': 'Dopasuj do siebie',
-  'setup.look.hint': 'Wybierz język, motyw i kolor akcentu. Zmienisz je później w Ustawieniach.',
+  'setup.language.title': 'Wybierz język',
+  'setup.language.hint': 'Zmienisz go później w Ustawieniach.',
+  'setup.look.hint': 'Wybierz motyw i kolor akcentu. Zmienisz je później w Ustawieniach.',
   'setup.account.title': 'Utwórz konto',
   'setup.account.hint':
     'FetchBox jest chroniony hasłem. Aby mieć pewność, że to Ty, utworzenie konta wymaga jednorazowego kodu z logu serwera.',
@@ -66,18 +85,11 @@ const pl: Messages = {
   'setup.error.failed': 'Nie udało się utworzyć konta.',
   'setup.creating': 'Tworzenie…',
   'setup.create': 'Utwórz konto',
-  'setup.downloads.title': 'Domyślne ustawienia pobierania',
-  'setup.downloads.hint':
-    'Domyślne wartości pasują do większości zastosowań. Wszystko zmienisz później w Ustawieniach.',
   'setup.done.title': 'Wszystko gotowe',
-  'setup.done.hint': 'FetchBox jest gotowy. Dodaj pierwsze pobieranie albo najpierw się rozejrzyj.',
-  'setup.done.add': 'Dodaj pobranie',
-  'setup.done.list': 'Przejdź do pobrań',
+  'setup.done.hint': 'FetchBox jest gotowy. Resztę, na przykład limity prędkości, znajdziesz w Ustawieniach.',
+  'setup.done.open': 'Przejdź do aplikacji',
   'setup.next': 'Dalej',
   'setup.back': 'Wstecz',
-  'setup.skip': 'Pomiń',
-  'setup.saveContinue': 'Zapisz i kontynuuj',
-  'setup.saving': 'Zapisywanie…',
 
   // ---- download list
   'downloads.title': 'Pobrania',
@@ -242,6 +254,9 @@ const pl: Messages = {
   'settings.account': 'Konto',
   'settings.signOut': 'Wyloguj',
   'settings.password': 'Hasło',
+  'settings.password.title': 'Zmiana hasła',
+  'settings.password.button': 'Zmień hasło…',
+  'settings.password.same': 'Nowe hasło jest takie samo jak obecne.',
   'settings.password.hint': 'Zmiana hasła wylogowuje Cię ze wszystkich innych urządzeń.',
   'settings.password.external':
     'Hasło jest ustawione na serwerze (FETCHBOX_PASSWORD lub plik z hasłem), więc nie można go tutaj zmienić.',

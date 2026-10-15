@@ -10,6 +10,9 @@ import type { Message } from './types';
 export const en = {
   // ---- common
   'common.cancel': 'Cancel',
+  'common.close': 'Close',
+  'common.copy': 'Copy',
+  'common.copied': 'Copied.',
   'common.tryAgain': 'Try again',
   'common.loading': 'Loading…',
   'common.dismiss': 'Dismiss',
@@ -45,17 +48,33 @@ export const en = {
   'login.wrong': 'Wrong password.',
   'login.locked': 'Too many attempts. Try again in {n} s.',
   'login.failed': 'Login failed.',
+  'login.forgot': 'Forgot your password?',
+  'forgot.title': 'Forgot your password?',
+  'forgot.intro':
+    'FetchBox cannot send a reset e-mail: your server only keeps the password as a hash. You reset it on the machine that runs FetchBox. Your downloads and settings stay.',
+  'forgot.docker': 'With Docker Compose',
+  'forgot.dockerSteps':
+    'Stop the container, remove the password, start it again, then find the setup code in its log:',
+  'forgot.plain': 'Without Docker',
+  'forgot.plainSteps':
+    'Stop FetchBox, run this with the same --data-dir as the server, start FetchBox again, then find the setup code in its log:',
+  'forgot.after':
+    'Open FetchBox, enter the setup code from the log and create a new password, just like on the first start.',
+  'forgot.external':
+    'The password is set on the server with FETCHBOX_PASSWORD or a password file. Change it there and restart FetchBox.',
 
   // ---- first-run setup
   'setup.title': 'Welcome to FetchBox',
   'setup.step': 'Step {current} of {total}',
   'setup.steps': 'Setup progress',
+  'setup.step.language': 'Language',
   'setup.step.look': 'Look',
-  'setup.step.account': 'Account',
-  'setup.step.downloads': 'Downloads',
+  'setup.step.account': 'Password',
   'setup.step.done': 'Done',
   'setup.look.title': 'Make it yours',
-  'setup.look.hint': 'Pick a language, a theme and an accent colour. You can change them later in Settings.',
+  'setup.language.title': 'Choose your language',
+  'setup.language.hint': 'You can change it later in Settings.',
+  'setup.look.hint': 'Pick a theme and an accent colour. You can change them later in Settings.',
   'setup.account.title': 'Create your account',
   'setup.account.hint':
     'FetchBox is protected by a password. To make sure it is you, creating the account needs a one-time code from the server log.',
@@ -72,18 +91,11 @@ export const en = {
   'setup.error.failed': 'Could not create the account.',
   'setup.creating': 'Creating…',
   'setup.create': 'Create account',
-  'setup.downloads.title': 'Download defaults',
-  'setup.downloads.hint':
-    'The defaults are fine for most setups. Everything here can be changed later in Settings.',
   'setup.done.title': 'All set',
-  'setup.done.hint': 'FetchBox is ready. Add your first download, or look around first.',
-  'setup.done.add': 'Add a download',
-  'setup.done.list': 'Go to downloads',
+  'setup.done.hint': 'FetchBox is ready. Everything else, like speed limits, is in Settings.',
+  'setup.done.open': 'Go to the app',
   'setup.next': 'Next',
   'setup.back': 'Back',
-  'setup.skip': 'Skip',
-  'setup.saveContinue': 'Save and continue',
-  'setup.saving': 'Saving…',
 
   // ---- download list
   'downloads.title': 'Downloads',
@@ -245,6 +257,9 @@ export const en = {
   'settings.account': 'Account',
   'settings.signOut': 'Sign out',
   'settings.password': 'Password',
+  'settings.password.title': 'Change password',
+  'settings.password.button': 'Change password…',
+  'settings.password.same': 'The new password is the same as the current one.',
   'settings.password.hint': 'Changing the password signs out all your other devices.',
   'settings.password.external':
     'The password is set on the server (FETCHBOX_PASSWORD or a password file), so it cannot be changed here.',

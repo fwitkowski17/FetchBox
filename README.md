@@ -80,8 +80,25 @@ The API is protected by a single shared password. There are three ways to set it
    WARN fetchbox: first run: open the web UI and enter the setup code K7QM2XPD to create your account ...
    ```
 
-   Open the UI (`docker compose logs fetchbox` shows the line in Docker), walk through the setup wizard (look, account, download defaults) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
+   Open the UI (`docker compose logs fetchbox` shows the line in Docker), walk through the short setup wizard (language, look, password) and enter the code to create the account. The code guards a fresh server against whoever reaches it first; it is new on every start until the account exists, and wrong guesses count towards the login throttle. The password is stored as an Argon2id hash in the SQLite database and can be changed under *Settings*, which ends all other sessions.
 3. **No authentication**, only on a fully trusted network: `--no-auth`.
+
+**Change the password** under *Settings > Password* (current, new, new again). It signs out your other devices.
+
+**Forgot it?** There is no e-mail reset: the server only keeps a hash, so you reset it where the server runs. This removes the stored password (downloads and settings stay); the server then starts like on the first run, with a setup code in its log, and you create a new account in the browser. The login screen shows the same steps under *Forgot your password?*.
+
+```bash
+# Docker Compose
+docker compose stop fetchbox
+docker compose run --rm fetchbox reset-password
+docker compose up -d fetchbox
+docker compose logs fetchbox      # the line with "setup code"
+
+# Without Docker (same --data-dir as the server)
+fetchbox --data-dir ./data reset-password
+```
+
+A password set with `FETCHBOX_PASSWORD` or `--password-file` is not stored by the server: change it there and restart.
 
 Log in with `POST /api/auth/login {"password": "..."}`: the response sets an `HttpOnly` session cookie and also returns a token usable as `Authorization: Bearer <token>`. After 5 failed attempts logins are locked for up to a minute. Sessions are kept in memory (a restart logs everyone out). Serve it over HTTPS via a reverse proxy when exposed beyond the LAN (send `X-Forwarded-Proto: https` so the cookie gets `Secure`).
 

@@ -17,3 +17,17 @@ export function checkNewPassword(password: string, repeat: string): PasswordProb
   if (password !== repeat) return 'mismatch';
   return null;
 }
+
+export type PasswordChangeProblem = PasswordProblem | 'same';
+
+/** Everything that can be wrong with a password change before the server is asked. The current
+ *  password is only checked by the server, but changing a password to itself is pointless. */
+export function checkPasswordChange(
+  current: string,
+  next: string,
+  repeat: string,
+): PasswordChangeProblem | null {
+  const problem = checkNewPassword(next, repeat);
+  if (problem) return problem;
+  return current !== '' && next === current ? 'same' : null;
+}

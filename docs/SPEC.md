@@ -248,7 +248,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   and takes effect at once. A card with an own speed shows "Limit N MB/s" in its stats line. Settings has the default speed
   of each download and the total limit.
 - Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
-  floating button, the empty list and the end of the setup wizard (all through `stores/addDialog`), mounted once in the app
+  floating button and the empty list (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
   success clears it), the name-conflict and "does not fit" dialogs open on top of it, and a success closes everything and
   shows the list. Old `#/add` links still work: they open the dialog and the hash goes back to `#/`.
@@ -265,10 +265,23 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
   Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
 - First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
-  it: look (language, theme, accent; applied live, stored like in Settings), account (setup code, password, repeat),
-  download defaults (the same fields as Settings, optional), done. The steps after the account one run signed in;
-  reloading in between simply opens the app. Settings has a "change password" card for UI-created accounts and an
-  explanation for an external password.
+  it, kept as short as it can be: language, look (theme and accent colour; both applied live and stored like in
+  Settings), password (setup code, password, repeat; this creates the account), and a final "All set" screen whose
+  only button goes to the downloads. No download limits, speed unit or other options are asked: they have sensible
+  defaults and live in Settings. Back goes to the previous step until the account exists; the final step already runs
+  signed in, and reloading after the password step simply opens the app.
+- Password: Settings has a "Password" card. For an account created in the UI it has a "Change password..." button that
+  opens a dialog (`ChangePasswordDialog`) with the current password, the new one and the new one again (hidden text,
+  `autocomplete` hints for password managers). The checks are the server's (8 to 256 characters, both new entries equal)
+  plus "not the same as the current one"; a wrong current password (`403`) and too many attempts (`429`) are shown in the
+  dialog, and a success closes it with a toast. The server ends every other session, this one stays. Fields are emptied
+  whenever the dialog opens. For a password from `FETCHBOX_PASSWORD` or `--password-file` the card only explains that it
+  is set on the server. The login screen has a small "Forgot your password?" link that opens `ForgotPasswordDialog`:
+  there is no e-mail reset (the server keeps only a hash), so it shows the commands to run on the machine that runs the
+  server, each with a copy button: for Docker Compose `docker compose stop fetchbox`, `docker compose run --rm fetchbox
+  reset-password`, `docker compose up -d fetchbox`, `docker compose logs fetchbox`; without Docker `fetchbox --data-dir
+  ./data reset-password`; then enter the setup code from the log (see 6.7). With an external password the dialog says to
+  change it where it is set and restart.
 - Start-up speed (the app is used over Wi-Fi, VPN or a phone connection to small hardware, so round trips and bytes
   matter): the server sends hashed build output (`assets/*`) with `Cache-Control: public, max-age=31536000, immutable`
   and everything else (`index.html`, manifest, icons) with `no-cache` plus an `ETag`, so a repeat visit costs one `304`
@@ -308,7 +321,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Sorting (date added, name, size, progress, speed, status; unknown sizes always last), status tabs, category filter,
   search; remembered in `localStorage`. System / light / dark / black theme via CSS tokens (`[data-theme]` plus
   `prefers-color-scheme`; black is dark with a pure black background for OLED), applied before first paint.
-- Speed unit shown in the app: a display choice in Settings > Appearance (and the setup wizard), kept per browser in
+- Speed unit shown in the app: a display choice in Settings > Appearance (not in the setup wizard), kept per browser in
   `localStorage` (`fetchbox.speedUnit`), not a server setting. `Automatic` (B, KB, MB... as before), `Automatic in bits` (bit,
   Kbit, Mbit, Gbit...) or one fixed unit (KB/s, MB/s, Kbit/s, Mbit/s). It applies to every speed the UI writes (list header,
   side panel, cards, limits on cards and in menus); the limit fields keep the unit of their own field. Fixed and bit units
@@ -351,6 +364,15 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   `settings` table; it is not part of `Settings` and never leaves the database. `POST /api/auth/password
   {current_password, new_password}` (logged in) changes it (`403` wrong current password, `409` for an external
   password) and ends every other session. Hashing runs on the blocking thread pool.
+- Forgotten password: `fetchbox [--data-dir D] reset-password` removes the stored hash (`settings.password_hash`) and
+  nothing else, so the next start of the server is a first run: locked, with a fresh setup code in its log, and a new
+  account is created in the browser. Downloads and settings are kept. The server must be stopped while it runs (it holds
+  the hash in memory, and two processes should not share a SQLite file over some container file systems); it opens the
+  database only if it exists (a wrong `--data-dir` is an error, not an empty database). It never starts the server or
+  creates the download directory, so it works with the flags of the Docker entrypoint in front of it. A password from
+  `FETCHBOX_PASSWORD` / `--password-file` is not affected (a warning says so) and an empty `FETCHBOX_PASSWORD` counts as
+  not set. A reset needs access to the host or the container, the same access that could read the database anyway; there
+  is deliberately no reset from the login screen.
 - Sanitize filenames, never write outside download dir.
 - Optional blocklist of private IP ranges for URLs (SSRF), `--block-private-urls`, off by default because fetching
   from a NAS in the LAN is normal use. It blocks loopback, RFC 1918, link-local (cloud metadata), CGNAT, multicast,

@@ -43,15 +43,20 @@ struct Args {
     /// Run without authentication. Anyone who can reach the port can use the manager.
     #[arg(long)]
     no_auth: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
 /// The password from the environment: `FETCHBOX_PASSWORD`, or the variable's name from before the
 /// project was renamed, `DLM_PASSWORD` (still honoured, so an existing deployment keeps working).
+///
+/// An empty value counts as not set: `docker compose` passes `FETCHBOX_PASSWORD: ${FETCHBOX_PASSWORD:-}`.
 fn password_from_env() -> Option<String> {
-    if let Ok(p) = std::env::var("FETCHBOX_PASSWORD") {
+    let set = |name: &str| std::env::var(name).ok().filter(|p| !p.is_empty());
+    if let Some(p) = set("FETCHBOX_PASSWORD") {
         return Some(p);
     }
-    let old = std::env::var("DLM_PASSWORD").ok()?;
+    let old = set("DLM_PASSWORD")?;
     tracing::warn!("DLM_PASSWORD is the old name of FETCHBOX_PASSWORD; please rename it");
     Some(old)
 }
@@ -79,6 +84,40 @@ fn adopt_legacy_database(dir: &Path) -> anyhow::Result<()> {
         }
     }
     tracing::info!(from = %old.display(), to = %new.display(), "renamed the database after the project rename");
+    Ok(())
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Command {
+    /// Forget the password created in the web UI (for a forgotten password). Stop the server first,
+    /// run this, start the server again: it asks for a new account like on the first run and
+    /// prints the setup code in its log. Downloads and settings are kept.
+    ResetPassword,
+}
+
+/// `reset-password`: remove the stored password hash from the database in `data_dir`.
+fn reset_password(data_dir: &Path) -> anyhow::Result<()> {
+    adopt_legacy_database(data_dir)?;
+    let db_path = data_dir.join("fetchbox.db");
+    // Never create a database here: a wrong --data-dir would "succeed" on an empty one.
+    anyhow::ensure!(
+        db_path.exists(),
+        "no database in {}: is --data-dir the directory the server uses?",
+        data_dir.display()
+    );
+    let db = fetchbox_storage::open(&db_path).context("open database")?;
+    if fetchbox_storage::settings::clear_password_hash(&db).context("remove the password")? {
+        tracing::info!(
+            "password removed. Start the server again: it will ask for a new account, with a setup code in its log"
+        );
+    } else {
+        tracing::info!("no password is stored in the web UI: nothing to reset");
+    }
+    if password_from_env().is_some() {
+        tracing::warn!(
+            "FETCHBOX_PASSWORD is set here: a password from the environment or from --password-file always wins; change or remove it there"
+        );
+    }
     Ok(())
 }
 
@@ -169,6 +208,9 @@ async fn run() -> anyhow::Result<()> {
             fetchbox_api::openapi::spec_json().context("render OpenAPI")?
         );
         return Ok(());
+    }
+    if let Some(Command::ResetPassword) = args.command {
+        return reset_password(&args.data_dir);
     }
     std::fs::create_dir_all(&args.data_dir).context("create data dir")?;
     std::fs::create_dir_all(&args.download_dir).context("create download dir")?;
@@ -265,6 +307,7 @@ mod auth_config_tests {
             print_openapi: false,
             block_private_urls: false,
             no_auth,
+            command: None,
         }
     }
 

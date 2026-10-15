@@ -36,6 +36,13 @@ pub fn set_password_hash(conn: &Connection, hash: &str) -> Result<()> {
     Ok(())
 }
 
+/// Forget the stored password (the account made in the UI). Returns whether there was one. The
+/// server then starts like on the first run: locked until a new account is created.
+pub fn clear_password_hash(conn: &Connection) -> Result<bool> {
+    let removed = conn.execute("DELETE FROM settings WHERE key = ?1", [PASSWORD_HASH])?;
+    Ok(removed > 0)
+}
+
 /// Load settings; missing or unparsable keys fall back to the defaults.
 pub fn load(conn: &Connection) -> Result<Settings> {
     let d = Settings::default();
@@ -119,6 +126,25 @@ mod tests {
             load(&conn).expect("load").connections,
             Settings::default().connections
         );
+    }
+
+    #[test]
+    fn the_password_can_be_forgotten_and_the_settings_stay() {
+        let mut conn = open_in_memory().expect("db");
+        assert!(!clear_password_hash(&conn).expect("nothing to clear"));
+        save(
+            &mut conn,
+            &Settings {
+                connections: 7,
+                ..Settings::default()
+            },
+        )
+        .expect("save");
+        set_password_hash(&conn, "$argon2id$one").expect("set");
+        assert!(clear_password_hash(&conn).expect("clear"));
+        assert_eq!(password_hash(&conn).expect("get"), None);
+        assert_eq!(load(&conn).expect("load").connections, 7);
+        assert!(!clear_password_hash(&conn).expect("already gone"));
     }
 
     #[test]

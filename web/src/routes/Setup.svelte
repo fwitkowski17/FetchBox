@@ -1,23 +1,20 @@
 <script lang="ts">
-  // First run: look, account, download defaults, done. The account step needs the one-time code
-  // from the server log; the steps after it already run signed in.
-  import { untrack } from 'svelte';
+  // First run, as short as it can be: language, look (theme and accent), password, done. The
+  // password step needs the one-time code from the server log. Everything else (download limits,
+  // speed unit...) has a sensible default and lives in Settings.
   import { ApiError } from '../lib/api/client';
-  import AppearanceFields from '../lib/components/AppearanceFields.svelte';
   import Icon from '../lib/components/Icon.svelte';
-  import SettingsFields from '../lib/components/SettingsFields.svelte';
+  import LanguageSelect from '../lib/components/LanguageSelect.svelte';
+  import LookFields from '../lib/components/LookFields.svelte';
   import { i18n, t } from '../lib/i18n';
-  import { addDialog } from '../lib/stores/addDialog.svelte';
   import { auth } from '../lib/stores/auth.svelte';
-  import { settings } from '../lib/stores/settings.svelte';
   import { CARD } from '../lib/util/classes';
   import { MIN_PASSWORD_LEN, checkNewPassword } from '../lib/util/password';
-  import { fromDraft, toDraft, validate, type Draft } from '../lib/util/settingsForm';
 
-  const STEPS = ['look', 'account', 'downloads', 'done'] as const;
+  const STEPS = ['language', 'look', 'account', 'done'] as const;
   type Step = (typeof STEPS)[number];
 
-  let step = $state<Step>('look');
+  let step = $state<Step>('language');
   const index = $derived(STEPS.indexOf(step));
 
   // ---- account
@@ -44,7 +41,7 @@
     try {
       await auth.setup(code, password);
       password = repeat = code = '';
-      step = 'downloads';
+      step = 'done';
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         accountError = t('setup.error.code');
@@ -66,39 +63,9 @@
     }
   }
 
-  // ---- download defaults
-  let draft = $state<Draft | null>(null);
-  let saving = $state(false);
-  let saveError = $state<string | null>(null);
-
-  // The settings load as soon as the account step signs us in.
-  $effect(() => {
-    const current = settings.value;
-    if (current) untrack(() => (draft ??= toDraft(current)));
-  });
-
-  const errors = $derived(draft ? validate(draft) : {});
-  const valid = $derived(Object.keys(errors).length === 0);
-
-  async function saveDefaults(e: SubmitEvent): Promise<void> {
-    e.preventDefault();
-    if (!draft || !valid || saving) return;
-    saving = true;
-    saveError = null;
-    try {
-      await settings.save(fromDraft(draft));
-      step = 'done';
-    } catch (err) {
-      saveError = err instanceof ApiError ? i18n.errorText(err) : t('settings.saveFailed');
-    } finally {
-      saving = false;
-    }
-  }
-
-  function finish(thenAdd: boolean): void {
+  function finish(): void {
     location.hash = '#/';
     auth.finishWizard();
-    if (thenAdd) addDialog.show();
   }
 </script>
 
@@ -131,16 +98,30 @@
       <p class="sr-only" role="status">{t('setup.step', { current: index + 1, total: STEPS.length })}</p>
     </nav>
 
-    {#if step === 'look'}
+    {#if step === 'language'}
+      <section class={CARD} data-part="step-language">
+        <div>
+          <h2 class="text-lg font-semibold tracking-tight">{t('setup.language.title')}</h2>
+          <p class="hint mt-1">{t('setup.language.hint')}</p>
+        </div>
+        <LanguageSelect />
+        <button class="btn primary justify-self-end" type="button" onclick={() => (step = 'look')}>
+          {t('setup.next')}
+        </button>
+      </section>
+    {:else if step === 'look'}
       <section class={CARD} data-part="step-look">
         <div>
           <h2 class="text-lg font-semibold tracking-tight">{t('setup.look.title')}</h2>
           <p class="hint mt-1">{t('setup.look.hint')}</p>
         </div>
-        <AppearanceFields />
-        <button class="btn primary justify-self-end" type="button" onclick={() => (step = 'account')}>
-          {t('setup.next')}
-        </button>
+        <LookFields />
+        <div class="flex justify-between gap-2">
+          <button class="btn" type="button" onclick={() => (step = 'language')}>{t('setup.back')}</button>
+          <button class="btn primary" type="button" onclick={() => (step = 'account')}>
+            {t('setup.next')}
+          </button>
+        </div>
       </section>
     {:else if step === 'account'}
       <form class={CARD} onsubmit={createAccount} data-part="step-account">
@@ -210,38 +191,6 @@
           </button>
         </div>
       </form>
-    {:else if step === 'downloads'}
-      <form class="grid gap-4" onsubmit={saveDefaults} data-part="step-downloads">
-        <div>
-          <h2 class="text-lg font-semibold tracking-tight">{t('setup.downloads.title')}</h2>
-          <p class="hint mt-1">{t('setup.downloads.hint')}</p>
-        </div>
-
-        {#if draft}
-          <SettingsFields bind:draft {errors} />
-        {:else if settings.error}
-          <p class="text-danger" role="alert">
-            {t('settings.loadFailed', { error: i18n.errorText(settings.error) })}
-          </p>
-        {:else}
-          <p class="hint" role="status">{t('common.loading')}</p>
-        {/if}
-
-        {#if saveError}
-          <p class="flex gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger" role="alert">
-            <Icon name="alert" size={18} />{saveError}
-          </p>
-        {/if}
-
-        <div class="flex justify-between gap-2">
-          <button class="btn" type="button" onclick={() => (step = 'done')} disabled={saving}>
-            {t('setup.skip')}
-          </button>
-          <button class="btn primary" type="submit" disabled={!draft || !valid || saving}>
-            {saving ? t('setup.saving') : t('setup.saveContinue')}
-          </button>
-        </div>
-      </form>
     {:else}
       <section class={[CARD, 'justify-items-center text-center']} data-part="step-done">
         <div class="grid size-12 place-items-center rounded-full bg-success-soft text-success">
@@ -251,12 +200,9 @@
           <h2 class="text-lg font-semibold tracking-tight">{t('setup.done.title')}</h2>
           <p class="hint mt-1">{t('setup.done.hint')}</p>
         </div>
-        <div class="flex flex-wrap justify-center gap-2">
-          <button class="btn" type="button" onclick={() => finish(false)}>{t('setup.done.list')}</button>
-          <button class="btn primary" type="button" onclick={() => finish(true)}>
-            {t('setup.done.add')}
-          </button>
-        </div>
+        <button class="btn primary" type="button" onclick={finish} data-part="finish">
+          {t('setup.done.open')}
+        </button>
       </section>
     {/if}
   </div>
