@@ -3,6 +3,7 @@
   import { i18n, t } from '../i18n';
   import { confirmAction } from '../stores/confirm.svelte';
   import { downloads } from '../stores/downloads.svelte';
+  import { selection } from '../stores/selection.svelte';
   import { speedOf } from '../util/downloads';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
   import CardMenu from './CardMenu.svelte';
@@ -21,6 +22,8 @@
   const speed = $derived(speedOf(d));
   const eta = $derived(etaSeconds(d.downloaded, d.size, speed));
   const live = $derived(d.status === 'downloading');
+  const selecting = $derived(selection.active);
+  const selected = $derived(selection.has(d.id));
   /** Held back because the disk is full; the gauge below says by how much. */
   const heldForSpace = $derived(d.status === 'paused' && d.waiting_space === true && d.size != null);
   const unfinished = $derived(d.status === 'queued' || d.status === 'downloading' || d.status === 'paused');
@@ -63,11 +66,31 @@
   const remove = () => act(() => downloads.remove(d.id));
 </script>
 
+<!-- In selection mode the whole card is the target; the checkbox is for keyboards and screen readers. -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 <article
-  class="grid gap-3 rounded-2xl border border-border bg-surface p-4 shadow-card"
+  class={[
+    'grid gap-3 rounded-2xl border bg-surface p-4 shadow-card transition-colors',
+    selected ? 'border-accent bg-accent-soft' : 'border-border',
+    selecting && 'cursor-pointer',
+  ]}
   aria-label={d.filename}
+  data-selected={selecting ? String(selected) : undefined}
+  onclick={(e) => {
+    if (selecting && !(e.target instanceof HTMLInputElement)) selection.toggle(d.id);
+  }}
 >
   <div class="flex items-center gap-3">
+    {#if selecting}
+      <input
+        type="checkbox"
+        class="size-5 shrink-0 accent-[var(--accent)]"
+        checked={selected}
+        onchange={() => selection.toggle(d.id)}
+        aria-label={t('selection.card', { name: d.filename })}
+        data-part="select"
+      />
+    {/if}
     <CategoryIcon category={d.category} tile />
     <div class="min-w-0 flex-1">
       <h3 class="truncate font-semibold tracking-tight" title={d.filename}>{d.filename}</h3>
@@ -126,35 +149,37 @@
     <p class="text-sm text-warning">{t('card.noResume')}</p>
   {/if}
 
-  <div class="flex items-center gap-2">
-    {#if primary}
-      <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
-        <Icon name={primary.icon} size={18} />{primary.label}
-      </button>
-    {/if}
+  {#if !selecting}
+    <div class="flex items-center gap-2">
+      {#if primary}
+        <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
+          <Icon name={primary.icon} size={18} />{primary.label}
+        </button>
+      {/if}
 
-    <CardMenu download={d} disabled={busy} />
+      <CardMenu download={d} disabled={busy} />
 
-    {#if unfinished}
-      <button
-        class={['btn icon', !primary && 'ml-auto']}
-        disabled={busy}
-        aria-label={t('card.cancel.label', { name: d.filename })}
-        title={t('card.cancel.title')}
-        onclick={cancel}
-      >
-        <Icon name="x" />
-      </button>
-    {:else}
-      <button
-        class="btn icon ml-auto"
-        disabled={busy}
-        aria-label={t('card.remove.label', { name: d.filename })}
-        title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
-        onclick={remove}
-      >
-        <Icon name="trash" />
-      </button>
-    {/if}
-  </div>
+      {#if unfinished}
+        <button
+          class={['btn icon', !primary && 'ml-auto']}
+          disabled={busy}
+          aria-label={t('card.cancel.label', { name: d.filename })}
+          title={t('card.cancel.title')}
+          onclick={cancel}
+        >
+          <Icon name="x" />
+        </button>
+      {:else}
+        <button
+          class="btn icon ml-auto"
+          disabled={busy}
+          aria-label={t('card.remove.label', { name: d.filename })}
+          title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
+          onclick={remove}
+        >
+          <Icon name="trash" />
+        </button>
+      {/if}
+    </div>
+  {/if}
 </article>

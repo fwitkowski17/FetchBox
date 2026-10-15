@@ -16,6 +16,7 @@
   import { downloads } from './lib/stores/downloads.svelte';
   import { media } from './lib/stores/media.svelte';
   import { route } from './lib/stores/route';
+  import { selection } from './lib/stores/selection.svelte';
   import { settings } from './lib/stores/settings.svelte';
   import { theme } from './lib/stores/theme.svelte';
   import { summarize } from './lib/util/downloads';
@@ -194,7 +195,7 @@
       </main>
     </div>
 
-    {#if !media.desktop && $route === 'downloads'}
+    {#if !media.desktop && $route === 'downloads' && !selection.active}
       <button
         in:scale={{ start: 0.6, duration: motion(200) }}
         out:fade={{ duration: motion(120) }}

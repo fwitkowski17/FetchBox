@@ -115,6 +115,16 @@
     if (category !== download.category) await downloads.setCategory(download.id, category);
   }
 
+  const archivable = $derived(['completed', 'failed', 'cancelled'].includes(download.status));
+
+  async function toggleArchived(): Promise<void> {
+    close();
+    const archive = !download.archived;
+    if (await downloads.setArchived(download.id, archive)) {
+      toast.success(t(archive ? 'bulk.archived' : 'bulk.restored', { n: 1 }));
+    }
+  }
+
   function remove(): void {
     close(false);
     deleteDialog.show(download.id);
@@ -165,6 +175,12 @@
           <CategoryIcon category={download.category} size={18} />{t('menu.category')}
           <span class="ml-auto text-muted"><Icon name="chevronRight" size={16} /></span>
         </button>
+        {#if download.archived || archivable}
+          <button class={ITEM} role="menuitem" type="button" onclick={toggleArchived}>
+            <Icon name={download.archived ? 'up' : 'archive'} size={18} />
+            {download.archived ? t('menu.restore') : t('menu.archive')}
+          </button>
+        {/if}
         <hr class="m-1 border-0 border-t border-border" />
         <button class={[ITEM, 'text-danger']} role="menuitem" type="button" onclick={remove}>
           <Icon name="trash" size={18} />{t('menu.delete')}

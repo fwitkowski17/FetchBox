@@ -139,7 +139,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
 - `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
 
@@ -151,7 +151,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id[?delete_file=true]` (removes the entry; with
   `delete_file` also the finished file, only for a completed download and only the plain file name the engine finally
   chose, inside the download's own directory; a file that is already gone is fine, any other failure keeps the entry)
-- `PATCH /api/downloads/:id` (e.g. change category)
+- `PATCH /api/downloads/:id` (`category` and/or `archived`: archiving hides a finished, failed or cancelled download from
+  the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
+  checks)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/disk` (free space of the download disk)
 - `GET /api/events` (SSE: progress, status changes)
@@ -209,6 +211,21 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   button takes over (the header one is hidden there, so there is one add button per layout). The side menu has no "Add"
   item: it lists the pages and the filters. Toasts sit at the bottom right on wide screens (so they never cover the header
   buttons) and under the top bar on narrow ones (the floating button is at the bottom there).
+- Selecting several downloads: a "Select" button in the list header switches the list to selection mode. Cards get a checkbox
+  and become click targets (their own buttons are hidden meanwhile), the header buttons step aside and an action bar appears
+  at the bottom (next to the side panel on wide screens; on a phone the count on top and four evenly spread buttons below).
+  The bar has "Select all" (everything visible, toggling back to "Clear selection"), "Category", "Archive" / "Restore",
+  "Delete" and "Done"; Escape also leaves the mode (unless a dialog is open) as does leaving the page. Only downloads that are
+  on screen can be selected: a filter or search that hides a selected card deselects it. All actions are the per-download
+  requests sent in parallel, with one summary toast (and the first error when some failed). "Category" opens a dialog with the
+  six categories and only sets the category (the files stay where they are). "Archive" takes the finished, failed and
+  cancelled ones among the selected and says how many unfinished ones it left alone; when only archived ones are selected
+  the same button reads "Restore". "Delete" opens the delete dialog for all of them: the count, a note about the unfinished
+  ones (stopped, partial files deleted) and, when completed ones are included, "Also delete the N downloaded files" (off by
+  default). The cards' menu also has "Archive" / "Restore from archive".
+- Archived: a status tab of its own ("Archived", in the side panel). "All" and the other status tabs show only what is not
+  archived, so archiving really hides an entry; "Clear finished" leaves archived entries alone; a list where everything is
+  archived says so and offers to show them.
 - Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel
   (unfinished) or "remove from list, the file stays" (finished). The "more" menu (replacing the old category select) has
   "Copy link" (the clipboard API where the page is a secure context, a selection fallback on plain-HTTP LAN pages),

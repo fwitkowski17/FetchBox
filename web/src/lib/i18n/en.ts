@@ -125,6 +125,7 @@ export const en = {
   'group.paused': 'Paused',
   'group.completed': 'Completed',
   'group.stopped': 'Failed',
+  'group.archived': 'Archived',
 
   'category.photo': 'Photos',
   'category.music': 'Music',
@@ -290,6 +291,55 @@ export const en = {
   'delete.alsoFile.warning': 'The file is deleted for good. This cannot be undone.',
   'delete.confirm': 'Delete',
   'delete.confirmWithFile': 'Delete with file',
+
+  // ---- selecting several downloads
+  'downloads.select': 'Select',
+  'downloads.allArchived': 'Everything here is archived.',
+  'downloads.showArchived': 'Show archived',
+  'selection.label': 'Actions for the selected downloads',
+  'selection.count': { one: '{n} selected', other: '{n} selected' },
+  'selection.all': 'Select all',
+  'selection.none': 'Clear selection',
+  'selection.done': 'Done',
+  'selection.card': 'Select {name}',
+  'selection.category': 'Category',
+  'selection.archive': 'Archive',
+  'selection.restore': 'Restore',
+  'selection.delete': 'Delete',
+  'menu.archive': 'Archive',
+  'menu.restore': 'Restore from archive',
+  'bulk.category.title': 'Change category',
+  'bulk.category.text': {
+    one: 'Set the category of {n} download. The file stays where it is.',
+    other: 'Set the category of {n} downloads. The files stay where they are.',
+  },
+  'bulk.category.done': {
+    one: 'Changed the category of {n} download',
+    other: 'Changed the category of {n} downloads',
+  },
+  'bulk.archived': { one: 'Archived {n} download', other: 'Archived {n} downloads' },
+  'bulk.archiveSkipped': {
+    one: '{n} unfinished download was not archived',
+    other: '{n} unfinished downloads were not archived',
+  },
+  'bulk.restored': { one: 'Restored {n} download', other: 'Restored {n} downloads' },
+  'bulk.deleted': { one: 'Deleted {n} download', other: 'Deleted {n} downloads' },
+  'bulk.failed': {
+    one: '{n} download could not be changed',
+    other: '{n} downloads could not be changed',
+  },
+  'delete.titleMany': 'Delete downloads',
+  'delete.message.many': {
+    one: 'Remove {n} download from the list?',
+    other: 'Remove {n} downloads from the list?',
+  },
+  'delete.message.manyActive': 'Not finished: {n}. They are stopped and their partial files are deleted.',
+  'delete.alsoFiles': {
+    one: 'Also delete the {n} downloaded file from the disk',
+    other: 'Also delete the {n} downloaded files from the disk',
+  },
+  'delete.confirmMany': 'Delete {n}',
+  'delete.confirmManyWithFiles': 'Delete {n} with files',
 
   // ---- accent colours
   'accent.blue': 'Blue',

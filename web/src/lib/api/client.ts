@@ -118,6 +118,8 @@ export const api = {
   cancel: (id: number) => request<Download>('POST', `/downloads/${id}/cancel`),
   remove: (id: number, deleteFile = false) =>
     request<void>('DELETE', `/downloads/${id}${deleteFile ? '?delete_file=true' : ''}`),
+  setArchived: (id: number, archived: boolean) =>
+    request<Download>('PATCH', `/downloads/${id}`, { archived }),
   setCategory: (id: number, category: Category) =>
     request<Download>('PATCH', `/downloads/${id}`, { category }),
 

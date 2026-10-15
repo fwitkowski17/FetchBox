@@ -4,7 +4,7 @@ import { fraction } from './format';
 
 // ---- status groups (the tabs above the list) -------------------------------------
 
-export type Group = 'all' | 'active' | 'paused' | 'completed' | 'stopped';
+export type Group = 'all' | 'active' | 'paused' | 'completed' | 'stopped' | 'archived';
 
 /** Tabs in display order. Their labels are translated: `group.<id>`. */
 export const GROUPS: readonly { id: Group }[] = [
@@ -13,6 +13,7 @@ export const GROUPS: readonly { id: Group }[] = [
   { id: 'paused' },
   { id: 'completed' },
   { id: 'stopped' },
+  { id: 'archived' },
 ];
 
 export function groupOf(status: Status): Exclude<Group, 'all'> {
@@ -29,6 +30,11 @@ export function groupOf(status: Status): Exclude<Group, 'all'> {
   }
 }
 
+/** The tab a download belongs to: archived ones have their own, whatever their status. */
+export function groupOfDownload(d: Download): Exclude<Group, 'all'> {
+  return d.archived ? 'archived' : groupOf(d.status);
+}
+
 // ---- filtering ---------------------------------------------------------------------
 
 export interface Filter {
@@ -37,12 +43,16 @@ export interface Filter {
   query: string;
 }
 
-export function matches(d: Download, f: Filter): boolean {
-  if (f.group !== 'all' && groupOf(d.status) !== f.group) return false;
+function matchesCategoryAndQuery(d: Download, f: Filter): boolean {
   if (f.category !== 'all' && d.category !== f.category) return false;
   const q = f.query.trim().toLowerCase();
-  if (q && !d.filename.toLowerCase().includes(q) && !d.url.toLowerCase().includes(q)) return false;
-  return true;
+  return !q || d.filename.toLowerCase().includes(q) || d.url.toLowerCase().includes(q);
+}
+
+export function matches(d: Download, f: Filter): boolean {
+  // "All" is everything that is not archived: archiving hides a download from the main list.
+  if (f.group === 'all' ? d.archived === true : groupOfDownload(d) !== f.group) return false;
+  return matchesCategoryAndQuery(d, f);
 }
 
 export function filterDownloads(items: readonly Download[], f: Filter): Download[] {
@@ -54,9 +64,20 @@ export function countGroups(
   items: readonly Download[],
   f: Filter,
 ): Record<Group, number> {
-  const base = items.filter((d) => matches(d, { ...f, group: 'all' }));
-  const out: Record<Group, number> = { all: base.length, active: 0, paused: 0, completed: 0, stopped: 0 };
-  for (const d of base) out[groupOf(d.status)]++;
+  const out: Record<Group, number> = {
+    all: 0,
+    active: 0,
+    paused: 0,
+    completed: 0,
+    stopped: 0,
+    archived: 0,
+  };
+  // Category and search apply; the group dimension is what is being counted.
+  for (const d of items) {
+    if (!matchesCategoryAndQuery(d, f)) continue;
+    out[groupOfDownload(d)]++;
+    if (!d.archived) out.all++;
+  }
   return out;
 }
 

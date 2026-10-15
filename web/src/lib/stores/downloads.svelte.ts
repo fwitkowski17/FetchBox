@@ -2,6 +2,7 @@
 import { ApiError, api } from '../api/client';
 import type { AppEvent, Category, Settings } from '../api/types';
 import type { Download } from '../api/types';
+import type { BulkResult } from '../util/bulk';
 import { applyEvent } from '../util/downloads';
 import { i18n } from '../i18n';
 import { toast } from './toast.svelte';
@@ -96,10 +97,30 @@ class DownloadsStore {
   cancel = (id: number) => this.#run(() => api.cancel(id));
   remove = (id: number, deleteFile = false) => this.#run(() => api.remove(id, deleteFile));
   setCategory = (id: number, category: Category) => this.#run(() => api.setCategory(id, category));
+  setArchived = (id: number, archived: boolean) => this.#run(() => api.setArchived(id, archived));
+
+  // ---- the same commands for a whole selection. No toast per download: the caller shows one
+  // summary. The list follows the events as always.
+  removeMany = (ids: readonly number[], deleteFile: boolean) =>
+    this.#many(ids, (id) => api.remove(id, deleteFile));
+  setCategoryMany = (ids: readonly number[], category: Category) =>
+    this.#many(ids, (id) => api.setCategory(id, category));
+  setArchivedMany = (ids: readonly number[], archived: boolean) =>
+    this.#many(ids, (id) => api.setArchived(id, archived));
+
+  async #many(ids: readonly number[], call: (id: number) => Promise<unknown>): Promise<BulkResult> {
+    const results = await Promise.allSettled(ids.map(call));
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (this.connection !== 'live') await this.reload();
+    return { done: results.length - failures.length, failed: failures.length, firstError: failures[0]?.reason };
+  }
 
   /** Remove every completed/failed/cancelled entry from the list (files stay on disk). */
   async clearFinished(): Promise<void> {
-    const finished = this.items.filter((d) => ['completed', 'failed', 'cancelled'].includes(d.status));
+    // Archived entries were put away on purpose: clearing the list leaves them alone.
+    const finished = this.items.filter(
+      (d) => !d.archived && ['completed', 'failed', 'cancelled'].includes(d.status),
+    );
     await Promise.all(finished.map((d) => this.#run(() => api.remove(d.id))));
   }
 
