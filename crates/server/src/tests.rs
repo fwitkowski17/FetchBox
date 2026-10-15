@@ -532,6 +532,99 @@ async fn delete_file_is_ignored_for_unfinished_downloads() {
 }
 
 #[tokio::test]
+async fn finished_downloads_can_be_archived_and_restored() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("fast", "old.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+    assert!(!d.archived);
+
+    let archived = h.mgr.set_archived(d.id, true).await.expect("archive");
+    assert!(archived.archived);
+    assert_eq!(
+        archived.status,
+        Status::Completed,
+        "the status is untouched"
+    );
+    assert!(h.path("old.bin").exists(), "and so is the file");
+    assert!(h.mgr.list().await.expect("list")[0].archived);
+
+    // Archived entries still count: the same URL is a duplicate, the name is taken.
+    assert_eq!(
+        conflict_kind(
+            h.mgr
+                .add(h.req("fast", "old.bin", OnConflict::Reject))
+                .await
+        ),
+        ConflictKind::DuplicateUrl
+    );
+
+    let back = h.mgr.set_archived(d.id, false).await.expect("restore");
+    assert!(!back.archived);
+}
+
+#[tokio::test]
+async fn unfinished_downloads_cannot_be_archived() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "busy.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Downloading).await;
+    assert!(matches!(
+        h.mgr.set_archived(d.id, true).await,
+        Err(Error::InvalidState(_))
+    ));
+    // Restoring is always harmless, and an unknown id is a 404.
+    assert!(h.mgr.set_archived(d.id, false).await.is_ok());
+    assert!(matches!(
+        h.mgr.set_archived(9999, true).await,
+        Err(Error::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn patch_changes_category_and_archive_flag_together() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let d = h
+        .mgr
+        .add(h.req("fast", "both.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+
+    let patch = |body: &'static str| {
+        let (c, url) = (c.clone(), format!("{api}/downloads/{}", d.id));
+        async move { raw(&c, reqwest::Method::PATCH, url, Some(body), None).await }
+    };
+    let both = patch(r#"{"category":"video","archived":true}"#).await;
+    assert_eq!(both.status().as_u16(), 200);
+    let text = both.text().await.expect("body");
+    assert!(
+        text.contains(r#""category":"video""#) && text.contains(r#""archived":true"#),
+        "{text}"
+    );
+
+    assert_eq!(
+        patch("{}").await.status().as_u16(),
+        400,
+        "nothing to update"
+    );
+    let again = patch(r#"{"archived":false}"#).await;
+    assert!(again
+        .text()
+        .await
+        .expect("body")
+        .contains(r#""archived":false"#));
+}
+
+#[tokio::test]
 async fn settings_are_validated_and_persisted() {
     let h = Harness::new().await;
     let bad = Settings {

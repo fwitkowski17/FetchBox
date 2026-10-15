@@ -496,7 +496,7 @@
         "tags": [
           "downloads"
         ],
-        "summary": "Change the category of a download.",
+        "summary": "Change the category of a download and/or archive it (hide it from the main list).",
         "operationId": "update",
         "parameters": [
           {
@@ -553,6 +553,16 @@
           },
           "404": {
             "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Only finished downloads can be archived",
             "content": {
               "application/json": {
                 "schema": {
@@ -1153,6 +1163,10 @@
           "resumable"
         ],
         "properties": {
+          "archived": {
+            "type": "boolean",
+            "description": "Hidden from the main list (only finished, failed or cancelled downloads can be archived).\nThe file, if any, stays where it is."
+          },
           "category": {
             "$ref": "#/components/schemas/Category"
           },
@@ -1515,6 +1529,13 @@
         "type": "object",
         "description": "Body of `PATCH /downloads/{id}`.",
         "properties": {
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Hide the download from the main list (`true`) or bring it back (`false`). Only finished,\nfailed or cancelled downloads can be archived (`409` otherwise)."
+          },
           "category": {
             "oneOf": [
               {

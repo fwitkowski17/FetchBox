@@ -58,6 +58,9 @@ pub struct Health {
 pub struct UpdateDownload {
     /// New category (manual override of the detected one).
     pub category: Option<Category>,
+    /// Hide the download from the main list (`true`) or bring it back (`false`). Only finished,
+    /// failed or cancelled downloads can be archived (`409` otherwise).
+    pub archived: Option<bool>,
 }
 
 /// Liveness probe (public).
@@ -132,7 +135,7 @@ pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
     Ok(Json(svc.disk_space().await?))
 }
 
-/// Change the category of a download.
+/// Change the category of a download and/or archive it (hide it from the main list).
 #[utoipa::path(
     patch,
     path = "/api/downloads/{id}",
@@ -145,6 +148,7 @@ pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
         (status = 400, description = "Nothing to update", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "Unknown id", body = ErrorBody),
+        (status = 409, description = "Only finished downloads can be archived", body = ErrorBody),
     )
 )]
 pub(crate) async fn update(
@@ -152,10 +156,17 @@ pub(crate) async fn update(
     Path(id): Path<Id>,
     Json(body): Json<UpdateDownload>,
 ) -> ApiResult<Json<Download>> {
-    let category = body
-        .category
-        .ok_or_else(|| Error::InvalidInput("nothing to update".into()))?;
-    Ok(Json(svc.set_category(id, category).await?))
+    if body.category.is_none() && body.archived.is_none() {
+        return Err(Error::InvalidInput("nothing to update".into()).into());
+    }
+    let mut updated = None;
+    if let Some(category) = body.category {
+        updated = Some(svc.set_category(id, category).await?);
+    }
+    if let Some(archived) = body.archived {
+        updated = Some(svc.set_archived(id, archived).await?);
+    }
+    updated.map(Json).ok_or_else(|| Error::NotFound(id).into())
 }
 
 /// Query of `DELETE /downloads/{id}`.

@@ -669,6 +669,19 @@ impl Service for Manager {
         Ok(())
     }
 
+    async fn set_archived(&self, id: Id, archived: bool) -> Result<Download> {
+        let d = self.get(id)?;
+        if archived && !d.status.is_terminal() {
+            return Err(Error::InvalidState(format!(
+                "cannot archive a {} download",
+                d.status.as_str()
+            )));
+        }
+        self.with_db(|c| downloads::set_archived(c, id, archived))?;
+        self.publish_download(id);
+        self.get(id).map(|d| self.view(d))
+    }
+
     async fn set_category(&self, id: Id, category: Category) -> Result<Download> {
         if !self.with_db(|c| downloads::set_category(c, id, category))? {
             return Err(Error::NotFound(id));

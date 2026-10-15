@@ -148,6 +148,10 @@ pub struct Download {
     /// started (status `paused`). Free some space and resume it.
     #[serde(default)]
     pub waiting_space: bool,
+    /// Hidden from the main list (only finished, failed or cancelled downloads can be archived).
+    /// The file, if any, stays where it is.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 /// Free space on the file system that holds the download directory.

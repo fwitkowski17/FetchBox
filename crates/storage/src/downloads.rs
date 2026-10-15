@@ -21,7 +21,7 @@ pub struct NewDownload {
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
@@ -80,6 +80,15 @@ pub fn set_status(conn: &Connection, id: Id, status: Status, error: Option<&str>
                 waiting_space = CASE WHEN ?2 = 'paused' THEN waiting_space ELSE 0 END
           WHERE id = ?1",
         params![id, status.as_str(), error, status.is_terminal()],
+    )?;
+    Ok(n > 0)
+}
+
+/// Hide a download from the main list (or bring it back). Returns whether the id exists.
+pub fn set_archived(conn: &Connection, id: Id, archived: bool) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE downloads SET archived = ?2 WHERE id = ?1",
+        params![id, archived],
     )?;
     Ok(n > 0)
 }
@@ -250,6 +259,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let error = row.get(10)?;
     let subdir = row.get(11)?;
     let waiting_space = row.get(12)?;
+    let archived = row.get(13)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -270,6 +280,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             subdir,
             speed: 0,
             waiting_space,
+            archived,
         })
     })();
     Ok(mapped)
@@ -423,6 +434,21 @@ mod tests {
             .is_none());
         set_status(&conn, a, Status::Cancelled, None).expect("s");
         assert!(find_by_url(&conn, "http://x/a").expect("f").is_empty());
+    }
+
+    #[test]
+    fn archived_flag_roundtrip() {
+        let conn = open_in_memory().expect("db");
+        let id = insert(&conn, &new("http://x/a")).expect("insert");
+        assert!(!get(&conn, id).expect("get").expect("row").archived);
+        assert!(set_archived(&conn, id, true).expect("archive"));
+        assert!(get(&conn, id).expect("get").expect("row").archived);
+        // Status changes do not touch it.
+        set_status(&conn, id, Status::Completed, None).expect("complete");
+        assert!(get(&conn, id).expect("get").expect("row").archived);
+        assert!(set_archived(&conn, id, false).expect("restore"));
+        assert!(!get(&conn, id).expect("get").expect("row").archived);
+        assert!(!set_archived(&conn, 999, true).expect("unknown id"));
     }
 
     #[test]

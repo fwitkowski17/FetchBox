@@ -156,7 +156,7 @@ export interface paths {
         delete: operations["remove"];
         options?: never;
         head?: never;
-        /** Change the category of a download. */
+        /** Change the category of a download and/or archive it (hide it from the main list). */
         patch: operations["update"];
         trace?: never;
     };
@@ -372,6 +372,11 @@ export interface components {
         };
         /** @description A download as stored and shown to the user. */
         Download: {
+            /**
+             * @description Hidden from the main list (only finished, failed or cancelled downloads can be archived).
+             *     The file, if any, stays where it is.
+             */
+            archived?: boolean;
             category: components["schemas"]["Category"];
             /** Format: int64 */
             downloaded: number;
@@ -531,6 +536,11 @@ export interface components {
         Status: "queued" | "downloading" | "paused" | "completed" | "failed" | "cancelled";
         /** @description Body of `PATCH /downloads/{id}`. */
         UpdateDownload: {
+            /**
+             * @description Hide the download from the main list (`true`) or bring it back (`false`). Only finished,
+             *     failed or cancelled downloads can be archived (`409` otherwise).
+             */
+            archived?: boolean | null;
             category?: null | components["schemas"]["Category"];
         };
     };
@@ -970,6 +980,15 @@ export interface operations {
             };
             /** @description Unknown id */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Only finished downloads can be archived */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

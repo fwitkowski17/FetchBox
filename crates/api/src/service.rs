@@ -19,6 +19,8 @@ pub trait Service: Send + Sync + 'static {
     /// unless `delete_file` is set.
     async fn remove(&self, id: Id, delete_file: bool) -> Result<()>;
     async fn set_category(&self, id: Id, category: Category) -> Result<Download>;
+    /// Hide a finished download from the main list, or bring it back.
+    async fn set_archived(&self, id: Id, archived: bool) -> Result<Download>;
     async fn settings(&self) -> Result<Settings>;
     async fn update_settings(&self, settings: Settings) -> Result<Settings>;
     /// Free space where downloads are written.
