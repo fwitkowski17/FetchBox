@@ -1,4 +1,4 @@
-# WebDownloadManager
+# FetchBox
 
 Self-hosted download manager web app for a homelab. Single Rust binary serves REST API + SSE + embedded Svelte frontend. BitTorrent support is planned later (librqbit).
 

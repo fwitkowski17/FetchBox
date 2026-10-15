@@ -42,7 +42,7 @@
       <Icon name="lock" size={26} />
     </div>
     <div>
-      <h1 class="text-2xl font-bold tracking-tight">WebDownloadManager</h1>
+      <h1 class="text-2xl font-bold tracking-tight">FetchBox</h1>
       <p class="hint mt-1">{t('login.prompt')}</p>
     </div>
 

@@ -75,7 +75,7 @@
 
   // Current speed in the tab title, handy when the tab is in the background.
   $effect(() => {
-    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · WebDownloadManager` : 'WebDownloadManager';
+    document.title = summary.active > 0 ? `↓ ${i18n.speed(summary.speed)} · FetchBox` : 'FetchBox';
   });
 
   // ---- the menu: a permanent panel on wide screens, a drawer on narrow ones
@@ -156,7 +156,7 @@
           <span class="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-accent-contrast">
             <Icon name="down" size={16} />
           </span>
-          <span class="truncate">WebDownloadManager</span>
+          <span class="truncate">FetchBox</span>
         </span>
         <span class="flex-1"></span>
         {#if summary.active > 0}

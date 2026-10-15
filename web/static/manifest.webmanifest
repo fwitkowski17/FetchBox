@@ -1,6 +1,6 @@
 {
-  "name": "WebDownloadManager",
-  "short_name": "WebDownloadManager",
+  "name": "FetchBox",
+  "short_name": "FetchBox",
   "description": "Self-hosted download manager",
   "start_url": "/",
   "scope": "/",

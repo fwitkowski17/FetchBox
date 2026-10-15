@@ -1,4 +1,4 @@
-# WebDownloadManager
+# FetchBox
 
 Self-hosted download manager for a homelab. One Rust binary serves the REST API, SSE and the embedded Svelte frontend. See [docs/SPEC.md](docs/SPEC.md).
 

@@ -1,4 +1,4 @@
-# WebDownloadManager — specification
+# FetchBox — specification
 
 ## 1. Goal
 
@@ -297,6 +297,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   the login screen stays mounted under the dialog (what was typed is kept), keeps asking `GET /api/auth/status` every
   3 s (not while the tab is hidden; coming back to the tab asks at once) and a sign-in that fails because the server
   is gone checks immediately. When the server answers again the dialog goes away and the screen is usable as before.
+  "Not there" includes a reverse proxy that answers for a dead backend (502/503/504, or 500 from the Vite dev proxy):
+  `GET /api/auth/status` is public and the server always answers it, so any other answer is never "please sign in".
+  A signed-in app stays on screen under the dialog (nothing is torn down); it goes to the login screen only when the
+  server is back and says the session is gone (a restart forgets sessions).
   The spinner is the one animation kept under `prefers-reduced-motion` (slower, not frozen): it says "still trying".
 - SSE store keeps list in sync; REST for commands. Command responses are not patched into the list (they can be older
   than the event that followed); the stream is the single source of truth, and the list is re-fetched on every

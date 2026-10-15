@@ -3,7 +3,7 @@
 //
 // Conventions
 //   - `{name}` is a placeholder. A plural message is an object and takes its form from `{n}`.
-//   - The brand name "WebDownloadManager" is not translated.
+//   - The brand name "FetchBox" is not translated.
 //   - Avoid building sentences from pieces: translators need whole sentences.
 import type { Message } from './types';
 
@@ -47,7 +47,7 @@ export const en = {
   'login.failed': 'Login failed.',
 
   // ---- first-run setup
-  'setup.title': 'Welcome to WebDownloadManager',
+  'setup.title': 'Welcome to FetchBox',
   'setup.step': 'Step {current} of {total}',
   'setup.steps': 'Setup progress',
   'setup.step.look': 'Look',
@@ -58,7 +58,7 @@ export const en = {
   'setup.look.hint': 'Pick a language, a theme and an accent colour. You can change them later in Settings.',
   'setup.account.title': 'Create your account',
   'setup.account.hint':
-    'WebDownloadManager is protected by a password. To make sure it is you, creating the account needs a one-time code from the server log.',
+    'FetchBox is protected by a password. To make sure it is you, creating the account needs a one-time code from the server log.',
   'setup.code.label': 'Setup code',
   'setup.code.hint':
     'Find the line with “setup code” in the server log, for example with “docker compose logs dlmanager”.',
@@ -76,7 +76,7 @@ export const en = {
   'setup.downloads.hint':
     'The defaults are fine for most setups. Everything here can be changed later in Settings.',
   'setup.done.title': 'All set',
-  'setup.done.hint': 'WebDownloadManager is ready. Add your first download, or look around first.',
+  'setup.done.hint': 'FetchBox is ready. Add your first download, or look around first.',
   'setup.done.add': 'Add a download',
   'setup.done.list': 'Go to downloads',
   'setup.next': 'Next',

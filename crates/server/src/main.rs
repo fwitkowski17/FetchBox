@@ -1,4 +1,4 @@
-//! WebDownloadManager server binary: wires storage, API and the embedded frontend.
+//! FetchBox server binary: wires storage, API and the embedded frontend.
 
 mod assets;
 mod manager;
