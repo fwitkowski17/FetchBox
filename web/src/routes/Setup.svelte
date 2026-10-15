@@ -55,8 +55,11 @@
         accountError = t('login.locked', { n: err.retryAfter ?? 60 });
       } else if (err instanceof ApiError && err.status === 400) {
         accountError = t('setup.error.short', { min: MIN_PASSWORD_LEN });
+      } else if (err instanceof ApiError && err.status === 0) {
+        void auth.check(); // the server is gone: the connection dialog takes over
+        accountError = i18n.errorText(err);
       } else {
-        accountError = err instanceof ApiError && err.status === 0 ? i18n.errorText(err) : t('setup.error.failed');
+        accountError = t('setup.error.failed');
       }
     } finally {
       creating = false;

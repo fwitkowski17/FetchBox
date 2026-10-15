@@ -108,14 +108,9 @@
 
 <svelte:window onhashchange={openLegacyAddLink} onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeMenu()} />
 
-{#if auth.state === 'loading'}
+{#if auth.state === 'loading' || auth.state === 'offline'}
+  <!-- Offline at start: the connection dialog (after a moment) says what is wrong and retries. -->
   <p class="grid min-h-dvh place-content-center text-muted" role="status">{t('common.loading')}</p>
-{:else if auth.state === 'offline'}
-  <div class="grid min-h-dvh content-center justify-items-center gap-3 text-center text-muted">
-    <Icon name="alert" size={32} />
-    <p>{t('app.offline')}</p>
-    <button class="btn primary" onclick={() => auth.check()}>{t('common.tryAgain')}</button>
-  </div>
 {:else if auth.wizard}
   <!-- Also while signed in: the wizard continues after the account step. -->
   <Setup />
@@ -202,9 +197,10 @@
   <AddDownloadDialog />
   <DeleteDownloadDialog />
   <SpeedLimitDialog />
-  <ConnectionOverlay />
 {/if}
 
+<!-- Outside the screens above: it must also cover the login screen and the first-run wizard. -->
+<ConnectionOverlay />
 <ConfirmHost />
 <ResumeSpaceDialog />
 <Toasts />

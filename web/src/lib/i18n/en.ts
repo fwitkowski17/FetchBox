@@ -27,7 +27,6 @@ export const en = {
   'filters.categories': 'Categories',
   'filters.active': 'Active filters',
   'filters.remove': 'Remove filter: {name}',
-  'app.offline': 'Cannot reach the server.',
   'app.totalSpeed': 'Total download speed',
   'connection.lost.title': 'Connection lost',
   'connection.lost.text': 'Trying to reconnect to the server…',

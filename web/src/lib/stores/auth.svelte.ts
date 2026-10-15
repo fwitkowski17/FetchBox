@@ -2,6 +2,9 @@
 import { ApiError, api } from '../api/client';
 import { retryDelay } from '../util/retry';
 
+/** How often the login screen checks that the server is still there. */
+const PROBE_MS = 3000;
+
 export type AuthState =
   | 'loading' // asking the server
   | 'login' // password required
@@ -20,47 +23,84 @@ class AuthStore {
    */
   wizard = $state(false);
 
+  /**
+   * The server does not answer while the login screen is up. The screen stays (what was typed is
+   * kept) and the app covers it with the connection dialog: there is no point in asking for a
+   * password nobody can check.
+   */
+  unreachable = $state(false);
+
   #retry: ReturnType<typeof setTimeout> | null = null;
   #attempt = 0;
   #listening = false;
 
   /** (Re)check with the server. Safe to call at any time. */
   async check(): Promise<void> {
-    this.#cancelRetry();
+    this.#cancelTimer();
+    this.#listen();
     try {
       const s = await api.authStatus();
       this.#attempt = 0;
+      this.unreachable = false;
       this.required = s.auth_required;
       this.canChangePassword = s.can_change_password;
       if (s.setup_required) this.wizard = true;
       this.state = s.authenticated ? 'ready' : 'login';
+      this.#watchWhileLoggedOut();
     } catch (e) {
-      const unreachable = !(e instanceof ApiError) || e.status === 0;
-      this.state = unreachable ? 'offline' : 'login';
-      if (unreachable) this.#scheduleRetry();
+      if (e instanceof ApiError && e.status !== 0) {
+        this.unreachable = false;
+        this.state = 'login';
+        this.#watchWhileLoggedOut();
+        return;
+      }
+      // Unreachable. On the login screen keep the screen (the dialog covers it); anywhere else
+      // there is nothing worth keeping.
+      if (this.state === 'login') this.unreachable = true;
+      else this.state = 'offline';
+      this.#timer(retryDelay(this.#attempt++));
     }
   }
 
   // An unreachable server is tried again by itself (it may just be restarting, or the phone woke
-  // up before the network did); the button on the offline screen only skips the wait.
-  #scheduleRetry(): void {
-    if (typeof window !== 'undefined' && !this.#listening) {
-      this.#listening = true;
-      window.addEventListener('online', () => {
-        if (this.state === 'offline') void this.check();
-      });
-    }
-    this.#retry = setTimeout(() => void this.check(), retryDelay(this.#attempt++));
+  // up before the network did).
+  #timer(ms: number): void {
+    this.#cancelTimer();
+    this.#retry = setTimeout(() => {
+      // Not worth a request while nobody looks; coming back to the tab checks at once.
+      if (typeof document !== 'undefined' && document.hidden && !this.unreachable) this.#timer(ms);
+      else void this.check();
+    }, ms);
   }
 
-  #cancelRetry(): void {
+  #cancelTimer(): void {
     if (this.#retry) clearTimeout(this.#retry);
     this.#retry = null;
+  }
+
+  /** On the login screen nothing else talks to the server, so the app would not notice it dying:
+   *  keep asking, quietly. */
+  #watchWhileLoggedOut(): void {
+    if (this.state === 'login') this.#timer(PROBE_MS);
+  }
+
+  #listen(): void {
+    if (this.#listening || typeof window === 'undefined') return;
+    this.#listening = true;
+    const again = (): void => {
+      if (this.state === 'offline' || this.state === 'login') void this.check();
+    };
+    window.addEventListener('online', again);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) again();
+    });
   }
 
   /** Throws `ApiError` (401 wrong password, 429 locked out). */
   async login(password: string): Promise<void> {
     await api.login(password);
+    this.#cancelTimer();
+    this.unreachable = false;
     this.state = 'ready';
   }
 
@@ -70,6 +110,8 @@ class AuthStore {
    */
   async setup(code: string, password: string): Promise<void> {
     await api.setup(code, password);
+    this.#cancelTimer();
+    this.unreachable = false;
     this.canChangePassword = true;
     this.state = 'ready';
   }
@@ -91,11 +133,14 @@ class AuthStore {
       // The cookie may already be invalid; either way we are leaving.
     }
     this.state = 'login';
+    this.#watchWhileLoggedOut();
   }
 
   /** A protected call answered 401: the session ended. */
   expire(): void {
-    if (this.state === 'ready') this.state = 'login';
+    if (this.state !== 'ready') return;
+    this.state = 'login';
+    this.#watchWhileLoggedOut();
   }
 }
 

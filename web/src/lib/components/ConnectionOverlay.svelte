@@ -1,9 +1,10 @@
 <script lang="ts">
   // Shown over the whole app while the connection to the server is lost. It replaces a status
   // line: when everything works there is nothing to look at, and when it does not, nothing on the
-  // page can be trusted (the list is old, commands would fail), so the page is covered until the
-  // app has reconnected by itself. The dialog cannot be dismissed.
+  // page can be trusted (the list is old, commands would fail, a password could not be checked), so
+  // the page is covered until the app has reconnected by itself. The dialog cannot be dismissed.
   import { t } from '../i18n';
+  import { auth } from '../stores/auth.svelte';
   import { downloads } from '../stores/downloads.svelte';
   import Modal from './Modal.svelte';
 
@@ -11,7 +12,13 @@
    *  not flash a dialog: only an outage that lasts shows it. */
   const SHOW_AFTER_MS = 1500;
 
-  const lost = $derived(downloads.everLive && downloads.connection !== 'live');
+  // Three ways to be cut off: the stream dropped while using the app, the server is not there when
+  // the app starts, or it is not there while the login screen waits for a password.
+  const lost = $derived(
+    auth.state === 'offline' ||
+      auth.unreachable ||
+      (downloads.everLive && downloads.connection !== 'live'),
+  );
   let shown = $state(false);
 
   $effect(() => {

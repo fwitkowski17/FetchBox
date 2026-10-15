@@ -21,7 +21,6 @@ const pl: Messages = {
   'filters.categories': 'Kategorie',
   'filters.active': 'Aktywne filtry',
   'filters.remove': 'Usuń filtr: {name}',
-  'app.offline': 'Nie można połączyć się z serwerem.',
   'app.totalSpeed': 'Łączna prędkość pobierania',
   'connection.lost.title': 'Utracono połączenie',
   'connection.lost.text': 'Próbuję ponownie połączyć się z serwerem…',

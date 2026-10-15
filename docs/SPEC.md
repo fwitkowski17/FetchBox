@@ -291,9 +291,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   (no Escape, no backdrop click; the page behind is inert): a spinner, "Connection lost", "Trying to reconnect to the
   server..." and "Downloads keep running on the server." It appears only after 1.5 s without a connection, so a quick
   restart or a network hiccup does not flash it, and goes away by itself when the stream is back (or when the session
-  ended and the login screen takes over). The spinner is the one animation kept under `prefers-reduced-motion` (slower,
-  not frozen): it says "still trying". Before the stream has ever been open (the app starting) there is no dialog; an
-  unreachable server at start shows the full-page "server unreachable" screen, which retries by itself.
+  ended and the login screen takes over). The same dialog covers the two other ways of being cut off: the server is not
+  there when the app starts (the page behind says "Loading..."; the session check retries by itself), and the server
+  dies while the login screen or the first-run wizard is up. Nobody can check a password then, so none is asked for:
+  the login screen stays mounted under the dialog (what was typed is kept), keeps asking `GET /api/auth/status` every
+  3 s (not while the tab is hidden; coming back to the tab asks at once) and a sign-in that fails because the server
+  is gone checks immediately. When the server answers again the dialog goes away and the screen is usable as before.
+  The spinner is the one animation kept under `prefers-reduced-motion` (slower, not frozen): it says "still trying".
 - SSE store keeps list in sync; REST for commands. Command responses are not patched into the list (they can be older
   than the event that followed); the stream is the single source of truth, and the list is re-fetched on every
   (re)connect and on `resync`.
