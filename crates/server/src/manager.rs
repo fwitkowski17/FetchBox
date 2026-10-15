@@ -395,6 +395,31 @@ impl Manager {
         })
     }
 
+    /// Delete the finished file of a completed download. Only a plain file name directly inside
+    /// the download's own directory is ever touched; a file that is already gone is fine.
+    async fn delete_finished_file(&self, d: &Download) -> Result<()> {
+        // Names are sanitized when added and again by the engine; this is the last line of defence
+        // against a path that points anywhere else.
+        if d.filename.is_empty() || sanitize(&d.filename) != d.filename {
+            return Err(Error::InvalidState(format!(
+                "refusing to delete a file with an unsafe name: {:?}",
+                d.filename
+            )));
+        }
+        let path = self.engine.dir_for(&d.subdir).join(&d.filename);
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => {
+                tracing::info!(id = d.id, path = %path.display(), "deleted the downloaded file");
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => {
+                tracing::warn!(id = d.id, path = %path.display(), error = %e, "cannot delete the file");
+                Err(io_err(e))
+            }
+        }
+    }
+
     /// Remove the `.part` file of a download, ignoring "not there".
     async fn remove_part(&self, id: Id, subdir: &str, filename: &str) {
         let part = self.engine.part_path(id, subdir, filename);
@@ -630,10 +655,14 @@ impl Service for Manager {
         self.get(id)
     }
 
-    async fn remove(&self, id: Id) -> Result<()> {
+    async fn remove(&self, id: Id, delete_file: bool) -> Result<()> {
         let d = self.get(id)?;
         if !d.status.is_terminal() {
             self.do_cancel(&d).await?;
+        }
+        // The file first: if it cannot be deleted the entry stays, so the user can try again.
+        if delete_file && d.status == Status::Completed {
+            self.delete_finished_file(&d).await?;
         }
         self.with_db(|c| downloads::delete(c, id).map(|_| ()))?;
         self.publish(Event::Removed { id });

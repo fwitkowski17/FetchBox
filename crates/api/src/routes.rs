@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     middleware,
     routing::{get, patch, post},
@@ -11,7 +11,7 @@ use axum::{
 };
 use dlm_core::{AddRequest, Category, DiskSpace, Download, Error, Id, Settings};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::{self, Auth};
 use crate::error::{ApiError, ConflictBody, ErrorBody, SpaceBody};
@@ -158,22 +158,36 @@ pub(crate) async fn update(
     Ok(Json(svc.set_category(id, category).await?))
 }
 
+/// Query of `DELETE /downloads/{id}`.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct RemoveQuery {
+    /// Also delete the finished file from the disk. Ignored for downloads that have not
+    /// completed (their partial file is always removed).
+    #[serde(default)]
+    pub delete_file: bool,
+}
+
 /// Remove a download from the list (cancels it first when still active).
-/// A finished file stays on disk.
+/// A finished file stays on disk unless `delete_file=true`.
 #[utoipa::path(
     delete,
     path = "/api/downloads/{id}",
     tag = "downloads",
     security(("session" = []), ("bearer" = [])),
-    params(("id" = i64, Path, description = "Download id")),
+    params(("id" = i64, Path, description = "Download id"), RemoveQuery),
     responses(
         (status = 204, description = "Removed"),
+        (status = 500, description = "The file could not be deleted; the entry is kept so it can be retried", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "Unknown id", body = ErrorBody),
     )
 )]
-pub(crate) async fn remove(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<StatusCode> {
-    svc.remove(id).await?;
+pub(crate) async fn remove(
+    State(svc): Svc,
+    Path(id): Path<Id>,
+    Query(q): Query<RemoveQuery>,
+) -> ApiResult<StatusCode> {
+    svc.remove(id, q.delete_file).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

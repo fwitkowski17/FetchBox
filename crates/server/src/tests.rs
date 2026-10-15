@@ -438,9 +438,12 @@ async fn cancel_removes_part_file_and_remove_drops_the_row() {
         Err(Error::InvalidState(_))
     ));
 
-    h.mgr.remove(d.id).await.expect("remove");
+    h.mgr.remove(d.id, false).await.expect("remove");
     assert!(h.mgr.list().await.expect("l").is_empty());
-    assert!(matches!(h.mgr.remove(d.id).await, Err(Error::NotFound(_))));
+    assert!(matches!(
+        h.mgr.remove(d.id, false).await,
+        Err(Error::NotFound(_))
+    ));
 }
 
 #[tokio::test]
@@ -452,8 +455,80 @@ async fn removing_a_finished_download_keeps_the_file() {
         .await
         .expect("add");
     h.wait_status(d.id, Status::Completed).await;
-    h.mgr.remove(d.id).await.expect("remove");
+    h.mgr.remove(d.id, false).await.expect("remove");
     assert_eq!(file(&h.path("keep.bin")), body());
+}
+
+#[tokio::test]
+async fn removing_with_delete_file_deletes_the_finished_file() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("fast", "gone.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+    assert!(h.path("gone.bin").exists());
+    h.mgr.remove(d.id, true).await.expect("remove");
+    assert!(!h.path("gone.bin").exists(), "the file is deleted");
+    assert!(
+        h.mgr.list().await.expect("list").is_empty(),
+        "and the entry too"
+    );
+
+    // A file that is already gone (the user deleted it by hand) is not an error.
+    let again = h
+        .mgr
+        .add(h.req("fast", "vanished.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(again.id, Status::Completed).await;
+    std::fs::remove_file(h.path("vanished.bin")).expect("manual delete");
+    h.mgr.remove(again.id, true).await.expect("still removable");
+}
+
+#[tokio::test]
+async fn delete_file_removes_the_renamed_file_in_the_category_directory_only() {
+    let h = Harness::new().await;
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.category_subdirs = true;
+    h.mgr.update_settings(s).await.expect("update");
+    // A file with the same name that is not ours: it must survive.
+    std::fs::create_dir_all(h.path("other")).expect("mkdir");
+    std::fs::write(h.path("other/mine.bin"), b"precious").expect("write");
+    std::fs::write(h.path("mine.bin"), b"also precious").expect("write");
+
+    let d = h
+        .mgr
+        .add(h.req("fast", "mine.bin", OnConflict::Rename))
+        .await
+        .expect("add");
+    let done = h.wait_status(d.id, Status::Completed).await;
+    assert_eq!(
+        done.filename, "mine (1).bin",
+        "the engine picked a free name"
+    );
+    assert!(h.path("other/mine (1).bin").exists());
+
+    h.mgr.remove(d.id, true).await.expect("remove");
+    assert!(!h.path("other/mine (1).bin").exists());
+    assert_eq!(file(&h.path("other/mine.bin")), b"precious");
+    assert_eq!(file(&h.path("mine.bin")), b"also precious");
+}
+
+#[tokio::test]
+async fn delete_file_is_ignored_for_unfinished_downloads() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "later.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Downloading).await;
+    h.mgr.remove(d.id, true).await.expect("cancel and remove");
+    h.mgr.list().await.expect("list");
+    assert!(!h.path("later.bin").exists(), "nothing was finished");
+    assert!(h.mgr.list().await.expect("list").is_empty());
 }
 
 #[tokio::test]
@@ -1163,6 +1238,44 @@ async fn apost(
         header,
     )
     .await
+}
+
+#[tokio::test]
+async fn delete_over_http_takes_the_file_only_when_asked() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let mut ids = Vec::new();
+    for name in ["keep.bin", "drop.bin"] {
+        let d = h
+            .mgr
+            .add(h.req("fast", name, OnConflict::Reject))
+            .await
+            .expect("add");
+        h.wait_status(d.id, Status::Completed).await;
+        ids.push(d.id);
+    }
+    let plain = raw(
+        &c,
+        reqwest::Method::DELETE,
+        format!("{api}/downloads/{}", ids[0]),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(plain.status().as_u16(), 204);
+    assert!(h.path("keep.bin").exists(), "the file stays by default");
+
+    let with_file = raw(
+        &c,
+        reqwest::Method::DELETE,
+        format!("{api}/downloads/{}?delete_file=true", ids[1]),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(with_file.status().as_u16(), 204);
+    assert!(!h.path("drop.bin").exists(), "delete_file=true deletes it");
 }
 
 #[tokio::test]

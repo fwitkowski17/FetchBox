@@ -151,7 +151,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a download from the list (cancels it first when still active).
-         *     A finished file stays on disk.
+         *     A finished file stays on disk unless `delete_file=true`.
          */
         delete: operations["remove"];
         options?: never;
@@ -880,6 +880,11 @@ export interface operations {
             path: {
                 /** @description Download id */
                 id: number;
+                /**
+                 * @description Also delete the finished file from the disk. Ignored for downloads that have not
+                 *     completed (their partial file is always removed).
+                 */
+                delete_file: boolean;
             };
             cookie?: never;
         };
@@ -903,6 +908,15 @@ export interface operations {
             };
             /** @description Unknown id */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The file could not be deleted; the entry is kept so it can be retried */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

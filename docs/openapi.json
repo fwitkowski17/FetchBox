@@ -425,7 +425,7 @@
         "tags": [
           "downloads"
         ],
-        "summary": "Remove a download from the list (cancels it first when still active).\nA finished file stays on disk.",
+        "summary": "Remove a download from the list (cancels it first when still active).\nA finished file stays on disk unless `delete_file=true`.",
         "operationId": "remove",
         "parameters": [
           {
@@ -436,6 +436,15 @@
             "schema": {
               "type": "integer",
               "format": "int64"
+            }
+          },
+          {
+            "name": "delete_file",
+            "in": "path",
+            "description": "Also delete the finished file from the disk. Ignored for downloads that have not\ncompleted (their partial file is always removed).",
+            "required": true,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -455,6 +464,16 @@
           },
           "404": {
             "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The file could not be deleted; the entry is kept so it can be retried",
             "content": {
               "application/json": {
                 "schema": {
