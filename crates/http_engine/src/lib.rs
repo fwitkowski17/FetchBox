@@ -75,8 +75,20 @@ struct Inner {
     policy: UrlPolicy,
     dir: PathBuf,
     limiter: RateLimiter,
+    /// Speed limit of every download without one of its own, bytes/s (`0` = none). Read and
+    /// written under the `entries` lock so a start cannot miss a change.
+    default_rate: AtomicU64,
     events: mpsc::UnboundedSender<Event>,
     entries: Mutex<HashMap<Id, Entry>>,
+}
+
+/// The rate a download runs at: its own limit, else the default (`0` = unlimited).
+fn effective_rate(own: u64, default: u64) -> u64 {
+    if own > 0 {
+        own
+    } else {
+        default
+    }
 }
 
 struct Entry {
@@ -157,6 +169,7 @@ impl HttpDownloader {
             policy,
             dir: dir.into(),
             limiter,
+            default_rate: AtomicU64::new(0),
             events: tx,
             entries: Mutex::new(HashMap::new()),
         };
@@ -180,10 +193,26 @@ impl HttpDownloader {
         probe(&self.inner.client, &url).await
     }
 
-    /// Change the speed limit of one active download live (`0` = none). A download that is not
-    /// running has nothing to change: its stored limit is used when it starts.
-    pub fn set_speed_limit(&self, id: Id, rate: u64) {
-        if let Some(e) = self.inner.entries().get(&id) {
+    /// Change the limit of one download live. `own` replaces the default speed (`0` = use the
+    /// default). A download that is not running has nothing to change: its stored limit is
+    /// passed in the job when it starts.
+    pub fn set_speed_limit(&self, id: Id, own: u64) {
+        let mut entries = self.inner.entries();
+        if let Some(e) = entries.get_mut(&id) {
+            e.job.speed_limit = own;
+            e.limiter.set_rate(effective_rate(
+                own,
+                self.inner.default_rate.load(Ordering::Relaxed),
+            ));
+        }
+    }
+
+    /// Set the default speed of the downloads that have no limit of their own (`0` = none) and
+    /// apply it to the running ones.
+    pub fn set_default_speed(&self, rate: u64) {
+        let entries = self.inner.entries();
+        self.inner.default_rate.store(rate, Ordering::Relaxed);
+        for e in entries.values().filter(|e| e.job.speed_limit == 0) {
             e.limiter.set_rate(rate);
         }
     }
@@ -497,7 +526,6 @@ impl Downloader for HttpDownloader {
     async fn start(&self, job: &Job) -> dlm_core::Result<Handle> {
         let url = validate_url(&job.url)?;
         self.inner.policy.check(&url)?;
-        let limiter = self.inner.limiter.for_download(job.speed_limit);
         let shared = Arc::new(Shared::default());
         // Hold the lock across spawn so the task cannot finish before the entry exists.
         let mut entries = self.inner.entries();
@@ -509,6 +537,11 @@ impl Downloader for HttpDownloader {
                 job.id
             )));
         }
+        let default_rate = self.inner.default_rate.load(Ordering::Relaxed);
+        let limiter = self
+            .inner
+            .limiter
+            .for_download(effective_rate(job.speed_limit, default_rate));
         let task = Self::spawn(
             &self.inner,
             job.clone(),

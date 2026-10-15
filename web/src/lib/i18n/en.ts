@@ -212,10 +212,13 @@ export const en = {
     'More connections can be faster, but only for servers that allow it. Applies to new downloads.',
   'settings.concurrent.label': 'Simultaneous downloads',
   'settings.concurrent.hint': 'Extra downloads wait in the queue. Changes take effect immediately.',
-  'settings.speed': 'Speed limit',
+  'settings.speed': 'Speed limits',
+  'settings.speed.each': 'Default speed of each download',
+  'settings.speed.eachHint':
+    'Applies to every download without a limit of its own. A single download can get its own speed in its menu, which replaces this one.',
   'settings.speed.total': 'Limit total speed',
   'settings.speed.totalHint':
-    'Shared by all downloads together. A single download can have its own limit in its menu; the lower one counts.',
+    'All downloads together never go above this, whatever their own limits are.',
   'settings.speed.max': '{label}: maximum speed',
   'settings.speed.unit': 'Unit',
   'settings.speed.unlimited': 'Unlimited',
@@ -343,9 +346,10 @@ export const en = {
   // ---- speed limit of one download
   'menu.speed': 'Speed limit…',
   'speed.title': 'Speed limit',
-  'speed.limitThis': 'Limit this download',
-  'speed.hint.global': 'Applies to this download only. The global limit of {speed} still applies; the lower one counts.',
-  'speed.hint.noGlobal': 'Applies to this download only. There is no global limit.',
+  'speed.limitThis': 'Own speed for this download',
+  'speed.hint': 'Replaces the default for this download, so it can be faster or slower. The total limit of all downloads still applies.',
+  'speed.off.default': 'Uses the default: {speed}',
+  'speed.off.none': 'No limit (no default is set)',
   'card.limit': 'Limit {speed}',
 
   // ---- accent colours

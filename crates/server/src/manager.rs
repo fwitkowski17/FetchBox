@@ -59,6 +59,7 @@ impl Manager {
         let current = settings::load(&conn)?;
         let limiter = RateLimiter::with_global(current.speed_global);
         let (engine, rx) = HttpDownloader::new(&dir, limiter, policy)?;
+        engine.set_default_speed(current.speed_per_download);
         let requeued = downloads::requeue_interrupted(&conn)?;
         if requeued > 0 {
             tracing::info!(count = requeued, "re-queued interrupted downloads");
@@ -724,6 +725,7 @@ impl Service for Manager {
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
         // Live: limits touch running downloads, the slot limit only gates new ones.
         self.engine.limiter().set_global(new.speed_global);
+        self.engine.set_default_speed(new.speed_per_download);
         let start = self.sched().set_max_concurrent(new.max_concurrent);
         self.publish(Event::Settings {
             settings: new.clone(),

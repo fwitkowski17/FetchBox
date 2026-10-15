@@ -8,9 +8,11 @@
     hint: string;
     value: SpeedDraft;
     error?: string | undefined;
+    /** What the field says while the limit is off (default: "Unlimited"). */
+    offText?: string | undefined;
   }
 
-  let { label, hint, value = $bindable(), error }: Props = $props();
+  let { label, hint, value = $bindable(), error, offText }: Props = $props();
   const id = `speed-${Math.random().toString(36).slice(2, 8)}`;
 </script>
 
@@ -36,7 +38,7 @@
       </select>
     </div>
   {:else}
-    <p class="hint">{t('settings.speed.unlimited')}</p>
+    <p class="hint">{offText ?? t('settings.speed.unlimited')}</p>
   {/if}
   {#if error}<p class="text-sm text-danger" role="alert">{error}</p>{/if}
 </div>

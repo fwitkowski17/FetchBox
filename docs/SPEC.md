@@ -14,7 +14,8 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 - Settings:
   - connections (segments) per download
   - max simultaneous downloads (extra ones are `Queued`)
-  - global speed limit (a limit for one download is not a setting: it is set from that download's menu, see 6.6)
+  - default speed of each download (a single download can get its own speed from its menu, which replaces the default, see 6.6)
+  - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
@@ -123,10 +124,15 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 ### 6.3 Scheduler and limits
 
 - `Semaphore` limits concurrent downloads; overflow = `Queued`.
-- Two-level token bucket: global and per-download. Every segment acquires tokens before reading from the socket. The global
-  rate is a setting; the per-download rate belongs to the download (`downloads.speed_limit`, bytes/s, `0` = none) and the
-  stricter of the two counts. It is changed with `PATCH` and applies live to a running download (and when a queued, paused
-  or failed one starts); finished and cancelled downloads have nothing to limit (`409`).
+- Two-level token bucket: total and per-download. Every segment acquires tokens before reading from the socket. Three
+  limits, in this order: (1) the download's own speed (`downloads.speed_limit`, bytes/s, `0` = none set), else (2) the
+  default speed of each download (`speed_per_download`, `0` = none), which sets the rate of the per-download bucket; (3) the
+  total limit (`speed_global`), the shared bucket that caps the sum of all downloads whatever their own rates are. An own
+  speed replaces the default instead of being capped by it, so a download can be faster than the others (but never above
+  the total). The own speed is changed with `PATCH` and applies live to a running download (and when a queued, paused or
+  failed one starts); clearing it hands the download back to the default. Changing the default applies live to the running
+  downloads without an own speed. The engine holds the default and reads it under the same lock that registers a download,
+  so a start cannot miss a change. Finished and cancelled downloads have nothing to limit (`409`).
 - Settings changes are propagated live (watch channel).
 
 ### 6.3.1 Categories and directories
@@ -143,7 +149,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 - `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
-- `settings`: key/value (connections, max_concurrent, speed_global, category_subdirs)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -153,7 +159,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id[?delete_file=true]` (removes the entry; with
   `delete_file` also the finished file, only for a completed download and only the plain file name the engine finally
   chose, inside the download's own directory; a file that is already gone is fine, any other failure keeps the entry)
-- `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = none: archiving hides a finished, failed or cancelled download from
+- `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
   the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
   checks)
 - `GET /api/settings`, `PUT /api/settings`
@@ -238,8 +244,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   (off by default, with a warning when ticked, and a button that then reads "Delete with file"); for an unfinished one it
   says that the download is stopped and the partial file goes too, and has no such option.
   "Speed limit..." opens a dialog (`stores/speedDialog`, `SpeedLimitDialog`) with the same on/off + KB/MB field as Settings;
-  it names the global limit that still applies (the lower one counts), saves with `PATCH` and takes effect at once. A card
-  with a limit shows "Limit N MB/s" in its stats line. Settings has only the global limit.
+  switched off it says which default the download uses, switched on the value replaces that default. It saves with `PATCH`
+  and takes effect at once. A card with an own speed shows "Limit N MB/s" in its stats line. Settings has the default speed
+  of each download and the total limit.
 - Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
   floating button, the empty list and the end of the setup wizard (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a

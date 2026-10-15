@@ -16,6 +16,7 @@ export interface SpeedDraft {
 export interface Draft {
   connections: number;
   maxConcurrent: number;
+  perDownload: SpeedDraft;
   global: SpeedDraft;
   categorySubdirs: boolean;
 }
@@ -33,6 +34,7 @@ export function toDraft(s: Settings): Draft {
   return {
     connections: s.connections,
     maxConcurrent: s.max_concurrent,
+    perDownload: speedToDraft(s.speed_per_download),
     global: speedToDraft(s.speed_global),
     categorySubdirs: s.category_subdirs ?? false,
   };
@@ -42,12 +44,13 @@ export function fromDraft(d: Draft): Settings {
   return {
     connections: d.connections,
     max_concurrent: d.maxConcurrent,
+    speed_per_download: speedFromDraft(d.perDownload),
     speed_global: speedFromDraft(d.global),
     category_subdirs: d.categorySubdirs,
   };
 }
 
-export type Field = 'connections' | 'maxConcurrent' | 'global';
+export type Field = 'connections' | 'maxConcurrent' | 'perDownload' | 'global';
 
 /** Which message to show for a field (`settings.error.<code>`); the UI supplies the wording. */
 export type ErrorCode = 'connections' | 'concurrent' | 'speed';
@@ -67,6 +70,7 @@ export function validate(d: Draft): Errors {
   if (!Number.isInteger(d.maxConcurrent) || d.maxConcurrent < 1 || d.maxConcurrent > MAX_CONCURRENT) {
     errors.maxConcurrent = 'concurrent';
   }
+  if (!isValidSpeed(d.perDownload)) errors.perDownload = 'speed';
   if (!isValidSpeed(d.global)) errors.global = 'speed';
   return errors;
 }
@@ -75,6 +79,7 @@ export function sameSettings(a: Settings, b: Settings): boolean {
   return (
     a.connections === b.connections &&
     a.max_concurrent === b.max_concurrent &&
+    a.speed_per_download === b.speed_per_download &&
     a.speed_global === b.speed_global &&
     (a.category_subdirs ?? false) === (b.category_subdirs ?? false)
   );

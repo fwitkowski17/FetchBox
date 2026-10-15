@@ -42,7 +42,7 @@ The user (Filip) communicates in Polish. Reply in Polish. Code, identifiers, com
 
 ## Feature scope
 
-v1: download list, mobile support, file categories (Photo, Music, Video, Program, Archive, Other), pause/resume, settings (connections per download, max concurrent downloads, global speed limit; a per-download limit is set from the download's own menu).
+v1: download list, mobile support, file categories (Photo, Music, Video, Program, Archive, Other), pause/resume, settings (connections per download, max concurrent downloads, default speed per download and total speed limit; a single download can get its own speed from its menu, which replaces the default).
 Later: BitTorrent (magnet + .torrent) through `torrent_engine`.
 
 ## Do not

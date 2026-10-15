@@ -402,8 +402,9 @@ export interface components {
             speed?: number;
             /**
              * Format: int64
-             * @description Speed limit of this download alone, bytes/s (`0` = none). The global limit applies on top:
-             *     the stricter of the two wins.
+             * @description Speed limit of this download alone, bytes/s. Set, it replaces the default per-download
+             *     limit of the settings (so it may be higher or lower); `0` means "use the default". The
+             *     total limit of all downloads (`Settings::speed_global`) caps the sum either way.
              */
             speed_limit?: number;
             status: components["schemas"]["Status"];
@@ -474,10 +475,7 @@ export interface components {
          * @enum {string}
          */
         OnConflict: "reject" | "rename" | "overwrite";
-        /**
-         * @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. A limit for one
-         *     download is not a setting: it belongs to the download (`Download::speed_limit`).
-         */
+        /** @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. */
         Settings: {
             /**
              * @description Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).
@@ -496,9 +494,15 @@ export interface components {
             max_concurrent: number;
             /**
              * Format: int64
-             * @description Global speed limit, bytes/s.
+             * @description Total speed limit of all downloads together, bytes/s.
              */
             speed_global: number;
+            /**
+             * Format: int64
+             * @description Default speed limit of every download, bytes/s. A download with a limit of its own
+             *     (`Download::speed_limit`) ignores it.
+             */
+            speed_per_download: number;
         };
         /** @description First-run account creation. */
         SetupRequest: {
@@ -551,9 +555,10 @@ export interface components {
             category?: null | components["schemas"]["Category"];
             /**
              * Format: int64
-             * @description Speed limit of this download alone, bytes per second; `0` removes it. The global limit
-             *     still applies, the stricter wins. Only for queued, running, paused and failed downloads
-             *     (`409` otherwise). Applied live to a running download.
+             * @description Speed of this download alone, bytes per second. It replaces the default speed of each
+             *     download (it may be faster or slower); `0` removes it, so the default applies again. The
+             *     total limit of all downloads still caps the sum. Only for queued, running, paused and
+             *     failed downloads (`409` otherwise). Applied live to a running download.
              */
             speed_limit?: number | null;
         };

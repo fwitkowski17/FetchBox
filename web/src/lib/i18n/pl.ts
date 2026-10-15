@@ -209,10 +209,13 @@ const pl: Messages = {
     'Więcej połączeń może przyspieszyć pobieranie, ale tylko na serwerach, które na to pozwalają. Dotyczy nowych pobrań.',
   'settings.concurrent.label': 'Równoczesne pobrania',
   'settings.concurrent.hint': 'Pozostałe pobrania czekają w kolejce. Zmiana działa od razu.',
-  'settings.speed': 'Limit prędkości',
+  'settings.speed': 'Limity prędkości',
+  'settings.speed.each': 'Domyślna prędkość każdego pobrania',
+  'settings.speed.eachHint':
+    'Dotyczy każdego pobrania bez własnego limitu. Pojedyncze pobranie może dostać własną prędkość w swoim menu, która zastępuje tę.',
   'settings.speed.total': 'Ogranicz prędkość łączną',
   'settings.speed.totalHint':
-    'Wspólny dla wszystkich pobrań. Pojedyncze pobranie może mieć własny limit w swoim menu; obowiązuje niższy.',
+    'Wszystkie pobrania razem nie przekroczą tej wartości, niezależnie od ich własnych limitów.',
   'settings.speed.max': '{label}: maksymalna prędkość',
   'settings.speed.unit': 'Jednostka',
   'settings.speed.unlimited': 'Bez limitu',
@@ -373,9 +376,10 @@ const pl: Messages = {
   // ---- speed limit of one download
   'menu.speed': 'Limit prędkości…',
   'speed.title': 'Limit prędkości',
-  'speed.limitThis': 'Ogranicz to pobranie',
-  'speed.hint.global': 'Dotyczy tylko tego pobrania. Limit globalny {speed} nadal obowiązuje; liczy się niższy.',
-  'speed.hint.noGlobal': 'Dotyczy tylko tego pobrania. Limitu globalnego nie ustawiono.',
+  'speed.limitThis': 'Własna prędkość tego pobrania',
+  'speed.hint': 'Zastępuje wartość domyślną dla tego pobrania, więc może być szybsza lub wolniejsza. Limit łączny wszystkich pobrań nadal obowiązuje.',
+  'speed.off.default': 'Obowiązuje domyślna: {speed}',
+  'speed.off.none': 'Bez limitu (nie ustawiono domyślnej)',
   'card.limit': 'Limit {speed}',
 
   // ---- accent colours

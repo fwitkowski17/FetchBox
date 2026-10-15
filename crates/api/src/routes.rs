@@ -61,9 +61,10 @@ pub struct UpdateDownload {
     /// Hide the download from the main list (`true`) or bring it back (`false`). Only finished,
     /// failed or cancelled downloads can be archived (`409` otherwise).
     pub archived: Option<bool>,
-    /// Speed limit of this download alone, bytes per second; `0` removes it. The global limit
-    /// still applies, the stricter wins. Only for queued, running, paused and failed downloads
-    /// (`409` otherwise). Applied live to a running download.
+    /// Speed of this download alone, bytes per second. It replaces the default speed of each
+    /// download (it may be faster or slower); `0` removes it, so the default applies again. The
+    /// total limit of all downloads still caps the sum. Only for queued, running, paused and
+    /// failed downloads (`409` otherwise). Applied live to a running download.
     pub speed_limit: Option<u64>,
 }
 

@@ -15,6 +15,7 @@ import {
 const base: Settings = {
   connections: 4,
   max_concurrent: 3,
+  speed_per_download: 0,
   speed_global: 5 * 1024 * 1024,
   category_subdirs: true,
 };
@@ -22,12 +23,13 @@ const base: Settings = {
 describe('settings form', () => {
   it('round-trips the server settings', () => {
     expect(fromDraft(toDraft(base))).toEqual(base);
-    const odd: Settings = { ...base, speed_global: 300 * 1024, category_subdirs: false };
+    const odd: Settings = { ...base, speed_per_download: 300 * 1024, category_subdirs: false };
     expect(fromDraft(toDraft(odd))).toEqual(odd);
   });
 
   it('shows 0 as "no limit" and the rest in a friendly unit', () => {
     const d = toDraft(base);
+    expect(d.perDownload.limited).toBe(false);
     expect(d.global).toEqual({ limited: true, value: 5, unit: 'MB' });
   });
 
@@ -47,8 +49,8 @@ describe('settings form', () => {
     const d = toDraft(base);
     d.connections = 0;
     d.maxConcurrent = 2.5;
-    d.global = { limited: true, value: 0, unit: 'KB' };
-    expect(validate(d)).toEqual({ connections: 'connections', maxConcurrent: 'concurrent', global: 'speed' });
+    d.perDownload = { limited: true, value: 0, unit: 'KB' };
+    expect(validate(d)).toEqual({ connections: 'connections', maxConcurrent: 'concurrent', perDownload: 'speed' });
     d.connections = MAX_CONNECTIONS + 1;
     expect(validate(d).connections).toBeDefined();
     d.connections = MAX_CONNECTIONS;
@@ -76,6 +78,7 @@ describe('settings form', () => {
   it('detects changes, treating missing and false subdirs as equal', () => {
     expect(sameSettings(base, { ...base })).toBe(true);
     expect(sameSettings(base, { ...base, connections: 5 })).toBe(false);
+    expect(sameSettings(base, { ...base, speed_per_download: 1 })).toBe(false);
     const { category_subdirs: _omit, ...legacy } = base;
     expect(sameSettings(legacy, { ...base, category_subdirs: false })).toBe(true);
     expect(sameSettings(legacy, base)).toBe(false);

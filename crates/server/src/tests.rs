@@ -594,6 +594,85 @@ async fn a_limit_set_while_queued_is_used_when_the_download_starts() {
 }
 
 #[tokio::test]
+async fn the_default_limit_applies_live_to_downloads_without_a_limit_of_their_own() {
+    let h = Harness::new().await;
+    let slow = h
+        .mgr
+        .add(h.req("slow", "default.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.speed_per_download = 2048;
+    h.mgr.update_settings(s.clone()).await.expect("default");
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(now.status, Status::Downloading, "the default throttles it");
+    assert_eq!(now.speed_limit, 0, "without storing a limit of its own");
+
+    // A limit of its own replaces the default, here with a higher one: it may be faster.
+    h.mgr
+        .set_speed_limit(slow.id, 50_000_000)
+        .await
+        .expect("own limit");
+    h.wait_status(slow.id, Status::Completed).await;
+    assert_eq!(file(&h.path("default.bin")), body());
+}
+
+#[tokio::test]
+async fn a_limit_of_its_own_ignores_later_changes_of_the_default() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "own.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.mgr.set_speed_limit(d.id, 2048).await.expect("own limit");
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.speed_per_download = 50_000_000; // a faster default must not lift its own limit
+    h.mgr.update_settings(s.clone()).await.expect("default");
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let now = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(now.status, Status::Downloading, "still on its own limit");
+
+    // Taking its limit off hands it back to the default (fast here).
+    h.mgr.set_speed_limit(d.id, 0).await.expect("unlimit");
+    h.wait_status(d.id, Status::Completed).await;
+}
+
+#[tokio::test]
+async fn the_total_limit_caps_the_sum_of_all_downloads() {
+    let h = Harness::new().await;
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.speed_global = 4096; // far below what two downloads would reach
+    h.mgr.update_settings(s).await.expect("total limit");
+    let a = h
+        .mgr
+        .add(h.req("slow", "sum-a.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let b = h
+        .mgr
+        .add(h.req("slow", "sum-b.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    // A fast limit of its own does not lift the total cap.
+    h.mgr.set_speed_limit(a.id, 50_000_000).await.expect("fast");
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    let rows = h.mgr.list().await.expect("list");
+    let written: u64 = rows.iter().map(|d| d.downloaded).sum();
+    assert!(
+        rows.iter().all(|d| d.status == Status::Downloading),
+        "{rows:?}"
+    );
+    assert!(
+        written < BODY_LEN as u64,
+        "{written} bytes for two downloads (a {} byte file each) under a 4 KiB/s total",
+        BODY_LEN
+    );
+    let _ = b;
+}
+
+#[tokio::test]
 async fn finished_downloads_have_no_speed_to_limit() {
     let h = Harness::new().await;
     let d = h
@@ -891,7 +970,7 @@ async fn rest_errors_and_settings() {
 
     let (status, v) = send(&c, reqwest::Method::GET, format!("{api}/settings"), None).await;
     assert_eq!((status, v["connections"].as_u64()), (200, Some(4)));
-    let bad = r#"{"connections":0,"max_concurrent":3,"speed_global":0}"#;
+    let bad = r#"{"connections":0,"max_concurrent":3,"speed_per_download":0,"speed_global":0}"#;
     let (status, _) = send(
         &c,
         reqwest::Method::PUT,
@@ -900,7 +979,6 @@ async fn rest_errors_and_settings() {
     )
     .await;
     assert_eq!(status, 400);
-    // (An older client may still send the removed `speed_per_download`; it is ignored.)
     let ok = r#"{"connections":8,"max_concurrent":2,"speed_per_download":0,"speed_global":0}"#;
     let (status, v) = send(
         &c,

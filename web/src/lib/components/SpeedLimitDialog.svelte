@@ -1,6 +1,7 @@
 <script lang="ts">
-  // The speed limit of one download. It works on top of the global limit (Settings); the lower of
-  // the two counts. Saved limits apply at once, also to a running download.
+  // The speed of one download. A limit of its own replaces the default per-download speed of the
+  // settings (so the download may be faster or slower than the others); the total limit of all
+  // downloads still caps the sum. Saved limits apply at once, also to a running download.
   import { i18n, t } from '../i18n';
   import { downloads } from '../stores/downloads.svelte';
   import { settings } from '../stores/settings.svelte';
@@ -17,7 +18,7 @@
   const item = $derived(
     speedDialog.id === null ? undefined : downloads.items.find((d) => d.id === speedDialog.id),
   );
-  const global = $derived(settings.value?.speed_global ?? 0);
+  const defaultRate = $derived(settings.value?.speed_per_download ?? 0);
 
   let draft = $state<SpeedDraft>({ limited: false, value: 1, unit: 'MB' });
   let busy = $state(false);
@@ -58,9 +59,10 @@
     <form id="speed-form" class="grid gap-3" onsubmit={save}>
       <SpeedField
         label={t('speed.limitThis')}
-        hint={global > 0
-          ? t('speed.hint.global', { speed: i18n.speed(global) })
-          : t('speed.hint.noGlobal')}
+        hint={t('speed.hint')}
+        offText={defaultRate > 0
+          ? t('speed.off.default', { speed: i18n.speed(defaultRate) })
+          : t('speed.off.none')}
         bind:value={draft}
         error={valid ? undefined : t('settings.error.speed')}
       />
