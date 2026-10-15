@@ -532,6 +532,19 @@ export interface components {
              */
             size: number;
         };
+        /** @description One item of a directory index page. */
+        ListingEntry: {
+            is_dir: boolean;
+            /** @description Name as shown on the page (decoded), without a trailing slash. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Size in bytes when the page shows one.
+             */
+            size?: number | null;
+            /** @description Absolute address; a file is added with it, a directory is opened with it. */
+            url: string;
+        };
         /** @description Too many failed logins. */
         LockedBody: {
             error: string;
@@ -709,8 +722,11 @@ export interface components {
         UrlInfo: {
             /** @description Category the download would get when none is chosen. */
             category: components["schemas"]["Category"];
+            /** @description For a listing: the directories first, then the files, each group in page order. Empty for a file. */
+            entries: components["schemas"]["ListingEntry"][];
             /** @description The (sanitized) file name the download would get. */
             filename: string;
+            kind: components["schemas"]["UrlKind"];
             /** @description The server honours `Range`, so the download can be paused and resumed. */
             resumable: boolean;
             /**
@@ -718,7 +734,14 @@ export interface components {
              * @description Size in bytes; `None` when the server does not tell.
              */
             size?: number | null;
+            /** @description The page had more items than are returned. */
+            truncated: boolean;
         };
+        /**
+         * @description What a URL turned out to be.
+         * @enum {string}
+         */
+        UrlKind: "file" | "listing";
     };
     responses: never;
     parameters: never;

@@ -2356,3 +2356,79 @@ async fn the_probe_follows_the_private_url_policy() {
     let r = h.mgr.probe(&h.url("fast", "a.bin")).await;
     assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
 }
+
+/// A server with a directory index at `/pub/` and an ordinary HTML page at `/blog`.
+async fn spawn_index_server() -> String {
+    use axum::http::header::CONTENT_TYPE;
+    use axum::routing::get;
+    const INDEX: &str = r#"<html><head><title>Index of /pub</title></head><body><h1>Index of /pub</h1><pre>
+<a href="../">../</a>
+<a href="sub/">sub/</a>        12-Jan-2024 10:00     -
+<a href="song.mp3">song.mp3</a>   12-Jan-2024 10:00  4096
+<a href="notes.txt">notes.txt</a>  12-Jan-2024 10:00  12
+</pre></body></html>"#;
+    let app = axum::Router::new()
+        .route(
+            "/pub/",
+            get(|| async { ([(CONTENT_TYPE, "text/html; charset=utf-8")], INDEX) }),
+        )
+        .route(
+            "/blog",
+            get(|| async {
+                (
+                    [(CONTENT_TYPE, "text/html")],
+                    "<title>A blog</title><a href=\"a.zip\">a</a>",
+                )
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{addr}")
+}
+
+#[tokio::test]
+async fn probing_a_directory_index_lists_what_is_in_it() {
+    let h = Harness::new().await;
+    let site = spawn_index_server().await;
+
+    let info = h.mgr.probe(&format!("{site}/pub/")).await.expect("probe");
+    assert_eq!(info.kind, fetchbox_core::UrlKind::Listing);
+    let names: Vec<_> = info
+        .entries
+        .iter()
+        .map(|e| (e.name.as_str(), e.is_dir, e.size))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("sub", true, None),
+            ("song.mp3", false, Some(4096)),
+            ("notes.txt", false, Some(12)),
+        ]
+    );
+    assert_eq!(info.entries[1].url, format!("{site}/pub/song.mp3"));
+    assert!(h.mgr.list().await.expect("list").is_empty());
+
+    // Any other page is just a file.
+    let page = h.mgr.probe(&format!("{site}/blog")).await.expect("probe");
+    assert_eq!(page.kind, fetchbox_core::UrlKind::File);
+    assert!(page.entries.is_empty());
+    let file = h.mgr.probe(&h.url("fast", "a.bin")).await.expect("probe");
+    assert_eq!(file.kind, fetchbox_core::UrlKind::File);
+}
+
+#[tokio::test]
+async fn the_private_url_policy_also_covers_reading_a_listing() {
+    let h = Harness::with_policy(fetchbox_http_engine::UrlPolicy {
+        block_private: true,
+    })
+    .await;
+    let site = spawn_index_server().await;
+    let r = h.mgr.probe(&format!("{site}/pub/")).await;
+    assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
+}

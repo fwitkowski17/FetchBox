@@ -19,7 +19,7 @@ use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
-    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo,
+    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo, UrlKind,
 };
 use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
@@ -616,11 +616,29 @@ impl Service for Manager {
 
     async fn probe(&self, url: &str) -> Result<UrlInfo> {
         let info = self.probe_remote(url).await?;
+        let is_html = info.content_type.as_deref().is_some_and(|c| {
+            let c = c.to_ascii_lowercase();
+            c.starts_with("text/html") || c.starts_with("application/xhtml")
+        });
+        // A directory index is offered as a list to choose from. Reading it is an extra request, and
+        // a failure of that one only means "treat it as a file": the add reports real problems.
+        let listing = if is_html {
+            self.engine.listing_url(url).await.ok().flatten()
+        } else {
+            None
+        };
+        let (kind, entries, truncated) = match listing {
+            Some(l) => (UrlKind::Listing, l.entries, l.truncated),
+            None => (UrlKind::File, Vec::new(), false),
+        };
         Ok(UrlInfo {
+            kind,
             category: detect_category(&info.filename, info.content_type.as_deref()),
             filename: info.filename,
             size: info.size,
             resumable: info.resumable,
+            entries,
+            truncated,
         })
     }
 

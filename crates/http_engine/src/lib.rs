@@ -5,6 +5,7 @@
 
 pub mod disk;
 pub mod error;
+pub mod listing;
 pub mod policy;
 pub mod probe;
 pub mod segments;
@@ -191,6 +192,14 @@ impl HttpDownloader {
         let url = validate_url(raw)?;
         self.inner.policy.check(&url)?;
         probe(&self.inner.client, &url).await
+    }
+
+    /// Read a directory index page (Apache, nginx, ...) and list what is in it. `None` when the
+    /// address answers with something that is not such a page, so it is a file to download.
+    pub async fn listing_url(&self, raw: &str) -> Result<Option<listing::Listing>, EngineError> {
+        let url = validate_url(raw)?;
+        self.inner.policy.check(&url)?;
+        listing::fetch(&self.inner.client, &url).await
     }
 
     /// Change the limit of one download live. `own` replaces the default speed (`0` = use the
