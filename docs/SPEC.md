@@ -92,13 +92,21 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 - No `Accept-Ranges`: single connection, mark download as non-resumable in the UI.
 - On completion rename `.part` to final name, handle name collisions.
 - Disk space: files are pre-sized with `set_len` (sparse on ext4, xfs, btrfs, apfs, tmpfs), so free space only shrinks
-  as bytes are written. Before any byte is written the engine checks that the rest of the file (size minus what a
-  resumed `.part` already holds) plus what the other running downloads still have to write fits into the free space
-  of the target directory (`statvfs`); if not, the download fails with `not enough disk space: X needed, Y available`
-  and nothing is created. `POST /api/downloads` runs the same check right after the probe, so the user is told at
-  once (see 6.5). Unknown sizes (no `Content-Length`) cannot be checked, and a platform without `statvfs` skips the
-  check with a warning instead of blocking downloads. Two downloads probing at the very same moment can both pass;
-  the loser then fails on the write error like any full disk.
+  as bytes are written. Room is reserved virtually: as soon as the size is known (the probe of `POST /api/downloads`)
+  the rest of the file counts against the free space of its disk. The reservation of a download is what it still
+  has to write (size minus what it has stored), held while it is queued, running or paused and given back when it
+  completes (the bytes are on the disk by then), fails, is cancelled or removed. A new download is refused (`507`) when
+  it does not fit into `available - reserved by the others`, so five 50 GB files cannot all be queued on a 100 GB disk.
+  Reservations are kept per file system (device id): a category subdirectory can be a mount point on another disk, and
+  a path that does not exist yet is judged by its nearest existing parent. Resuming a *failed* download takes its
+  reservation again and is refused the same way if the space went elsewhere meanwhile. As a safety net the engine
+  checks once more when a download actually starts (the disk may have been filled by something else, or the size was
+  unknown at add time): the rest of the file plus what the other running downloads on that disk still have to write
+  must fit, otherwise it fails with `not enough disk space: X needed, Y available` before anything is created. No
+  safety margin is kept: the data directory may be on another disk, and the download directory is the user's to fill.
+  Unknown sizes (no `Content-Length`) cannot be reserved or checked, and a platform without `statvfs` skips the checks
+  with a warning instead of blocking downloads. Only downloads that probe at the very same moment as the engine check
+  can race; the loser fails on the write error like any full disk.
 
 ### 6.3 Scheduler and limits
 
@@ -140,10 +148,12 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   `on_conflict`: `rename` (use `suggested_name`) or `overwrite` (replace the file when the download finishes);
   cancelling means not re-sending. Overwriting a name reserved by an unfinished download is refused (400).
   The engine never overwrites on its own: an unexpected collision at finalize picks the next free name.
-- `GET /api/disk` answers `{total, available, pending}`: `total` is used plus available (blocks reserved for root are
-  not counted, so the share matches `df`'s `Use%`), `pending` is what queued, running and paused downloads with a known
-  size still have to write. `POST /api/downloads` answers `507 {"error":"insufficient storage","needed","available"}`
-  when the file (plus what running downloads still need) does not fit; nothing is stored then.
+- `GET /api/disk` answers `{total, available, reserved}` for the file system of the download directory: `total` is used
+  plus available (blocks reserved for root are not counted, so the share matches `df`'s `Use%`), `reserved` is what
+  queued, running and paused downloads on that file system with a known size still have to write (see 6.2).
+  `POST /api/downloads` answers `507 {"error":"insufficient storage","needed","available"}` when the file does not fit
+  next to the other reservations: `needed` is the file size, `available` the free space minus what others have
+  reserved; nothing is stored then.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
   `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
@@ -164,10 +174,11 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   the table. A test derives the contrast of every accent in every theme from the CSS and requires WCAG AA (4.5:1 for text on the
   accent and accent text on cards, 4.2:1 on the tint). Status filters carry icons coloured by state.
 - Disk ring: at the bottom of the side menu (left bottom corner, also in the drawer) a ring shows the used share of the
-  download disk, a lighter arc what unfinished downloads will still write, "N free of M" next to it and, when the queue
-  does not fit, how much is missing. Accent colour up to 85 % used, amber from 85 %, red from 95 % or when the queue does
+  download disk, a lighter arc the space reserved for unfinished downloads, "N free of M" next to it, the reserved amount and, when
+  the reservations exceed the free space (something else filled the disk), how much is missing. It shows the disk of
+  the download directory; a category subdirectory on another disk is covered by the checks but not drawn. Accent colour up to 85 % used, amber from 85 %, red from 95 % or when the queue does
   not fit. Polled every 10 s (not while the tab is hidden) and refreshed when a download finishes; hidden if the server
-  cannot tell. The add form shows the `507` as "needs X, only Y free".
+  cannot tell. The add form shows the `507` as "needs X, only Y free after the space reserved for other downloads".
 - Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, connection
   state, theme switch); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.

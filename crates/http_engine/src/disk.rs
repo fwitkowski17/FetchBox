@@ -12,10 +12,45 @@ use dlm_core::DiskSpace;
 
 use crate::error::EngineError;
 
-/// Total and available bytes of the file system holding `path` (which must exist).
-/// `pending` is left at 0 for the caller to fill in.
+/// A file system: its identity and its space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Volume {
+    /// Device id; equal for paths on the same file system. Reservations are kept per device,
+    /// because a category subdirectory can be a mount point on another disk.
+    pub dev: u64,
+    /// `reserved` is left at 0 for the caller to fill in.
+    pub space: DiskSpace,
+}
+
+/// The file system that holds `path`. The path need not exist yet (a category subdirectory is
+/// created when its first download starts): the nearest existing parent decides.
+pub fn volume(path: &Path) -> io::Result<Volume> {
+    let mut existing = path;
+    while !existing.exists() {
+        existing = existing.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "no existing parent directory")
+        })?;
+    }
+    Ok(Volume {
+        dev: device(existing)?,
+        space: space(existing)?,
+    })
+}
+
 #[cfg(unix)]
-pub fn space(path: &Path) -> io::Result<DiskSpace> {
+fn device(path: &Path) -> io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(std::fs::metadata(path)?.dev())
+}
+
+#[cfg(not(unix))]
+fn device(_path: &Path) -> io::Result<u64> {
+    Ok(0)
+}
+
+/// Total and available bytes of the file system holding `path` (which must exist).
+#[cfg(unix)]
+fn space(path: &Path) -> io::Result<DiskSpace> {
     let s = rustix::fs::statvfs(path)?;
     // Block counts are in units of the fragment size.
     let unit = s.f_frsize;
@@ -25,28 +60,29 @@ pub fn space(path: &Path) -> io::Result<DiskSpace> {
         // Blocks reserved for root are neither used nor available to us.
         total: used.saturating_add(available),
         available,
-        pending: 0,
+        reserved: 0,
     })
 }
 
 #[cfg(not(unix))]
-pub fn space(_path: &Path) -> io::Result<DiskSpace> {
+fn space(_path: &Path) -> io::Result<DiskSpace> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "free disk space is not available on this platform",
     ))
 }
 
-/// Does a download needing `needed` more bytes fit, given what other running downloads still
-/// have to write? Unknown sizes are the caller's to skip: nothing can be said about them.
+/// Does a download needing `needed` more bytes fit, once the space promised to other unfinished
+/// downloads (`others`) is set aside? Unknown sizes are the caller's to skip: nothing can be said
+/// about them. The error reports what is really free for this download.
 pub fn ensure_fits(needed: u64, others: u64, available: u64) -> Result<(), EngineError> {
-    let total = needed.saturating_add(others);
-    if total <= available {
+    let free = available.saturating_sub(others);
+    if needed <= free {
         Ok(())
     } else {
         Err(EngineError::NoSpace {
-            needed: total,
-            available,
+            needed,
+            available: free,
         })
     }
 }
@@ -68,34 +104,58 @@ mod tests {
     }
 
     #[test]
-    fn other_downloads_count_against_the_free_space() {
+    fn space_promised_to_other_downloads_is_not_free() {
         assert!(ensure_fits(60, 40, 100).is_ok());
+        // The error reports the free space left after the others' share, not the raw figure.
         assert!(matches!(
             ensure_fits(60, 41, 100),
-            Err(EngineError::NoSpace { needed: 101, .. })
+            Err(EngineError::NoSpace {
+                needed: 60,
+                available: 59
+            })
         ));
     }
 
     #[test]
-    fn huge_sizes_do_not_overflow() {
+    fn over_committed_disks_have_nothing_free_and_sizes_do_not_overflow() {
+        assert!(matches!(
+            ensure_fits(1, 500, 100),
+            Err(EngineError::NoSpace { available: 0, .. })
+        ));
         assert!(ensure_fits(u64::MAX, u64::MAX, 1).is_err());
+        assert!(ensure_fits(0, u64::MAX, 0).is_ok());
     }
 
     #[cfg(unix)]
     #[test]
     fn reports_a_sane_figure_for_a_real_directory() {
         let dir = tempfile::tempdir().expect("tmp");
-        let s = space(dir.path()).expect("statvfs");
-        assert!(s.total > 0, "{s:?}");
-        assert!(s.available <= s.total, "{s:?}");
-        assert!(s.used() + s.available == s.total);
-        assert_eq!(s.pending, 0);
+        let v = volume(dir.path()).expect("statvfs");
+        assert!(v.space.total > 0, "{v:?}");
+        assert!(v.space.available <= v.space.total, "{v:?}");
+        assert!(v.space.used() + v.space.available == v.space.total);
+        assert_eq!(v.space.reserved, 0);
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_missing_directory_is_an_error() {
+    fn a_directory_that_does_not_exist_yet_is_judged_by_its_parent() {
         let dir = tempfile::tempdir().expect("tmp");
-        assert!(space(&dir.path().join("nope")).is_err());
+        let here = volume(dir.path()).expect("volume");
+        let later = volume(&dir.path().join("video").join("deeper")).expect("volume");
+        assert_eq!(here.dev, later.dev);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn different_file_systems_have_different_devices() {
+        // `/proc` is its own file system on Linux; skip where it does not exist.
+        let proc = Path::new("/proc");
+        if !proc.exists() {
+            return;
+        }
+        let root = volume(Path::new("/")).expect("root");
+        let p = volume(proc).expect("proc");
+        assert_ne!(root.dev, p.dev);
     }
 }

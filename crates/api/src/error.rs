@@ -29,9 +29,10 @@ pub struct ConflictBody {
 pub struct SpaceBody {
     /// Always `"insufficient storage"`.
     pub error: String,
-    /// Bytes the download needs, including what other running downloads still have to write.
+    /// Bytes the download needs.
     pub needed: u64,
-    /// Bytes available on the disk.
+    /// Bytes still free for it: the free space of the disk minus what other unfinished downloads
+    /// have reserved.
     pub available: u64,
 }
 

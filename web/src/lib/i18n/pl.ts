@@ -175,7 +175,8 @@ const pl: Messages = {
   'add.submit': 'Rozpocznij pobieranie',
   'add.submitting': 'Dodawanie…',
   'add.failed': 'Nie udało się dodać pobrania.',
-  'add.noSpace': 'Za mało miejsca na dysku: plik potrzebuje {needed}, a wolne jest tylko {available}.',
+  'add.noSpace':
+    'Za mało miejsca na dysku: plik potrzebuje {needed}, a wolne jest tylko {available} po uwzględnieniu miejsca zarezerwowanego dla innych pobrań.',
   'add.added': 'Dodano „{name}”',
 
   // ---- name conflict dialog
@@ -247,7 +248,7 @@ const pl: Messages = {
   'disk.free': '{size} wolne',
   'disk.of': 'z {size}',
   'disk.summary': 'Miejsce na dysku: wolne {free} z {total} (zajęte {percent})',
-  'disk.pending': 'Do pobrania jeszcze {size}',
+  'disk.reserved': 'Zarezerwowane na pobieranie: {size}',
   'disk.short': 'Kolejka potrzebuje o {size} więcej, niż jest wolne.',
 
   // ---- accent colours

@@ -256,7 +256,7 @@
         "tags": [
           "system"
         ],
-        "summary": "Free space on the disk that holds the download directory.",
+        "summary": "Free space on the disk that holds the download directory, and how much of it unfinished\ndownloads have reserved.",
         "operationId": "disk",
         "responses": {
           "200": {
@@ -400,7 +400,7 @@
             }
           },
           "507": {
-            "description": "The file is larger than the free disk space (counting what running downloads still need)",
+            "description": "The file does not fit into the free disk space that other unfinished downloads have not reserved",
             "content": {
               "application/json": {
                 "schema": {
@@ -1093,7 +1093,7 @@
         "required": [
           "total",
           "available",
-          "pending"
+          "reserved"
         ],
         "properties": {
           "available": {
@@ -1102,10 +1102,10 @@
             "description": "Bytes available for new files.",
             "minimum": 0
           },
-          "pending": {
+          "reserved": {
             "type": "integer",
             "format": "int64",
-            "description": "Bytes still to be written by queued, running and paused downloads whose size is known.\nWhen this exceeds `available` the queue will not fit.",
+            "description": "Bytes reserved for unfinished downloads: what queued, running and paused downloads on this\nfile system still have to write (size known). New downloads must fit into\n`available - reserved`; when `reserved` exceeds `available` (something else filled the disk)\nthe queue will not fit.",
             "minimum": 0
           },
           "total": {
@@ -1450,7 +1450,7 @@
           "available": {
             "type": "integer",
             "format": "int64",
-            "description": "Bytes available on the disk.",
+            "description": "Bytes still free for it: the free space of the disk minus what other unfinished downloads\nhave reserved.",
             "minimum": 0
           },
           "error": {
@@ -1460,7 +1460,7 @@
           "needed": {
             "type": "integer",
             "format": "int64",
-            "description": "Bytes the download needs, including what other running downloads still have to write.",
+            "description": "Bytes the download needs.",
             "minimum": 0
           }
         }

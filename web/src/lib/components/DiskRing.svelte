@@ -18,7 +18,7 @@
   const view = $derived(value ? diskView(value) : null);
   // Percent of the circle, for `pathLength="100"`.
   const usedLen = $derived(view ? view.used * 100 : 0);
-  const pendingLen = $derived(view ? view.pending * 100 : 0);
+  const reservedLen = $derived(view ? view.reserved * 100 : 0);
 
   const summary = $derived(
     value
@@ -36,7 +36,7 @@
     <div class="relative size-12 shrink-0">
       <svg viewBox="0 0 36 36" class="size-full -rotate-90" role="img" aria-label={summary}>
         <circle cx="18" cy="18" r="15.9155" fill="none" class="stroke-border" stroke-width="4" />
-        {#if pendingLen > 0}
+        {#if reservedLen > 0}
           <!-- Starts where the used arc ends -->
           <circle
             cx="18"
@@ -46,9 +46,9 @@
             class={[STROKE[view.level], 'opacity-35']}
             stroke-width="4"
             pathLength="100"
-            stroke-dasharray="{pendingLen} {100 - pendingLen}"
+            stroke-dasharray="{reservedLen} {100 - reservedLen}"
             stroke-dashoffset={-usedLen}
-            data-part="disk-pending"
+            data-part="disk-reserved"
           />
         {/if}
         <circle
@@ -79,9 +79,9 @@
         <p class={['mt-0.5 font-medium', TEXT.full]} role="status" data-part="disk-short">
           {t('disk.short', { size: i18n.bytes(view.short) })}
         </p>
-      {:else if value.pending > 0}
-        <p class="mt-0.5 text-muted" data-part="disk-pending-text">
-          {t('disk.pending', { size: i18n.bytes(value.pending) })}
+      {:else if value.reserved > 0}
+        <p class="mt-0.5 text-muted" data-part="disk-reserved-text">
+          {t('disk.reserved', { size: i18n.bytes(value.reserved) })}
         </p>
       {/if}
     </div>

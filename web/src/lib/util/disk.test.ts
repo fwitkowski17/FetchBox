@@ -3,17 +3,17 @@ import type { DiskSpace } from '../api/types';
 import { diskView } from './disk';
 
 const GB = 1024 ** 3;
-const disk = (usedGb: number, totalGb: number, pendingGb = 0): DiskSpace => ({
+const disk = (usedGb: number, totalGb: number, reservedGb = 0): DiskSpace => ({
   total: totalGb * GB,
   available: (totalGb - usedGb) * GB,
-  pending: pendingGb * GB,
+  reserved: reservedGb * GB,
 });
 
 describe('diskView', () => {
-  it('computes the used and pending shares', () => {
+  it('computes the used and reserved shares', () => {
     const v = diskView(disk(50, 100, 20));
     expect(v.used).toBeCloseTo(0.5);
-    expect(v.pending).toBeCloseTo(0.2);
+    expect(v.reserved).toBeCloseTo(0.2);
     expect(v.short).toBe(0);
     expect(v.level).toBe('ok');
   });
@@ -29,8 +29,8 @@ describe('diskView', () => {
     const v = diskView(disk(10, 100, 95));
     expect(v.level).toBe('full');
     expect(v.short).toBe(5 * GB);
-    // The pending arc stops at the end of the free space: it cannot leave the ring.
-    expect(v.used + v.pending).toBeCloseTo(1);
+    // The reserved arc stops at the end of the free space: it cannot leave the ring.
+    expect(v.used + v.reserved).toBeCloseTo(1);
   });
 
   it('an exact fit is not a shortfall', () => {
@@ -40,13 +40,13 @@ describe('diskView', () => {
   });
 
   it('survives an empty or inconsistent report', () => {
-    expect(diskView({ total: 0, available: 0, pending: 0 })).toEqual({
+    expect(diskView({ total: 0, available: 0, reserved: 0 })).toEqual({
       used: 0,
-      pending: 0,
+      reserved: 0,
       level: 'ok',
       short: 0,
     });
-    const odd = diskView({ total: 10, available: 20, pending: 0 });
+    const odd = diskView({ total: 10, available: 20, reserved: 0 });
     expect(odd.used).toBe(0);
   });
 });

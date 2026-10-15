@@ -5,7 +5,7 @@
 //! this module persists it (once per tick, never from the download hot path) and
 //! turns it into UI events.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::UNIX_EPOCH;
@@ -422,6 +422,63 @@ impl Manager {
     }
 }
 
+#[cfg(test)]
+impl Manager {
+    /// Mark a (paused) download failed without going through the engine.
+    pub(crate) fn mark_failed_for_test(&self, id: Id) {
+        self.with_db(|c| downloads::set_status(c, id, Status::Failed, Some("test")).map(|_| ()))
+            .expect("set status");
+    }
+}
+
+impl Manager {
+    /// Bytes that queued, running and paused downloads (all but `except`) still have to write on
+    /// file system `dev`: the space virtually reserved for them. Finished, failed and cancelled
+    /// downloads reserve nothing, and a running one's reservation shrinks as the disk fills.
+    fn reserved_on(&self, dev: u64, except: Option<Id>) -> Result<u64> {
+        let all = self.with_db(|c| downloads::list(c))?;
+        // Category subdirectories may sit on other disks; look each directory up once.
+        let mut same_disk: HashMap<String, bool> = HashMap::new();
+        let mut total = 0u64;
+        for d in all {
+            if Some(d.id) == except
+                || !matches!(
+                    d.status,
+                    Status::Queued | Status::Downloading | Status::Paused
+                )
+            {
+                continue;
+            }
+            let d = self.view(d);
+            let Some(size) = d.size else { continue };
+            let here = *same_disk.entry(d.subdir.clone()).or_insert_with(|| {
+                dlm_http_engine::disk::volume(&self.engine.dir_for(&d.subdir))
+                    .map_or(true, |v| v.dev == dev)
+            });
+            if here {
+                total = total.saturating_add(size.saturating_sub(d.downloaded));
+            }
+        }
+        Ok(total)
+    }
+
+    /// Refuse (`InsufficientSpace`) when `needed` more bytes do not fit next to what the other
+    /// unfinished downloads on the same disk have reserved. A disk whose space cannot be read is
+    /// not checked: that must not stop downloads.
+    fn ensure_room(&self, subdir: &str, needed: u64, except: Option<Id>) -> Result<()> {
+        let vol = match dlm_http_engine::disk::volume(&self.engine.dir_for(subdir)) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "cannot read free disk space; skipping the check");
+                return Ok(());
+            }
+        };
+        let others = self.reserved_on(vol.dev, except)?;
+        dlm_http_engine::disk::ensure_fits(needed, others, vol.space.available)?;
+        Ok(())
+    }
+}
+
 fn io_err(e: std::io::Error) -> Error {
     Error::Internal(e.to_string())
 }
@@ -438,20 +495,6 @@ impl Service for Manager {
             dlm_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
             other => Error::Engine(format!("cannot reach {}: {other}", req.url)),
         })?;
-        // Tell the user now, not when the download dies halfway. The engine checks again when
-        // the download really starts (the queue may have filled the disk by then).
-        if let Some(size) = info.size {
-            match dlm_http_engine::disk::space(&self.dir) {
-                Ok(d) => dlm_http_engine::disk::ensure_fits(
-                    size,
-                    self.engine.remaining_bytes(),
-                    d.available,
-                )?,
-                Err(e) => {
-                    tracing::warn!(error = %e, "cannot read free disk space; skipping the check")
-                }
-            }
-        }
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
         let category = req
             .category
@@ -466,6 +509,11 @@ impl Service for Manager {
 
         let id = {
             let _guard = self.add_lock.lock().await;
+            // Reserve room for it: tell the user now, not when the download dies halfway. Inside
+            // the lock, so two adds cannot both claim the last free gigabytes.
+            if let Some(size) = info.size {
+                self.ensure_room(&subdir, size, None)?;
+            }
             let found = self.detect_conflict(&url, &subdir, &name).await?;
             let (filename, overwrite) = match (found.conflict, req.on_conflict) {
                 (None, _) => (name, false),
@@ -532,7 +580,16 @@ impl Service for Manager {
                 d.status.as_str()
             )));
         }
+        // A failed download gave its reservation back; take it again or say it no longer fits.
+        // (A paused one kept it.) Serialized with `add` so both see one consistent picture.
+        let guard = self.add_lock.lock().await;
+        if d.status == Status::Failed {
+            if let Some(size) = d.size {
+                self.ensure_room(&d.subdir, size.saturating_sub(d.downloaded), Some(id))?;
+            }
+        }
         self.with_db(|c| downloads::set_status(c, id, Status::Queued, None).map(|_| ()))?;
+        drop(guard); // it counts as reserved from here on
         let start = self.sched().enqueue(id);
         self.publish_download(id);
         self.launch(start).await;
@@ -570,21 +627,9 @@ impl Service for Manager {
     }
 
     async fn disk_space(&self) -> Result<DiskSpace> {
-        let mut space = dlm_http_engine::disk::space(&self.dir).map_err(io_err)?;
-        // What queued, running and paused downloads will still write. Finished, failed and
-        // cancelled ones need nothing more.
-        let all = self.with_db(|c| downloads::list(c))?;
-        space.pending = all
-            .into_iter()
-            .map(|d| self.view(d))
-            .filter(|d| {
-                matches!(
-                    d.status,
-                    Status::Queued | Status::Downloading | Status::Paused
-                )
-            })
-            .filter_map(|d| d.size.map(|size| size.saturating_sub(d.downloaded)))
-            .sum();
+        let vol = dlm_http_engine::disk::volume(&self.dir).map_err(io_err)?;
+        let mut space = vol.space;
+        space.reserved = self.reserved_on(vol.dev, None)?;
         Ok(space)
     }
 

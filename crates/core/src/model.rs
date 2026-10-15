@@ -155,9 +155,11 @@ pub struct DiskSpace {
     pub total: u64,
     /// Bytes available for new files.
     pub available: u64,
-    /// Bytes still to be written by queued, running and paused downloads whose size is known.
-    /// When this exceeds `available` the queue will not fit.
-    pub pending: u64,
+    /// Bytes reserved for unfinished downloads: what queued, running and paused downloads on this
+    /// file system still have to write (size known). New downloads must fit into
+    /// `available - reserved`; when `reserved` exceeds `available` (something else filled the disk)
+    /// the queue will not fit.
+    pub reserved: u64,
 }
 
 impl DiskSpace {

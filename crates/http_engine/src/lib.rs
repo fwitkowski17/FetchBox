@@ -187,9 +187,9 @@ impl HttpDownloader {
         }
     }
 
-    /// Bytes the running downloads still have to write (known sizes only).
-    pub fn remaining_bytes(&self) -> u64 {
-        self.inner.remaining_of_others(None)
+    /// The directory a download with this `subdir` is written to (it may not exist yet).
+    pub fn dir_for(&self, subdir: &str) -> PathBuf {
+        target_dir(&self.inner.dir, subdir)
     }
 
     /// The `.part` file of a download: `<subdir>/<name>.<id>.part` (ids keep same-name
@@ -228,11 +228,17 @@ impl HttpDownloader {
 }
 
 impl Inner {
-    /// Bytes the running downloads (all but `except`) still have to write; unknown sizes count 0.
-    fn remaining_of_others(&self, except: Option<Id>) -> u64 {
-        self.entries()
+    /// Bytes the running downloads on file system `dev` (all but `except`) still have to write;
+    /// unknown sizes count 0.
+    fn running_remaining(&self, except: Option<Id>, dev: u64) -> u64 {
+        let entries = self.entries();
+        entries
             .iter()
             .filter(|(id, _)| Some(**id) != except)
+            .filter(|(_, e)| {
+                // A directory whose device cannot be read is assumed to be on the same disk.
+                disk::volume(&target_dir(&self.dir, &e.job.subdir)).map_or(true, |v| v.dev == dev)
+            })
             .filter_map(|(_, e)| e.shared.remote.get())
             .map(|r| r.size.map_or(0, |size| size.saturating_sub(r.downloaded())))
             .sum()
@@ -354,8 +360,8 @@ async fn download(
         && plan_end == info.size
         && tokio::fs::metadata(&part).await.is_ok();
 
-    // Refuse early when the rest of the file (plus what other running downloads still have to
-    // write) cannot fit; otherwise the disk would fill up halfway and the download would die
+    // Refuse early when the rest of the file (plus what other running downloads on the same disk
+    // still have to write) cannot fit; the server reserves room for queued ones when they are added; otherwise the disk would fill up halfway and the download would die
     // with a bare write error. Without a known size nothing can be checked.
     if let Some(size) = info.size {
         let have: u64 = if reuse {
@@ -363,11 +369,11 @@ async fn download(
         } else {
             0
         };
-        match disk::space(&dir) {
-            Ok(d) => disk::ensure_fits(
+        match disk::volume(&dir) {
+            Ok(v) => disk::ensure_fits(
                 size.saturating_sub(have),
-                inner.remaining_of_others(Some(job.id)),
-                d.available,
+                inner.running_remaining(Some(job.id), v.dev),
+                v.space.available,
             )?,
             // Free space unknown (exotic file system): do not block downloads over it.
             Err(e) => tracing::warn!(error = %e, "cannot read free disk space; skipping the check"),
@@ -837,25 +843,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remaining_bytes_follow_running_downloads() {
+    async fn running_remaining_follows_running_downloads() {
         let server = TestServer::spawn(256 * 1024, true, Duration::from_millis(40)).await;
         let dir = tempfile::tempdir().expect("tmp");
         let (dl, mut rx) =
             HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
-        assert_eq!(dl.remaining_bytes(), 0);
+        let dev = disk::volume(dir.path()).expect("volume").dev;
+        assert_eq!(dl.inner.running_remaining(None, dev), 0);
         dl.start(&job(1, &server, 1)).await.expect("start");
         loop {
             if matches!(rx.recv().await.expect("closed"), Event::Started { .. }) {
                 break;
             }
         }
-        let left = dl.remaining_bytes();
+        let left = dl.inner.running_remaining(None, dev);
         assert!(left > 0 && left <= server.len() as u64, "{left}");
+        assert_eq!(
+            dl.inner.running_remaining(Some(1), dev),
+            0,
+            "a download does not count against itself"
+        );
+        assert_eq!(
+            dl.inner.running_remaining(None, dev.wrapping_add(1)),
+            0,
+            "other file systems are not affected"
+        );
         assert!(matches!(
             next_terminal(&mut rx).await,
             Event::Completed { .. }
         ));
-        assert_eq!(dl.remaining_bytes(), 0, "finished downloads need nothing");
+        assert_eq!(
+            dl.inner.running_remaining(None, dev),
+            0,
+            "finished downloads need nothing"
+        );
     }
 
     #[tokio::test]

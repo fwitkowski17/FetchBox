@@ -178,7 +178,8 @@ export const en = {
   'add.submit': 'Start download',
   'add.submitting': 'Adding…',
   'add.failed': 'Could not add the download.',
-  'add.noSpace': 'Not enough disk space: the file needs {needed}, but only {available} is free.',
+  'add.noSpace':
+    'Not enough disk space: the file needs {needed}, but only {available} is free after the space reserved for other downloads.',
   'add.added': 'Added “{name}”',
 
   // ---- name conflict dialog
@@ -250,7 +251,7 @@ export const en = {
   'disk.free': '{size} free',
   'disk.of': 'of {size}',
   'disk.summary': 'Disk space: {free} free of {total} ({percent} used)',
-  'disk.pending': '{size} still to download',
+  'disk.reserved': '{size} reserved for downloads',
   'disk.short': 'The queue needs {size} more than is free.',
 
   // ---- accent colours

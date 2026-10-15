@@ -102,7 +102,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Free space on the disk that holds the download directory. */
+        /**
+         * Free space on the disk that holds the download directory, and how much of it unfinished
+         *     downloads have reserved.
+         */
         get: operations["disk"];
         put?: never;
         post?: never;
@@ -348,10 +351,12 @@ export interface components {
             available: number;
             /**
              * Format: int64
-             * @description Bytes still to be written by queued, running and paused downloads whose size is known.
-             *     When this exceeds `available` the queue will not fit.
+             * @description Bytes reserved for unfinished downloads: what queued, running and paused downloads on this
+             *     file system still have to write (size known). New downloads must fit into
+             *     `available - reserved`; when `reserved` exceeds `available` (something else filled the disk)
+             *     the queue will not fit.
              */
-            pending: number;
+            reserved: number;
             /**
              * Format: int64
              * @description Bytes this program can use on the file system: what is used plus what is available
@@ -488,14 +493,15 @@ export interface components {
         SpaceBody: {
             /**
              * Format: int64
-             * @description Bytes available on the disk.
+             * @description Bytes still free for it: the free space of the disk minus what other unfinished downloads
+             *     have reserved.
              */
             available: number;
             /** @description Always `"insufficient storage"`. */
             error: string;
             /**
              * Format: int64
-             * @description Bytes the download needs, including what other running downloads still have to write.
+             * @description Bytes the download needs.
              */
             needed: number;
         };
@@ -837,7 +843,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description The file is larger than the free disk space (counting what running downloads still need) */
+            /** @description The file does not fit into the free disk space that other unfinished downloads have not reserved */
             507: {
                 headers: {
                     [name: string]: unknown;

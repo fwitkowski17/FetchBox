@@ -106,7 +106,7 @@ pub(crate) async fn list(State(svc): Svc) -> ApiResult<Json<Vec<Download>>> {
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 409, description = "Collision; the user must choose", body = ConflictBody),
         (status = 502, description = "The remote server could not be reached", body = ErrorBody),
-        (status = 507, description = "The file is larger than the free disk space (counting what running downloads still need)", body = SpaceBody),
+        (status = 507, description = "The file does not fit into the free disk space that other unfinished downloads have not reserved", body = SpaceBody),
     )
 )]
 pub(crate) async fn add(
@@ -116,7 +116,8 @@ pub(crate) async fn add(
     Ok((StatusCode::CREATED, Json(svc.add(req).await?)))
 }
 
-/// Free space on the disk that holds the download directory.
+/// Free space on the disk that holds the download directory, and how much of it unfinished
+/// downloads have reserved.
 #[utoipa::path(
     get,
     path = "/api/disk",
