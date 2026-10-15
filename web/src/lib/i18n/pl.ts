@@ -146,7 +146,6 @@ const pl: Messages = {
   'card.pause': 'Wstrzymaj',
   'card.resume': 'Wznów',
   'card.retry': 'Ponów',
-  'card.categoryOf': 'Kategoria pliku {name}',
   'card.cancel.label': 'Anuluj pobieranie pliku {name}',
   'card.cancel.title': 'Anuluj',
   'card.remove.label': 'Usuń {name} z listy',
@@ -269,6 +268,24 @@ const pl: Messages = {
   'resumeSpace.title': 'Nie można jeszcze wznowić',
   'resumeSpace.text': 'Zwolnij trochę miejsca na dysku i spróbuj ponownie. Pasek pokazuje, ile jeszcze brakuje.',
   'add.held': 'Dodano „{name}”, ale nie rozpoczęto: za mało wolnego miejsca na dysku.',
+
+  // ---- card menu and deleting
+  'menu.open': 'Więcej działań dla {name}',
+  'menu.label': 'Działania',
+  'menu.copyLink': 'Kopiuj link',
+  'menu.copied': 'Skopiowano link.',
+  'menu.copyFailed': 'Nie udało się skopiować linku.',
+  'menu.category': 'Zmień kategorię',
+  'menu.back': 'Wstecz',
+  'menu.delete': 'Usuń…',
+  'delete.title': 'Usuń pobranie',
+  'delete.message.list': 'Usunąć „{name}” z listy?',
+  'delete.message.active': 'Zatrzymać „{name}” i usunąć z listy? Plik częściowy też zostanie usunięty.',
+  'delete.alsoFile': 'Usuń też plik z dysku',
+  'delete.alsoFile.hint': 'Bez tego plik zostaje tam, gdzie jest.',
+  'delete.alsoFile.warning': 'Plik zostanie usunięty na stałe. Tego nie można cofnąć.',
+  'delete.confirm': 'Usuń',
+  'delete.confirmWithFile': 'Usuń razem z plikiem',
 
   // ---- accent colours
   'accent.blue': 'Niebieski',

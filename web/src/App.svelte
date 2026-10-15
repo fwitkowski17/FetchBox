@@ -4,6 +4,7 @@
   import { setUnauthorizedHandler } from './lib/api/client';
   import AddDownloadDialog from './lib/components/AddDownloadDialog.svelte';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
+  import DeleteDownloadDialog from './lib/components/DeleteDownloadDialog.svelte';
   import Icon from './lib/components/Icon.svelte';
   import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
@@ -209,6 +210,7 @@
   </div>
 
   <AddDownloadDialog />
+  <DeleteDownloadDialog />
 {/if}
 
 <ConfirmHost />

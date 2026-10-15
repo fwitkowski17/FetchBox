@@ -149,7 +149,6 @@ export const en = {
   'card.pause': 'Pause',
   'card.resume': 'Resume',
   'card.retry': 'Retry',
-  'card.categoryOf': 'Category of {name}',
   'card.cancel.label': 'Cancel {name}',
   'card.cancel.title': 'Cancel',
   'card.remove.label': 'Remove {name} from the list',
@@ -272,6 +271,24 @@ export const en = {
   'resumeSpace.title': 'Cannot resume yet',
   'resumeSpace.text': 'Free up some disk space, then try again. The bar shows how much is still missing.',
   'add.held': 'Added “{name}”, but not started: not enough free disk space.',
+
+  // ---- card menu and deleting
+  'menu.open': 'More actions for {name}',
+  'menu.label': 'Actions',
+  'menu.copyLink': 'Copy link',
+  'menu.copied': 'Link copied.',
+  'menu.copyFailed': 'Could not copy the link.',
+  'menu.category': 'Change category',
+  'menu.back': 'Back',
+  'menu.delete': 'Delete…',
+  'delete.title': 'Delete download',
+  'delete.message.list': 'Remove “{name}” from the list?',
+  'delete.message.active': 'Stop “{name}” and remove it from the list? The partial file is deleted too.',
+  'delete.alsoFile': 'Also delete the file from the disk',
+  'delete.alsoFile.hint': 'Without this the file stays where it is.',
+  'delete.alsoFile.warning': 'The file is deleted for good. This cannot be undone.',
+  'delete.confirm': 'Delete',
+  'delete.confirmWithFile': 'Delete with file',
 
   // ---- accent colours
   'accent.blue': 'Blue',

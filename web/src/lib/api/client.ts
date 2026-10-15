@@ -116,7 +116,8 @@ export const api = {
   pause: (id: number) => request<Download>('POST', `/downloads/${id}/pause`),
   resume: (id: number) => request<Download>('POST', `/downloads/${id}/resume`),
   cancel: (id: number) => request<Download>('POST', `/downloads/${id}/cancel`),
-  remove: (id: number) => request<void>('DELETE', `/downloads/${id}`),
+  remove: (id: number, deleteFile = false) =>
+    request<void>('DELETE', `/downloads/${id}${deleteFile ? '?delete_file=true' : ''}`),
   setCategory: (id: number, category: Category) =>
     request<Download>('PATCH', `/downloads/${id}`, { category }),
 

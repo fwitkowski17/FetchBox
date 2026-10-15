@@ -94,7 +94,7 @@ class DownloadsStore {
     return ok;
   };
   cancel = (id: number) => this.#run(() => api.cancel(id));
-  remove = (id: number) => this.#run(() => api.remove(id));
+  remove = (id: number, deleteFile = false) => this.#run(() => api.remove(id, deleteFile));
   setCategory = (id: number, category: Category) => this.#run(() => api.setCategory(id, category));
 
   /** Remove every completed/failed/cancelled entry from the list (files stay on disk). */

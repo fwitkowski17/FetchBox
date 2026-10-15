@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { Category, Download } from '../api/types';
-  import { CATEGORIES } from '../api/types';
+  import type { Download } from '../api/types';
   import { i18n, t } from '../i18n';
   import { confirmAction } from '../stores/confirm.svelte';
   import { downloads } from '../stores/downloads.svelte';
   import { speedOf } from '../util/downloads';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
+  import CardMenu from './CardMenu.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
   import Icon from './Icon.svelte';
   import ProgressBar from './ProgressBar.svelte';
@@ -61,11 +61,6 @@
   }
 
   const remove = () => act(() => downloads.remove(d.id));
-
-  function changeCategory(e: Event): void {
-    const value = (e.currentTarget as HTMLSelectElement).value as Category;
-    void act(() => downloads.setCategory(d.id, value));
-  }
 </script>
 
 <article
@@ -138,14 +133,7 @@
       </button>
     {/if}
 
-    <label class="min-w-0 flex-[0_1_10rem]">
-      <span class="sr-only">{t('card.categoryOf', { name: d.filename })}</span>
-      <select class="select" value={d.category} disabled={busy} onchange={changeCategory}>
-        {#each CATEGORIES as c (c)}
-          <option value={c}>{t(`category.${c}`)}</option>
-        {/each}
-      </select>
-    </label>
+    <CardMenu download={d} disabled={busy} />
 
     {#if unfinished}
       <button
