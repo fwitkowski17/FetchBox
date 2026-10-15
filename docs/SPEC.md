@@ -269,6 +269,23 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   download defaults (the same fields as Settings, optional), done. The steps after the account one run signed in;
   reloading in between simply opens the app. Settings has a "change password" card for UI-created accounts and an
   explanation for an external password.
+- Start-up speed (the app is used over Wi-Fi, VPN or a phone connection to small hardware, so round trips and bytes
+  matter): the server sends hashed build output (`assets/*`) with `Cache-Control: public, max-age=31536000, immutable`
+  and everything else (`index.html`, manifest, icons) with `no-cache` plus an `ETag`, so a repeat visit costs one `304`
+  and loads nothing else. Text files are served precompressed: `npm run build` writes `<file>.br` and `<file>.gz` next
+  to them (Node's own zlib, in `vite.config.ts`), the server embeds them and picks the variant from `Accept-Encoding`
+  (Brotli before gzip, each with its own `ETag`, `Vary: accept-encoding`); the server compresses nothing at request
+  time. `index.html` starts `GET /api/auth/status`, `/api/downloads` and `/api/settings` itself before the bundle has
+  loaded (`window.__dlmEarly`, `api/early.ts`); the app takes those answers once instead of asking again, falls back to
+  a normal request when one failed or is not `ok` (before sign-in two of them are `401`, which must never sign anyone
+  out), and ignores them after 10 s. The session check also runs while the language file loads, and the list is
+  fetched while the event stream opens (the reload on open stays: it closes any gap between the two). The first disk
+  reading is the app's own (it refreshes whenever the list changes), not asked twice.
+- Reconnecting: the event stream starts with a comment and `retry: 1000` (a browser then reconnects after one second, not
+  about three) and carries `X-Accel-Buffering: no`, so a reverse proxy such as nginx does not hold it back until the
+  first keep-alive. The client retries with 0.5, 1, 2, 4, then 5 s steps, reconnects at once when the tab becomes
+  visible or the network comes back (and refreshes the list when the stream looked alive, since a background tab may
+  have frozen it), and the "server unreachable" screen tries again by itself with the same steps.
 - SSE store keeps list in sync; REST for commands. Command responses are not patched into the list (they can be older
   than the event that followed); the stream is the single source of truth, and the list is re-fetched on every
   (re)connect and on `resync`.

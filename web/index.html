@@ -9,6 +9,16 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>dlmanager</title>
     <script>
+      // Start the first requests now, while the script bundle is still downloading: the answers are
+      // waiting by the time the app asks for them (see `takeEarly` in `src/lib/api/early.ts`).
+      // Only the three the first screen needs; the app falls back to a normal request if one fails.
+      try {
+        var early = (window.__dlmEarly = { startedAt: Date.now() });
+        ['/auth/status', '/downloads', '/settings'].forEach(function (p) {
+          early[p] = fetch('/api' + p, { credentials: 'same-origin' });
+          early[p].catch(function () {});
+        });
+      } catch (e) {}
       // Apply the saved theme before the first paint so a dark-mode user never sees a white flash.
       try {
         var t = localStorage.getItem('dlm.theme');

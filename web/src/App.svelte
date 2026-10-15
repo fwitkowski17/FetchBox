@@ -38,7 +38,6 @@
     openLegacyAddLink();
     theme.init();
     setUnauthorizedHandler(() => auth.expire());
-    void auth.check();
   });
 
   // Data is only fetched (and the event stream only open) while signed in.

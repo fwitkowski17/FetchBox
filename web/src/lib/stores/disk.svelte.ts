@@ -19,10 +19,11 @@ class DiskStore {
     }
   }
 
-  /** Start polling (idempotent). A hidden tab does not poll; coming back refreshes at once. */
+  /** Start polling (idempotent). A hidden tab does not poll; coming back refreshes at once. The
+   *  first reading is the caller's: the app refreshes whenever the list changes, which includes
+   *  the moment it appears (asking here as well would send the same request twice). */
   start(): void {
     if (this.#timer) return;
-    void this.refresh();
     this.#timer = setInterval(() => {
       if (!document.hidden) void this.refresh();
     }, POLL_MS);

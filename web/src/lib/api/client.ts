@@ -1,4 +1,5 @@
 // Thin typed wrapper over fetch for the REST API. Types come from the generated schema.
+import { takeEarly } from './early';
 import type {
   AddRequest,
   AuthStatus,
@@ -75,15 +76,28 @@ function parseError(status: number, body: unknown): ApiError {
   return new ApiError(status, message, { conflict, retryAfter, space });
 }
 
+/** The answer the page asked for before the app started, if there is a usable one. */
+async function early(method: string, path: string): Promise<Response | null> {
+  if (method !== 'GET') return null;
+  try {
+    const res = await takeEarly(path);
+    return res?.ok ? res : null;
+  } catch {
+    return null; // the early request failed: ask again the normal way
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, {
-      method,
-      credentials: 'same-origin',
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    res =
+      (await early(method, path)) ??
+      (await fetch(`/api${path}`, {
+        method,
+        credentials: 'same-origin',
+        headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }));
   } catch {
     throw new ApiError(0, undefined);
   }
