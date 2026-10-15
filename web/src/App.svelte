@@ -74,6 +74,12 @@
     if (media.desktop) untrack(() => (menuOpen = false));
   });
 
+  const DOT: Record<string, string> = {
+    live: 'bg-success',
+    connecting: 'animate-pulse bg-warning',
+    offline: 'bg-danger',
+  };
+
   const drawerOpen = $derived(menuOpen && !media.desktop);
   const connectionLabel = $derived(t(`connection.${downloads.connection}`));
 </script>
@@ -81,9 +87,9 @@
 <svelte:window onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeMenu()} />
 
 {#if auth.state === 'loading'}
-  <p class="center" role="status">{t('common.loading')}</p>
+  <p class="grid min-h-dvh place-content-center text-muted" role="status">{t('common.loading')}</p>
 {:else if auth.state === 'offline'}
-  <div class="center">
+  <div class="grid min-h-dvh content-center justify-items-center gap-3 text-center text-muted">
     <Icon name="alert" size={32} />
     <p>{t('app.offline')}</p>
     <button class="btn primary" onclick={() => auth.check()}>{t('common.tryAgain')}</button>
@@ -91,7 +97,7 @@
 {:else if auth.state === 'login'}
   <Login />
 {:else}
-  <div class="shell">
+  <div class="min-h-dvh lg:grid lg:grid-cols-[var(--sidebar-w)_minmax(0,1fr)]">
     <Sidebar
       bind:el={sidebar}
       open={drawerOpen}
@@ -99,11 +105,22 @@
       onclose={closeMenu}
     />
     {#if drawerOpen}
-      <button class="scrim" tabindex="-1" aria-label={t('nav.close')} onclick={closeMenu}></button>
+      <button
+        class="fixed inset-0 z-30 cursor-default bg-backdrop"
+        tabindex="-1"
+        aria-label={t('nav.close')}
+        data-part="scrim"
+        onclick={closeMenu}
+      ></button>
     {/if}
 
-    <div class="content" inert={drawerOpen}>
-      <header class="topbar">
+    <div class="min-w-0" inert={drawerOpen} data-part="content">
+      <!-- Opaque on purpose: a `backdrop-filter` would make the bar the containing block of
+           fixed-position descendants and break them. -->
+      <header
+        class="sticky top-0 z-20 flex h-(--header-h) items-center gap-2 border-b border-border bg-bg px-2 pt-[env(safe-area-inset-top)] lg:hidden"
+        data-part="topbar"
+      >
         <button
           bind:this={menuButton}
           class="btn icon ghost"
@@ -114,15 +131,26 @@
         >
           <Icon name="menu" />
         </button>
-        <span class="brand"><Icon name="down" size={20} />dlmanager</span>
-        <span class="grow"></span>
+        <span class="flex items-center gap-2 font-bold tracking-tight">
+          <span class="grid size-7 place-items-center rounded-md bg-accent text-accent-contrast">
+            <Icon name="down" size={16} />
+          </span>
+          dlmanager
+        </span>
+        <span class="flex-1"></span>
         {#if summary.active > 0}
-          <span class="speed" title={t('app.totalSpeed')}>↓ {i18n.speed(summary.speed)}</span>
+          <span class="text-sm font-semibold text-accent tabular-nums" title={t('app.totalSpeed')}>
+            ↓ {i18n.speed(summary.speed)}
+          </span>
         {/if}
-        <span class="dot {downloads.connection}" role="img" aria-label={connectionLabel} title={connectionLabel}></span>
+        <!-- Normally just a dot; the words appear when something is wrong. -->
+        <span class="mr-2 flex items-center gap-1.5 text-sm text-muted" title={connectionLabel}>
+          <span class={['size-2.5 rounded-full', DOT[downloads.connection]]} aria-hidden="true"></span>
+          <span class={[downloads.connection === 'live' && 'sr-only']}>{connectionLabel}</span>
+        </span>
       </header>
 
-      <main>
+      <main class="mx-auto max-w-[76rem] px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-8 lg:pt-6 lg:pb-12">
         {#if $route === 'downloads'}
           <Downloads />
         {:else if $route === 'add'}
@@ -134,7 +162,13 @@
     </div>
 
     {#if !media.desktop && $route === 'downloads'}
-      <a class="fab" href="#/add" aria-label={t('nav.add')} title={t('nav.add')}>
+      <a
+        class="fixed right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-10 grid size-14 place-items-center rounded-full bg-accent text-accent-contrast shadow-lg"
+        href="#/add"
+        aria-label={t('nav.add')}
+        title={t('nav.add')}
+        data-part="fab"
+      >
         <Icon name="plus" size={26} />
       </a>
     {/if}
@@ -143,130 +177,3 @@
 
 <ConfirmHost />
 <Toasts />
-
-<style>
-  .center {
-    display: grid;
-    justify-items: center;
-    align-content: center;
-    gap: 0.75rem;
-    min-height: 100dvh;
-    color: var(--muted);
-    text-align: center;
-  }
-
-  .shell {
-    min-height: 100dvh;
-  }
-
-  .content {
-    min-width: 0;
-  }
-
-  main {
-    max-width: 76rem;
-    margin: 0 auto;
-    padding: 1rem 1rem calc(5.5rem + env(safe-area-inset-bottom));
-  }
-
-  /* ---- narrow screens: slim top bar, drawer, floating add button */
-  .topbar {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    height: var(--header-h);
-    padding: env(safe-area-inset-top) 0.5rem 0;
-    /* Opaque on purpose: a `backdrop-filter` would make the bar the containing block of
-       fixed-position descendants and break them. */
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-weight: 700;
-  }
-
-  .brand :global(svg) {
-    color: var(--accent);
-  }
-
-  .grow {
-    flex: 1;
-  }
-
-  .speed {
-    color: var(--accent);
-    font-weight: 600;
-    font-size: 0.9rem;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .dot {
-    width: 0.65rem;
-    height: 0.65rem;
-    margin-right: 0.5rem;
-    border-radius: 50%;
-    background: var(--success);
-  }
-
-  .dot.connecting {
-    background: var(--warning);
-    animation: pulse 1.2s ease-in-out infinite;
-  }
-
-  .dot.offline {
-    background: var(--danger);
-  }
-
-  @keyframes pulse {
-    50% {
-      opacity: 0.35;
-    }
-  }
-
-  .scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    border: 0;
-    background: var(--backdrop);
-    cursor: default;
-  }
-
-  .fab {
-    position: fixed;
-    right: calc(1rem + env(safe-area-inset-right));
-    bottom: calc(1rem + env(safe-area-inset-bottom));
-    z-index: 10;
-    display: grid;
-    place-items: center;
-    width: 3.5rem;
-    height: 3.5rem;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-contrast);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
-  }
-
-  /* ---- wide screens: permanent side panel, no top bar */
-  @media (min-width: 64rem) {
-    .shell {
-      display: grid;
-      grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-    }
-
-    .topbar {
-      display: none;
-    }
-
-    main {
-      padding: 1.5rem 2rem 3rem;
-    }
-  }
-</style>

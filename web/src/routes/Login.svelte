@@ -30,13 +30,20 @@
   }
 </script>
 
-<div class="wrap">
-  <form class="card" onsubmit={submit}>
-    <div class="logo"><Icon name="lock" size={26} /></div>
-    <h1>dlmanager</h1>
-    <p class="hint">{t('login.prompt')}</p>
+<div class="grid min-h-dvh place-items-center p-4">
+  <form
+    class="grid w-[min(24rem,100%)] gap-4 rounded-2xl border border-border bg-surface p-6 text-center shadow-card"
+    onsubmit={submit}
+  >
+    <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent text-accent-contrast">
+      <Icon name="lock" size={26} />
+    </div>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">dlmanager</h1>
+      <p class="hint mt-1">{t('login.prompt')}</p>
+    </div>
 
-    <div class="field">
+    <div class="field text-left">
       <label for="password">{t('login.password')}</label>
       <!-- svelte-ignore a11y_autofocus -->
       <input
@@ -51,51 +58,10 @@
       />
     </div>
 
-    {#if error}<p id="login-error" class="error" role="alert">{error}</p>{/if}
+    {#if error}<p id="login-error" class="text-sm text-danger" role="alert">{error}</p>{/if}
 
     <button class="btn primary" type="submit" disabled={busy || !password}>
       {busy ? t('login.submitting') : t('login.submit')}
     </button>
   </form>
 </div>
-
-<style>
-  .wrap {
-    display: grid;
-    place-items: center;
-    min-height: 100dvh;
-    padding: 1rem;
-  }
-
-  .card {
-    display: grid;
-    gap: 1rem;
-    width: min(24rem, 100%);
-    padding: 1.5rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    text-align: center;
-  }
-
-  .logo {
-    display: grid;
-    place-items: center;
-    width: 3.25rem;
-    height: 3.25rem;
-    margin: 0 auto;
-    border-radius: 14px;
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-
-  .field {
-    text-align: left;
-  }
-
-  .error {
-    color: var(--danger);
-    font-size: 0.9rem;
-  }
-</style>

@@ -10,71 +10,25 @@
   let { checked = $bindable(), children, hint }: Props = $props();
 </script>
 
-<label class="toggle">
-  <span class="text">
-    <span class="label">{@render children()}</span>
+<label class="flex min-h-11 cursor-pointer items-center justify-between gap-4">
+  <span class="grid gap-0.5">
+    <span class="font-semibold">{@render children()}</span>
     {#if hint}<span class="hint">{hint}</span>{/if}
   </span>
-  <input type="checkbox" role="switch" bind:checked />
-  <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+  <!-- The real checkbox lies, invisible, over the whole track: it is what gets clicked and
+       focused, and what assistive technology announces as a switch. -->
+  <span class="relative shrink-0">
+    <input
+      type="checkbox"
+      role="switch"
+      class="peer absolute inset-0 z-10 size-full cursor-pointer opacity-0"
+      bind:checked
+    />
+    <span
+      class="block h-7 w-12 rounded-full bg-border p-0.5 transition-colors peer-checked:bg-accent peer-checked:*:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
+      aria-hidden="true"
+    >
+      <span class="block size-6 rounded-full bg-white shadow-sm transition-transform"></span>
+    </span>
+  </span>
 </label>
-
-<style>
-  .toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    min-height: var(--tap);
-    cursor: pointer;
-  }
-
-  .text {
-    display: grid;
-    gap: 0.1rem;
-  }
-
-  .label {
-    font-weight: 600;
-  }
-
-  input {
-    position: absolute;
-    opacity: 0;
-    width: 1px;
-    height: 1px;
-  }
-
-  .track {
-    flex: none;
-    width: 3rem;
-    height: 1.75rem;
-    padding: 0.2rem;
-    border-radius: 999px;
-    background: var(--border);
-    transition: background 0.15s;
-  }
-
-  .thumb {
-    display: block;
-    width: 1.35rem;
-    height: 1.35rem;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
-    transition: transform 0.15s;
-  }
-
-  input:checked + .track {
-    background: var(--accent);
-  }
-
-  input:checked + .track .thumb {
-    transform: translateX(1.25rem);
-  }
-
-  input:focus-visible + .track {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-</style>

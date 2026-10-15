@@ -14,10 +14,10 @@
   const id = `speed-${Math.random().toString(36).slice(2, 8)}`;
 </script>
 
-<div class="speed">
+<div class="grid gap-2">
   <Toggle bind:checked={value.limited} {hint}>{label}</Toggle>
   {#if value.limited}
-    <div class="row">
+    <div class="flex gap-2">
       <label class="sr-only" for={id}>{t('settings.speed.max', { label })}</label>
       <input
         {id}
@@ -30,40 +30,13 @@
         aria-invalid={error ? 'true' : undefined}
       />
       <label class="sr-only" for={`${id}-unit`}>{t('settings.speed.unit')}</label>
-      <select id={`${id}-unit`} class="select unit" bind:value={value.unit}>
+      <select id={`${id}-unit`} class="select w-28 shrink-0" bind:value={value.unit}>
         <option value="KB">KB/s</option>
         <option value="MB">MB/s</option>
       </select>
     </div>
   {:else}
-    <p class="unlimited">{t('settings.speed.unlimited')}</p>
+    <p class="hint">{t('settings.speed.unlimited')}</p>
   {/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}<p class="text-sm text-danger" role="alert">{error}</p>{/if}
 </div>
-
-<style>
-  .speed {
-    display: grid;
-    gap: 0.5rem;
-  }
-
-  .row {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .unit {
-    flex: 0 0 6.5rem;
-    width: 6.5rem;
-  }
-
-  .unlimited {
-    color: var(--muted);
-    font-size: 0.9rem;
-  }
-
-  .error {
-    color: var(--danger);
-    font-size: 0.85rem;
-  }
-</style>

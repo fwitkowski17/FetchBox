@@ -10,43 +10,25 @@
   }
 
   let { category, size = 22, tile = false }: Props = $props();
-</script>
 
-<span class="cat {category}" class:tile style:--box={`${size + 18}px`}>
+  // Full class names (not built from strings) so Tailwind can see them.
+  const COLOR: Record<Category, string> = {
+    photo: 'text-cat-photo bg-cat-photo/15',
+    music: 'text-cat-music bg-cat-music/15',
+    video: 'text-cat-video bg-cat-video/15',
+    program: 'text-cat-program bg-cat-program/15',
+    archive: 'text-cat-archive bg-cat-archive/15',
+    other: 'text-cat-other bg-cat-other/15',
+  };
+</script>
+<span
+  class={[
+    'inline-flex shrink-0 items-center justify-center',
+    COLOR[category],
+    tile ? 'rounded-xl' : 'bg-transparent',
+  ]}
+  style:width={tile ? `${size + 20}px` : undefined}
+  style:height={tile ? `${size + 20}px` : undefined}
+>
   <Icon name={category} {size} />
 </span>
-
-<style>
-  .cat {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--c);
-  }
-
-  .tile {
-    width: var(--box);
-    height: var(--box);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--c) 15%, transparent);
-  }
-
-  .photo {
-    --c: var(--cat-photo);
-  }
-  .music {
-    --c: var(--cat-music);
-  }
-  .video {
-    --c: var(--cat-video);
-  }
-  .program {
-    --c: var(--cat-program);
-  }
-  .archive {
-    --c: var(--cat-archive);
-  }
-  .other {
-    --c: var(--cat-other);
-  }
-</style>

@@ -1,6 +1,30 @@
-/* Design tokens. Light is the base; dark applies when the user picks it (`data-theme="dark"`)
-   or, with no choice made, when the OS prefers it. The dark block is therefore written twice.
-   `black` is dark with a pure black background, which switches OLED pixels off. */
+@import 'tailwindcss';
+
+/* ---- Font: Inter, self-hosted (the app must work on a LAN without any CDN).
+   Only the two subsets Western and Central European languages need; the browser downloads
+   `latin-ext` (Polish ą ć ę ł ń ś ź ż) only when such a character is on the page. */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---- Theme variables: light is the base, dark/black override it. */
 :root {
   color-scheme: light;
 
@@ -29,9 +53,6 @@
   --cat-archive: #946a00;
   --cat-other: #5b6678;
 
-  --radius: 14px;
-  --radius-sm: 9px;
-  --tap: 44px;
   --header-h: 3.5rem;
   --sidebar-w: 17rem;
 }
@@ -127,161 +148,142 @@
   --cat-other: #9aa5b5;
 }
 
-* {
-  box-sizing: border-box;
+/* ---- Tailwind: utilities read the theme variables above, so `bg-surface`, `text-muted`,
+   `border-border`... follow light / dark / black without any `dark:` variants. */
+@theme inline {
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-backdrop: var(--backdrop);
+  --color-cat-photo: var(--cat-photo);
+  --color-cat-music: var(--cat-music);
+  --color-cat-video: var(--cat-video);
+  --color-cat-program: var(--cat-program);
+  --color-cat-archive: var(--cat-archive);
+  --color-cat-other: var(--cat-other);
+
+  --shadow-card: var(--shadow);
+
+  --animate-slide: slide 1.4s ease-in-out infinite;
+
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
 }
 
-html,
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  font-size: 16px;
-  line-height: 1.45;
-  -webkit-text-size-adjust: 100%;
-  -webkit-tap-highlight-color: transparent;
+@layer base {
+  html,
+  body {
+    background: var(--bg);
+    color: var(--text);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss03'; /* single-storey a, round quotes: friendlier in UI text */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  *,
+  ::after,
+  ::before {
+    border-color: var(--border);
+  }
+
+  /* Tailwind resets buttons to the default cursor; interactive things should say so. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
-body {
-  min-height: 100dvh;
+/* ---- Shared controls. Written once with utilities; templates add variants (`primary`...). */
+@layer components {
+  .field {
+    @apply grid gap-1.5;
+  }
+
+  .field > label,
+  .field > .label {
+    @apply text-sm font-semibold;
+  }
+
+  .hint {
+    @apply text-sm text-muted;
+  }
+
+  .input,
+  .select {
+    @apply min-h-11 w-full rounded-lg border border-border bg-surface px-3 py-2 transition-colors;
+  }
+
+  .input::placeholder {
+    @apply text-muted;
+  }
+
+  .input:focus-visible,
+  .select:focus-visible {
+    @apply border-accent outline-offset-0;
+  }
+
+  .btn {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 font-semibold no-underline transition-colors;
+    @apply hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-surface;
+  }
+
+  .btn.primary {
+    @apply border-accent bg-accent text-accent-contrast hover:bg-accent hover:brightness-110 disabled:hover:bg-accent;
+  }
+
+  .btn.danger {
+    @apply text-danger;
+  }
+
+  .btn.danger.solid {
+    @apply border-danger bg-danger text-white hover:bg-danger hover:brightness-110;
+  }
+
+  .btn.ghost {
+    @apply border-transparent bg-transparent hover:bg-surface-2;
+  }
+
+  .btn.icon {
+    @apply w-11 px-0;
+  }
 }
 
-h1,
-h2,
-h3 {
-  margin: 0;
-  line-height: 1.2;
-}
-
-h1 {
-  font-size: 1.5rem;
-}
-
-p {
-  margin: 0;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* ---- shared form controls -------------------------------------------------------- */
-
-.field {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.field > label,
-.field > .label {
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.hint {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.input,
-.select {
-  width: 100%;
-  min-height: var(--tap);
-  padding: 0.55rem 0.8rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.input::placeholder {
-  color: var(--muted);
-}
-
-.input:focus-visible,
-.select:focus-visible {
-  outline-offset: 0;
-  border-color: var(--accent);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: var(--tap);
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.btn:hover:not(:disabled) {
-  background: var(--surface-2);
-}
-
-.btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-}
-
-.btn.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-  background: var(--accent);
-}
-
-.btn.danger {
-  color: var(--danger);
-}
-
-.btn.danger.solid {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: #fff;
-}
-
-.btn.ghost {
-  border-color: transparent;
-  background: transparent;
-}
-
-.btn.ghost:hover:not(:disabled) {
-  background: var(--surface-2);
-}
-
-.btn.icon {
-  width: var(--tap);
-  padding: 0;
+/* Forms read badly when they stretch across a wide screen. */
+.page-narrow {
+  max-width: 42rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -292,9 +294,4 @@ textarea {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-}
-
-/* Forms read badly when they stretch across a wide screen. */
-.page-narrow {
-  max-width: 42rem;
 }

@@ -31,7 +31,7 @@
 
 <Modal open={conflict !== null} {title} onclose={() => !busy && onchoose(null)}>
   {#if conflict}
-    <p>
+    <p class="[overflow-wrap:anywhere]">
       {#if conflict.kind === 'duplicate_url'}
         <Trans message="conflict.duplicate" params={{ name: conflict.existing_name }} />
       {:else if conflict.kind === 'name_reserved'}
@@ -45,7 +45,7 @@
         <Trans message="conflict.exists" params={{ name: conflict.existing_name }} />
       {/if}
     </p>
-    <p class="hint">
+    <p class="hint [overflow-wrap:anywhere]">
       <Trans message="conflict.hint.keepBoth" params={{ name: conflict.suggested_name }} />
       {#if canOverwrite}{t('conflict.hint.replace')}{/if}
     </p>
@@ -64,8 +64,3 @@
   {/snippet}
 </Modal>
 
-<style>
-  p {
-    overflow-wrap: anywhere;
-  }
-</style>

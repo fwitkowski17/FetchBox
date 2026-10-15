@@ -11,13 +11,20 @@
   ];
 </script>
 
-<div class="seg" role="radiogroup" aria-label={t('settings.theme')}>
+<div
+  class="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-1 rounded-lg border border-border bg-surface-2 p-1"
+  role="radiogroup"
+  aria-label={t('settings.theme')}
+>
   {#each OPTIONS as o (o.id)}
-    <label class:on={theme.pref === o.id}>
+    <label
+      class="relative flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md font-semibold text-muted transition-colors has-checked:bg-surface has-checked:text-text has-checked:shadow-card has-focus-visible:outline-2 has-focus-visible:outline-accent"
+    >
       <input
         type="radio"
         name="theme"
         value={o.id}
+        class="absolute inset-0 cursor-pointer opacity-0"
         checked={theme.pref === o.id}
         onchange={() => theme.set(o.id)}
       />
@@ -26,45 +33,3 @@
     </label>
   {/each}
 </div>
-
-<style>
-  .seg {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
-    gap: 0.25rem;
-    padding: 0.25rem;
-    border-radius: var(--radius-sm);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-  }
-
-  label {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.45rem;
-    min-height: 2.5rem;
-    border-radius: 7px;
-    font-weight: 600;
-    color: var(--muted);
-    cursor: pointer;
-  }
-
-  label.on {
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: var(--shadow);
-  }
-
-  input {
-    position: absolute;
-    opacity: 0;
-    inset: 0;
-    cursor: pointer;
-  }
-
-  label:has(input:focus-visible) {
-    outline: 2px solid var(--accent);
-  }
-</style>

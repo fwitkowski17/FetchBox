@@ -27,6 +27,7 @@
 <dialog
   bind:this={dialog}
   aria-labelledby={titleId}
+  class="m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] rounded-2xl border border-border bg-surface p-0 text-text shadow-card backdrop:bg-backdrop"
   oncancel={(e) => {
     e.preventDefault();
     onclose();
@@ -35,59 +36,13 @@
     if (e.target === dialog) onclose();
   }}
 >
-  <div class="panel">
-    <h2 id={titleId}>{title}</h2>
-    <div class="body">{@render children()}</div>
+  <div class="grid gap-4 p-5">
+    <h2 id={titleId} class="text-lg font-semibold tracking-tight">{title}</h2>
+    <div class="grid gap-3">{@render children()}</div>
     {#if footer}
-      <div class="footer">{@render footer()}</div>
+      <div class="flex flex-wrap justify-end gap-2 max-sm:flex-col-reverse max-sm:*:w-full">
+        {@render footer()}
+      </div>
     {/if}
   </div>
 </dialog>
-
-<style>
-  dialog {
-    width: min(30rem, calc(100vw - 2rem));
-    max-height: calc(100dvh - 2rem);
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: var(--shadow);
-  }
-
-  dialog::backdrop {
-    background: var(--backdrop);
-  }
-
-  .panel {
-    display: grid;
-    gap: 1rem;
-    padding: 1.25rem;
-  }
-
-  h2 {
-    font-size: 1.15rem;
-  }
-
-  .body {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  .footer {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.5rem;
-  }
-
-  @media (max-width: 30rem) {
-    .footer {
-      flex-direction: column-reverse;
-    }
-    .footer :global(.btn) {
-      width: 100%;
-    }
-  }
-</style>

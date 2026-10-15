@@ -11,10 +11,5 @@
 </script>
 
 <!-- Substituted values (file names, sizes) are bold. Text only: nothing here is parsed as HTML. -->
-{#each i18n.parts(message, params) as part, i (i)}{#if part.value}<strong class="v">{part.text}</strong>{:else}{part.text}{/if}{/each}
+{#each i18n.parts(message, params) as part, i (i)}{#if part.value}<strong class="[overflow-wrap:anywhere]">{part.text}</strong>{:else}{part.text}{/if}{/each}
 
-<style>
-  .v {
-    overflow-wrap: anywhere;
-  }
-</style>

@@ -65,59 +65,73 @@
   }
 </script>
 
-<article class="card" class:done={d.status === 'completed'} aria-label={d.filename}>
-  <div class="top">
+<article
+  class="grid gap-3 rounded-2xl border border-border bg-surface p-4 shadow-card"
+  aria-label={d.filename}
+>
+  <div class="flex items-center gap-3">
     <CategoryIcon category={d.category} tile />
-    <div class="title">
-      <h3 title={d.filename}>{d.filename}</h3>
-      <p class="meta">
-        <span class="host">{hostOf(d.url)}</span>
-        {#if folder}<span class="folder"><Icon name="folder" size={13} />{folder}</span>{/if}
+    <div class="min-w-0 flex-1">
+      <h3 class="truncate font-semibold tracking-tight" title={d.filename}>{d.filename}</h3>
+      <p class="flex flex-wrap items-center gap-x-3 text-sm text-muted">
+        <span class="max-w-full truncate">{hostOf(d.url)}</span>
+        {#if folder}
+          <span class="inline-flex items-center gap-1"><Icon name="folder" size={13} />{folder}</span>
+        {/if}
       </p>
     </div>
     <StatusBadge status={d.status} />
   </div>
 
   {#if d.status !== 'cancelled'}
-    <ProgressBar value={d.status === 'completed' ? 1 : frac} status={d.status} label={t('card.progressOf', { name: d.filename })} />
+    <ProgressBar
+      value={d.status === 'completed' ? 1 : frac}
+      status={d.status}
+      label={t('card.progressOf', { name: d.filename })}
+    />
   {/if}
 
-  <p class="stats">
+  <p data-part="stats" class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted tabular-nums">
     {#if d.status === 'queued'}
-      {t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}
+      <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
     {:else if d.status === 'completed'}
-      {i18n.bytes(d.size ?? d.downloaded)}
+      <span>{i18n.bytes(d.size ?? d.downloaded)}</span>
     {:else if d.status === 'cancelled'}
-      {t('card.cancelled')}
+      <span>{t('card.cancelled')}</span>
     {:else}
-      <span class="num">
+      <span>
         {d.size != null
           ? t('card.ofTotal', { done: i18n.bytes(d.downloaded), total: i18n.bytes(d.size) })
           : i18n.bytes(d.downloaded)}
-        {#if frac !== null}<strong>{formatPercent(frac)}</strong>{/if}
+        {#if frac !== null}<strong class="ml-1 font-semibold text-text">{formatPercent(frac)}</strong>{/if}
       </span>
       {#if live}
-        <span class="num">{i18n.speed(speed)}</span>
-        {#if eta !== null}<span class="num">{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
+        <span>{i18n.speed(speed)}</span>
+        {#if eta !== null}<span>{t('card.eta', { time: i18n.duration(eta) })}</span>{/if}
       {/if}
     {/if}
   </p>
 
   {#if d.status === 'failed' && d.error}
-    <p class="error" role="alert"><Icon name="alert" size={16} />{d.error}</p>
+    <p
+      class="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]"
+      role="alert"
+    >
+      <span class="mt-0.5"><Icon name="alert" size={16} /></span>{d.error}
+    </p>
   {/if}
   {#if unfinished && !d.resumable}
-    <p class="note">{t('card.noResume')}</p>
+    <p class="text-sm text-warning">{t('card.noResume')}</p>
   {/if}
 
-  <div class="actions">
+  <div class="flex items-center gap-2">
     {#if primary}
-      <button class="btn primary grow" disabled={busy} onclick={() => act(primary.run)}>
+      <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
         <Icon name={primary.icon} size={18} />{primary.label}
       </button>
     {/if}
 
-    <label class="catpick">
+    <label class="min-w-0 flex-[0_1_10rem]">
       <span class="sr-only">{t('card.categoryOf', { name: d.filename })}</span>
       <select class="select" value={d.category} disabled={busy} onchange={changeCategory}>
         {#each CATEGORIES as c (c)}
@@ -127,12 +141,18 @@
     </label>
 
     {#if unfinished}
-      <button class="btn icon" disabled={busy} aria-label={t('card.cancel.label', { name: d.filename })} title={t('card.cancel.title')} onclick={cancel}>
+      <button
+        class={['btn icon', !primary && 'ml-auto']}
+        disabled={busy}
+        aria-label={t('card.cancel.label', { name: d.filename })}
+        title={t('card.cancel.title')}
+        onclick={cancel}
+      >
         <Icon name="x" />
       </button>
     {:else}
       <button
-        class="btn icon"
+        class="btn icon ml-auto"
         disabled={busy}
         aria-label={t('card.remove.label', { name: d.filename })}
         title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
@@ -143,116 +163,3 @@
     {/if}
   </div>
 </article>
-
-<style>
-  .card {
-    display: grid;
-    gap: 0.7rem;
-    padding: 0.9rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-  }
-
-  .top {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .title {
-    flex: 1;
-    min-width: 0;
-  }
-
-  h3 {
-    font-size: 1rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.1rem 0.6rem;
-    color: var(--muted);
-    font-size: 0.82rem;
-  }
-
-  .host {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 100%;
-  }
-
-  .folder {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  .stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.1rem 0.9rem;
-    color: var(--muted);
-    font-size: 0.88rem;
-  }
-
-  .num {
-    font-variant-numeric: tabular-nums;
-  }
-
-  .stats strong {
-    color: var(--text);
-    margin-left: 0.25rem;
-  }
-
-  .error {
-    display: flex;
-    gap: 0.4rem;
-    align-items: flex-start;
-    padding: 0.5rem 0.65rem;
-    border-radius: var(--radius-sm);
-    background: var(--danger-soft);
-    color: var(--danger);
-    font-size: 0.88rem;
-    overflow-wrap: anywhere;
-  }
-
-  .error :global(svg) {
-    margin-top: 0.1rem;
-  }
-
-  .note {
-    color: var(--warning);
-    font-size: 0.82rem;
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .grow {
-    flex: 1;
-  }
-
-  .catpick {
-    flex: 0 1 10rem;
-    min-width: 0;
-  }
-
-  /* Without the big button (finished downloads) the remove button sits at the far end. */
-  .actions > .btn.icon:last-child {
-    margin-left: auto;
-  }
-
-  .select {
-    padding-right: 0.4rem;
-  }
-</style>

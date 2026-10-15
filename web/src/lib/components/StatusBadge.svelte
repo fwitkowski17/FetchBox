@@ -3,36 +3,24 @@
   import { t } from '../i18n';
 
   let { status }: { status: Status } = $props();
+
+  const STYLE: Record<Status, string> = {
+    queued: 'bg-surface-2 text-muted',
+    downloading: 'bg-accent-soft text-accent',
+    paused: 'bg-warning-soft text-warning',
+    completed: 'bg-success-soft text-success',
+    failed: 'bg-danger-soft text-danger',
+    cancelled: 'bg-danger-soft text-danger',
+  };
 </script>
 
-<span class="badge {status}">{t(`status.${status}`)}</span>
-
-<style>
-  .badge {
-    display: inline-block;
-    padding: 0.1rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    white-space: nowrap;
-    background: var(--surface-2);
-    color: var(--muted);
-  }
-  .downloading {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-  .completed {
-    background: var(--success-soft);
-    color: var(--success);
-  }
-  .paused {
-    background: var(--warning-soft);
-    color: var(--warning);
-  }
-  .failed,
-  .cancelled {
-    background: var(--danger-soft);
-    color: var(--danger);
-  }
-</style>
+<span
+  data-status={status}
+  class={[
+    'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap',
+    STYLE[status],
+  ]}
+>
+  <span class={['size-1.5 rounded-full bg-current', status === 'downloading' && 'animate-pulse']}></span>
+  {t(`status.${status}`)}
+</span>

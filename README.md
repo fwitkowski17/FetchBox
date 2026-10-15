@@ -22,7 +22,7 @@ cd web && npm run check
 
 ## Frontend
 
-Svelte 5 + Vite + TypeScript in `web/`, mobile-first, no UI framework (about 32 kB gzipped JS). It is embedded into the binary at build time; `cd web && npm run dev` serves it with hot reload and proxies `/api` to `localhost:8080`.
+Svelte 5 + Vite + TypeScript in `web/`, mobile-first, styled with Tailwind CSS 4 (no UI component framework; about 40 kB gzipped JS and 7 kB gzipped CSS, 316 kB for the whole embedded app including the font). It is embedded into the binary at build time; `cd web && npm run dev` serves it with hot reload and proxies `/api` to `localhost:8080`.
 
 - Side-menu layout: on wide screens a permanent panel with navigation, status and category filters (with counts), connection state and the theme switch; on phones the same panel slides in from the left, with a floating add button and a row of the filters currently applied.
 - Download list as cards with live progress (server-sent events): status, size, speed, ETA, category, pause/resume/retry, cancel, remove.
@@ -42,6 +42,12 @@ Translations live in `web/src/lib/i18n/` (no library; a few hundred lines). To a
 That is all: the language appears in Settings, is loaded on demand as its own small chunk, and is picked automatically when it matches the browser language. `npm run check` fails on a missing or misspelled key, and `npm test` fails on a changed placeholder or a missing plural form. `en.ts` is the source of truth for the keys. Messages coming from the backend (for example the reason a download could not be added) are not translated yet.
 
 `npm run check` (types), `npm test` (vitest, logic only) and `npm run build` run in CI.
+
+### Styling and font
+
+Tailwind runs at build time only (the final image still has no Node). Colours are CSS variables defined per theme in `web/src/app.css` and exposed to Tailwind through `@theme inline`, so classes such as `bg-surface`, `text-muted` or `border-border` follow light, dark and black without any `dark:` variants. Shared controls (`.btn`, `.input`, `.select`, `.field`) are defined once in the same file with `@apply`.
+
+The font is Inter (variable), bundled with the app, so nothing is fetched from a CDN and it works on an isolated LAN. Only the `latin` (48 kB) and `latin-ext` (85 kB, Polish letters among others) subsets are included, and the browser downloads a subset only when a character from it is on the page. Tailwind 4 needs a reasonably recent browser (Safari 16.4+, Chrome 111+, Firefox 128+).
 
 ## Options worth knowing
 
@@ -85,4 +91,4 @@ Workspace crates live in `crates/` (`core`, `http_engine`, `torrent_engine`, `st
 
 ## Dependency notes
 
-`tokio` + `axum` (one async stack), `rust-embed` + `mime_guess` (embedded SPA), `rusqlite` bundled (lighter than sqlx, no system SQLite), `clap` (CLI), `serde`/`serde_json`, `thiserror`/`anyhow`, `tracing`, `async-trait` (`Downloader` trait object).
+`tailwindcss` + `@tailwindcss/vite` (build-time only: consistent design tokens and no hand-written CSS to maintain; the output is a few kB), `@fontsource-variable/inter` (the font files, so no CDN), `tokio` + `axum` (one async stack), `rust-embed` + `mime_guess` (embedded SPA), `rusqlite` bundled (lighter than sqlx, no system SQLite), `clap` (CLI), `serde`/`serde_json`, `thiserror`/`anyhow`, `tracing`, `async-trait` (`Downloader` trait object).

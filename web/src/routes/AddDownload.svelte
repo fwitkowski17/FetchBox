@@ -61,9 +61,12 @@
 </script>
 
 <div class="page-narrow">
-  <header class="head"><h1>{t('add.title')}</h1></header>
+  <header class="mb-4"><h1 class="text-2xl font-bold tracking-tight">{t('add.title')}</h1></header>
 
-  <form class="card" onsubmit={onSubmit}>
+  <form
+    class="grid gap-4 rounded-2xl border border-border bg-surface p-5 shadow-card"
+    onsubmit={onSubmit}
+  >
     <div class="field">
       <label for="url">{t('add.address')}</label>
       <!-- svelte-ignore a11y_autofocus -->
@@ -81,14 +84,16 @@
         aria-invalid={showUrlHint ? 'true' : undefined}
         aria-describedby="url-hint"
       />
-      <p id="url-hint" class="hint" class:warn={showUrlHint}>
+      <p id="url-hint" class={['hint', showUrlHint && 'text-warning']}>
         {showUrlHint ? t('add.address.invalid') : t('add.address.hint')}
       </p>
     </div>
 
-    <div class="two">
+    <div class="grid gap-4 sm:grid-cols-2">
       <div class="field">
-        <label for="filename">{t('add.filename')} <span class="opt">{t('common.optional')}</span></label>
+        <label for="filename">
+          {t('add.filename')} <span class="font-normal text-muted">{t('common.optional')}</span>
+        </label>
         <input
           id="filename"
           class="input"
@@ -109,7 +114,12 @@
     </div>
 
     {#if error}
-      <p class="error" role="alert"><Icon name="alert" size={18} />{error}</p>
+      <p
+        class="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger [overflow-wrap:anywhere]"
+        role="alert"
+      >
+        <Icon name="alert" size={18} />{error}
+      </p>
     {/if}
 
     <button class="btn primary" type="submit" disabled={!urlOk || busy}>
@@ -119,50 +129,3 @@
 </div>
 
 <ConflictDialog {conflict} {busy} onchoose={choose} />
-
-<style>
-  .head {
-    margin-bottom: 1rem;
-  }
-
-  .card {
-    display: grid;
-    gap: 1rem;
-    padding: 1rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-  }
-
-  .two {
-    display: grid;
-    gap: 1rem;
-  }
-
-  @media (min-width: 40rem) {
-    .two {
-      grid-template-columns: 1fr 1fr;
-    }
-  }
-
-  .opt {
-    color: var(--muted);
-    font-weight: 400;
-  }
-
-  .warn {
-    color: var(--warning);
-  }
-
-  .error {
-    display: flex;
-    gap: 0.5rem;
-    align-items: flex-start;
-    padding: 0.6rem 0.75rem;
-    border-radius: var(--radius-sm);
-    background: var(--danger-soft);
-    color: var(--danger);
-    overflow-wrap: anywhere;
-  }
-</style>

@@ -59,12 +59,8 @@
   aria-label={label}
   aria-hidden={label ? undefined : 'true'}
   focusable="false"
+  class="shrink-0"
 >
   {@html PATHS[name]}
 </svg>
 
-<style>
-  svg {
-    flex: none;
-  }
-</style>
