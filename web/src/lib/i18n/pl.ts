@@ -14,7 +14,6 @@ const pl: Messages = {
 
   // ---- navigation and shell
   'nav.main': 'Menu główne',
-  'nav.more': 'Pozostałe strony',
   'nav.downloads': 'Pobrania',
   'nav.add': 'Dodaj',
   'nav.stats': 'Statystyki',

@@ -20,7 +20,6 @@ export const en = {
 
   // ---- navigation and shell
   'nav.main': 'Main',
-  'nav.more': 'More pages',
   'nav.downloads': 'Downloads',
   'nav.add': 'Add',
   'nav.stats': 'Statistics',

@@ -272,8 +272,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
   respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
   their duration from `util/motion.ts`, which is 0 then.
-- Layout: side menu. From 64rem a permanent left panel (Downloads link, status and category filters with counts, then, pinned
-  to the bottom, speed, the Statistics and Settings links, theme switch and the disk ring last); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
+- Layout: side menu. From 64rem a permanent left panel (status and category filters with counts, where "All" is the way back to the list, then, pinned
+  to the bottom, speed, the Statistics and Settings links, theme switch and the disk ring last; there is no separate
+  "Downloads" link, and the filters are marked as current only while the list is shown, not on Statistics or Settings); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
   Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
 - First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
