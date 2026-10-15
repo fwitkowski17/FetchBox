@@ -6,7 +6,8 @@
 //! Only the direct children of the page are listed (a link outside the page's folder, to another
 //! host, a sort link or the parent folder is not one).
 
-use fetchbox_core::ListingEntry;
+use fetchbox_core::category::detect as detect_category;
+use fetchbox_core::{Category, ListingEntry};
 use reqwest::header::CONTENT_TYPE;
 use reqwest::{Client, Url};
 
@@ -119,6 +120,11 @@ pub fn parse_index(base: &Url, html: &str) -> Option<Listing> {
             break;
         }
         let entry = ListingEntry {
+            category: if is_dir {
+                Category::Other
+            } else {
+                detect_category(&name, None)
+            },
             name,
             url: url.to_string(),
             size: if is_dir {

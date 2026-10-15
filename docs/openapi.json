@@ -1582,9 +1582,14 @@
         "required": [
           "name",
           "url",
-          "is_dir"
+          "is_dir",
+          "category"
         ],
         "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category",
+            "description": "What the file name says it is (`Other` for a directory)."
+          },
           "is_dir": {
             "type": "boolean"
           },

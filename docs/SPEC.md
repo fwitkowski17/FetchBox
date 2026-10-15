@@ -121,6 +121,20 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   with a warning instead of blocking downloads. Only downloads that probe at the very same moment as the engine check
   can race; the loser fails on the write error like any full disk.
 
+### 6.2.1 Directory index pages
+
+- A URL that answers with an HTML page is read once more (at most 2 MiB, through the same client, so the private-address
+  policy and the redirect checks apply) and, if it is a *directory index* ("Index of ..." or "Directory listing for ..." in
+  the title or first heading: Apache, nginx, lighttpd, Python's `http.server`), reported by `POST /api/probe` as
+  `kind: "listing"`. Any other page is a file like before. No HTML parser: the anchors of the page are scanned.
+- Only the direct children of the page are listed: folders (`is_dir`, address ending in `/`) first, then files, each group in
+  page order, with the decoded name, absolute address, the category of the file name and a size when the page shows one
+  (bytes as nginx prints them, or `1.5G` as Apache does; none for Python's server). Links to other hosts or other places, the
+  parent folder, sort links (`?C=N;O=D`), non-`http(s)` schemes and names with `/`, `\` or control characters are dropped.
+  At most 2000 items are returned (`truncated`). Folders are not scanned recursively: the user opens one, which is a new probe.
+- A listing is not a download by itself: the chosen files are added one by one with the ordinary `POST /api/downloads`
+  (the server names them, detects the category and checks space for each).
+
 ### 6.3 Scheduler and limits
 
 - `Semaphore` limits concurrent downloads; overflow = `Queued`.
@@ -168,9 +182,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
   the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
   checks)
-- `POST /api/probe {url}` (looks at a URL without adding anything and answers `{filename, size?, resumable, category}`: the
-  same probe an add makes, with the same URL policy and the same errors, `400` for a bad URL and `502` when the server
-  cannot be reached; a `POST` so that an address with a token stays out of access logs)
+- `POST /api/probe {url}` (looks at a URL without adding anything and answers `{kind, filename, size?, resumable, category,
+  entries, truncated}`: the same probe an add makes, with the same URL policy and the same errors, `400` for a bad URL and
+  `502` when the server cannot be reached; a `POST` so that an address with a token stays out of access logs. `kind` is
+  `file`, or `listing` when the address is a directory index page, see 6.2.1)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/disk` (free space of the download disk)
 - `GET /api/stats?range=today|7d|30d|all&offset=<minutes east of UTC>` (a summary of the downloads of a period, in the
@@ -274,6 +289,14 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   one) and, when the server does not support ranges, that the download cannot be resumed once paused; the file name
   field's placeholder becomes the name the server suggests. An older look is cancelled when the address changes. A
   failed look shows its reason but never blocks adding (the add reports a real problem itself).
+  When the address is a directory index (`kind: "listing"`) the file name field gives way to a list (`ListingPicker`): "Select
+  all" (of what the filter shows), a filter box, the folders (a click opens one: the address becomes the folder's and
+  "Back" returns) and the files with a checkbox, category icon and size, then "N selected" with the total size ("at least"
+  when some sizes are unknown). Every file starts chosen. The category choice applies to all of them and the button reads
+  "Download N files". Adding sends the chosen files one after the other, "Adding i of N..."; a file that already exists
+  (`409`) or does not fit (`507`) is skipped and counted instead of asking, so one problem does not stop the rest, and one
+  toast sums it up (a warning when something was skipped or failed). When nothing at all was added the dialog stays open
+  with the reason.
 - Motion: short and functional (about 150-250 ms), never decorative loops. Dialogs fade and rise in and fade and sink out
   (the native `<dialog>` is closed only after the exit has played; reopening during the exit cancels it); toasts fly in,
   fade out and the rest glide into place; the drawer scrim fades; the floating button pops in; a card added to an existing

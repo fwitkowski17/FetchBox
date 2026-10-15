@@ -296,6 +296,8 @@ pub struct ListingEntry {
     /// Size in bytes when the page shows one.
     pub size: Option<u64>,
     pub is_dir: bool,
+    /// What the file name says it is (`Other` for a directory).
+    pub category: Category,
 }
 
 /// What the remote server says about a URL: what an add request would work with.

@@ -534,6 +534,8 @@ export interface components {
         };
         /** @description One item of a directory index page. */
         ListingEntry: {
+            /** @description What the file name says it is (`Other` for a directory). */
+            category: components["schemas"]["Category"];
             is_dir: boolean;
             /** @description Name as shown on the page (decoded), without a trailing slash. */
             name: string;
