@@ -19,6 +19,7 @@ export interface Draft {
   perDownload: SpeedDraft;
   global: SpeedDraft;
   categorySubdirs: boolean;
+  checkUpdates: boolean;
 }
 
 export function speedToDraft(bytesPerSecond: number): SpeedDraft {
@@ -37,6 +38,8 @@ export function toDraft(s: Settings): Draft {
     perDownload: speedToDraft(s.speed_per_download),
     global: speedToDraft(s.speed_global),
     categorySubdirs: s.category_subdirs ?? false,
+    // Older servers do not know the field; checks are on unless switched off.
+    checkUpdates: s.check_updates ?? true,
   };
 }
 
@@ -47,6 +50,7 @@ export function fromDraft(d: Draft): Settings {
     speed_per_download: speedFromDraft(d.perDownload),
     speed_global: speedFromDraft(d.global),
     category_subdirs: d.categorySubdirs,
+    check_updates: d.checkUpdates,
   };
 }
 
@@ -81,7 +85,8 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.max_concurrent === b.max_concurrent &&
     a.speed_per_download === b.speed_per_download &&
     a.speed_global === b.speed_global &&
-    (a.category_subdirs ?? false) === (b.category_subdirs ?? false)
+    (a.category_subdirs ?? false) === (b.category_subdirs ?? false) &&
+    (a.check_updates ?? true) === (b.check_updates ?? true)
   );
 }
 

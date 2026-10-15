@@ -17,6 +17,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - default speed of each download (a single download can get its own speed from its menu, which replaces the default, see 6.6)
   - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
+  - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
 
@@ -169,7 +170,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -194,6 +195,8 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   spent transferring, timed rows only), `peak_speed` (all time), `largest`, `categories` of the completed ones biggest
   first, and `days`: the last 14 days oldest first with the empty ones, whatever the period. Cancelling counts as neither
   success nor failure.)
+- `GET /api/version` and `POST /api/version/check` (see 6.9): `{current, enabled, latest?, update_available, release_url?,
+  checked_at?, check_failed}`; the `POST` looks again now, at most every 30 s
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -448,6 +451,28 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   stuck in the OS, a slow disk) instead of for ever. Running downloads need no step of their own: offsets are persisted
   every tick and whatever was running is re-queued at the next start (see "Crash safety"); at most one tick of progress
   is fetched again.
+
+### 6.9 Version and updates
+
+- The version is the workspace version in `Cargo.toml` (`0.6.1` while there is no final release); the binary prints it with
+  `--version`, the API with `GET /api/version` and Settings shows it in the "About" card (also in `docs/openapi.json`, whose
+  `info.version` it is). `web/package.json` carries the same number.
+- Update check: the server asks the GitHub releases API (`/repos/<owner>/<repo>/releases/latest`: the newest published release,
+  neither draft nor pre-release) with a 5 s timeout and compares the tag (`v0.7.0` -> `0.7.0`, numbers compared one by one,
+  a pre-release below its release) with its own version. An answer is kept for 6 hours, a failure for 15 minutes (an offline
+  server does not retry on every page view), and "Check now" cannot ask more often than every 30 s (anonymous GitHub limit: 60
+  requests an hour). A `404` means no release has been published yet and is not an error. The release link is shown only
+  when it is an `https://` address. Nothing is sent but the request itself (the server's IP address and
+  `User-Agent: FetchBox/<version>`).
+- It can be switched off (`Settings.check_updates`, default on; a client that does not send the field leaves it on). Then
+  `GET /api/version` answers `enabled: false` and the server contacts nobody. `FETCHBOX_UPDATE_URL` replaces the endpoint (a
+  mirror, a fork, a test server).
+- Settings "About" card (after the password card, before the sign-out card): `FetchBox <version>`, one line of status ("Version X
+  is available" with a "View the release" button, "You have the latest version", "No release has been published yet", "Could
+  not check", "switched off"), the time of the last answer, "Check now" and the switch "Check for updates automatically"
+  (part of the settings form: saved with it, and the answer is fetched again once saved).
+- A release is made by publishing a GitHub Release whose tag is `v<version>` (for example `v0.6.1`); that is what the check
+  finds. Raising the version means changing `Cargo.toml` (and `web/package.json`) first.
 
 ## 7. Dependencies (Rust)
 

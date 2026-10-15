@@ -18,7 +18,7 @@ use fetchbox_api::auth::MIN_PASSWORD_LEN;
 
 /// Self-hosted download manager.
 #[derive(Debug, Parser)]
-#[command(version, about)]
+#[command(name = "fetchbox", version, about)]
 struct Args {
     /// Directory for the SQLite database.
     #[arg(long, default_value = "./data")]

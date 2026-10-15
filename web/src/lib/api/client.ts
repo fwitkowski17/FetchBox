@@ -11,6 +11,7 @@ import type {
   Stats,
   StatsRange,
   UrlInfo,
+  VersionInfo,
 } from './types';
 
 export interface SpaceInfo {
@@ -154,6 +155,8 @@ export const api = {
   /** `offsetMinutes`: the caller's distance from UTC, east positive; it decides where a day begins. */
   getStats: (range: StatsRange, offsetMinutes: number) =>
     request<Stats>('GET', `/stats?range=${range}&offset=${offsetMinutes}`),
+  getVersion: () => request<VersionInfo>('GET', '/version'),
+  checkVersion: () => request<VersionInfo>('POST', '/version/check'),
   getSettings: () => request<Settings>('GET', '/settings'),
   putSettings: (settings: Settings) => request<Settings>('PUT', '/settings', settings),
 };
