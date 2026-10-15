@@ -204,6 +204,11 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   Pressing "Resume" while the disk is still too full (`507`, also for a failed download) opens a dialog with the same gauge
   instead of a toast: it follows the disk figures, "Try again" retries, and once there is room the button reads "Resume" and
   starts the download (the dialog closes when the resume works or the download is gone).
+- Adding from the list: with at least one download on the list the page header has a primary "Add download" button at its
+  right end (next to "Clear finished"); an empty list has the big button in the middle instead, and below 64rem the floating
+  button takes over (the header one is hidden there, so there is one add button per layout). The side menu has no "Add"
+  item: it lists the pages and the filters. Toasts sit at the bottom right on wide screens (so they never cover the header
+  buttons) and under the top bar on narrow ones (the floating button is at the bottom there).
 - Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel
   (unfinished) or "remove from list, the file stays" (finished). The "more" menu (replacing the old category select) has
   "Copy link" (the clipboard API where the page is a secure context, a selection fallback on plain-HTTP LAN pages),
@@ -212,7 +217,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   "Delete..." opens a dialog (`stores/deleteDialog`): for a finished download it offers "Also delete the file from the disk"
   (off by default, with a warning when ticked, and a button that then reads "Delete with file"); for an unfinished one it
   says that the download is stopped and the partial file goes too, and has no such option.
-- Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the "Add" item of the side menu, the
+- Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
   floating button, the empty list and the end of the setup wizard (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
   success clears it), the name-conflict and "does not fit" dialogs open on top of it, and a success closes everything and

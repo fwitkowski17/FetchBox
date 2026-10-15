@@ -102,6 +102,7 @@ export const en = {
   'downloads.filter.allCategories': 'All categories',
   'downloads.loadFailed': 'Could not load the list: {error}',
   'downloads.empty': 'No downloads yet.',
+  'downloads.add': 'Add download',
   'downloads.empty.add': 'Add a download',
   'downloads.noMatch': 'No downloads match these filters.',
   'downloads.clearFilters': 'Clear filters',

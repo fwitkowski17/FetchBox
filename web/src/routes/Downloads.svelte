@@ -61,11 +61,23 @@
       {/if}
     </p>
   </div>
-  {#if finished > 0}
-    <button class="btn whitespace-nowrap" onclick={clearFinished}>
-      <Icon name="trash" size={17} />{t('downloads.clearFinished', { n: finished })}
-    </button>
-  {/if}
+  <div class="flex flex-wrap items-center gap-2">
+    {#if finished > 0}
+      <button class="btn whitespace-nowrap" onclick={clearFinished}>
+        <Icon name="trash" size={17} />{t('downloads.clearFinished', { n: finished })}
+      </button>
+    {/if}
+    <!-- With an empty list the big button below does this; on narrow screens the floating one. -->
+    {#if downloads.items.length > 0}
+      <button
+        class="btn primary whitespace-nowrap max-lg:hidden"
+        data-part="add"
+        onclick={() => addDialog.show()}
+      >
+        <Icon name="plus" size={18} />{t('downloads.add')}
+      </button>
+    {/if}
+  </div>
 </header>
 
 <div class="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">

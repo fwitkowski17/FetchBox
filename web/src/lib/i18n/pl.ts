@@ -96,6 +96,7 @@ const pl: Messages = {
   'downloads.filter.allCategories': 'Wszystkie kategorie',
   'downloads.loadFailed': 'Nie udało się wczytać listy: {error}',
   'downloads.empty': 'Brak pobrań.',
+  'downloads.add': 'Dodaj pobranie',
   'downloads.empty.add': 'Dodaj pobranie',
   'downloads.noMatch': 'Żadne pobranie nie pasuje do filtrów.',
   'downloads.clearFilters': 'Wyczyść filtry',
