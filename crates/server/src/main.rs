@@ -1,5 +1,6 @@
 //! dlmanager server binary: wires storage, API and the embedded frontend.
 
+mod assets;
 mod manager;
 #[cfg(test)]
 mod tests;
@@ -9,19 +10,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
-use axum::{
-    http::{header, StatusCode, Uri},
-    response::{IntoResponse, Response},
-    Router,
-};
+use axum::Router;
 use clap::Parser;
 use dlm_api::auth::MIN_PASSWORD_LEN;
-use rust_embed::RustEmbed;
-
-/// Frontend build output, embedded at compile time.
-#[derive(RustEmbed)]
-#[folder = "../../web/dist"]
-struct Assets;
 
 /// Self-hosted download manager.
 #[derive(Debug, Parser)]
@@ -143,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("start download manager")?;
     let auth = resolve_auth(&args, manager.clone())?;
-    let app: Router = dlm_api::router(manager, auth).fallback(static_handler);
+    let app: Router = dlm_api::router(manager, auth).fallback(assets::handler);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     let listener = tokio::net::TcpListener::bind(addr)
@@ -155,39 +146,6 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("serve")?;
     Ok(())
-}
-
-/// Serve embedded files; unknown non-API paths fall back to `index.html` (SPA routes).
-async fn static_handler(uri: Uri) -> Response {
-    let path = uri.path().trim_start_matches('/');
-    if path == "api" || path.starts_with("api/") {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    let path = if path.is_empty() { "index.html" } else { path };
-
-    if let Some(resp) = embedded(path) {
-        return resp;
-    }
-    // Missing file with an extension is a real 404; extensionless paths are SPA routes.
-    let last = path.rsplit('/').next().unwrap_or(path);
-    if !last.contains('.') {
-        if let Some(resp) = embedded("index.html") {
-            return resp;
-        }
-    }
-    StatusCode::NOT_FOUND.into_response()
-}
-
-fn embedded(path: &str) -> Option<Response> {
-    let file = Assets::get(path)?;
-    let mime = mime_guess::from_path(path).first_or_octet_stream();
-    Some(
-        (
-            [(header::CONTENT_TYPE, mime.to_string())],
-            file.data.into_owned(),
-        )
-            .into_response(),
-    )
 }
 
 async fn shutdown_signal() {

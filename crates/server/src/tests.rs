@@ -998,6 +998,19 @@ async fn sse_streams_download_events() {
 
     let mut stream = c.get(format!("{api}/events")).send().await.expect("sse");
     assert_eq!(stream.status().as_u16(), 200);
+    assert_eq!(
+        stream.headers()["x-accel-buffering"],
+        "no",
+        "a proxy must not buffer the stream"
+    );
+    // Something arrives at once: the client counts the stream as open and learns how fast to retry.
+    let hello = tokio::time::timeout(Duration::from_secs(2), stream.chunk())
+        .await
+        .expect("the stream says hello at once")
+        .expect("chunk")
+        .expect("stream ended");
+    let hello = String::from_utf8_lossy(&hello).into_owned();
+    assert!(hello.contains("retry: 1000"), "{hello:?}");
 
     let body = format!(r#"{{"url":"{}"}}"#, h.url("slow", "live.bin"));
     let (status, _) = send(
