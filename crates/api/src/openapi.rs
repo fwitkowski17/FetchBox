@@ -13,8 +13,8 @@ use crate::routes::{self, Health, UpdateDownload};
 use crate::sse;
 
 use fetchbox_core::{
-    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, OnConflict, Settings,
-    SourceKind, Status,
+    AddRequest, Category, CategoryStat, Conflict, ConflictKind, DayStat, DiskSpace, Download,
+    Event, LargestFile, OnConflict, Settings, SourceKind, Stats, StatsRange, Status,
 };
 
 #[derive(OpenApi)]
@@ -38,6 +38,7 @@ token as `Authorization: Bearer`.",
         routes::get_settings,
         routes::put_settings,
         routes::disk,
+        routes::stats,
         sse::events,
         auth::login,
         auth::logout,
@@ -48,7 +49,8 @@ token as `Authorization: Bearer`.",
     components(schemas(
         Download, Status, Category, SourceKind, Settings, AddRequest, OnConflict, Conflict,
         ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, LoginRequest,
-        LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest,
+        LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest, Stats, StatsRange,
+        LargestFile, CategoryStat, DayStat,
     )),
     modifiers(&Runtime),
     tags(

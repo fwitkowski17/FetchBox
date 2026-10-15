@@ -7,6 +7,7 @@ pub mod filename;
 pub mod limiter;
 pub mod model;
 pub mod scheduler;
+pub mod stats;
 
 use async_trait::async_trait;
 
@@ -15,6 +16,7 @@ pub use model::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, Handle, Id, Job,
     OnConflict, Progress, SegmentState, Settings, SourceKind, Status,
 };
+pub use stats::{CategoryStat, DayStat, LargestFile, Stats, StatsRange};
 
 /// Backend that actually moves bytes (HTTP now, BitTorrent later).
 #[async_trait]

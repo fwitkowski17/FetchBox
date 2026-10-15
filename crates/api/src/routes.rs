@@ -9,7 +9,9 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
-use fetchbox_core::{AddRequest, Category, DiskSpace, Download, Error, Id, Settings};
+use fetchbox_core::{
+    AddRequest, Category, DiskSpace, Download, Error, Id, Settings, Stats, StatsRange,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -32,6 +34,7 @@ pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
         .route("/downloads/{id}/cancel", post(cancel))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/disk", get(disk))
+        .route("/stats", get(stats))
         .route("/events", get(sse::events))
         .with_state(service)
         .route_layer(middleware::from_fn_with_state(
@@ -138,6 +141,37 @@ pub(crate) async fn add(
 )]
 pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
     Ok(Json(svc.disk_space().await?))
+}
+
+/// Query of `GET /stats`.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct StatsQuery {
+    /// How far back to look (default: everything).
+    pub range: Option<StatsRange>,
+    /// The caller's distance from UTC in minutes, east positive (`-new Date().getTimezoneOffset()`
+    /// in a browser). It decides where a day begins. Default 0 (UTC).
+    pub offset: Option<i32>,
+}
+
+/// A summary of the downloads of a period: how many finished, failed or were cancelled, the data
+/// they fetched, the average and peak speed, the largest file, the categories and the last 14 days.
+/// The numbers outlive the entries of the list: a download that is removed stays in them.
+#[utoipa::path(
+    get,
+    path = "/api/stats",
+    tag = "system",
+    security(("session" = []), ("bearer" = [])),
+    params(StatsQuery),
+    responses(
+        (status = 200, body = Stats),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+    )
+)]
+pub(crate) async fn stats(State(svc): Svc, Query(q): Query<StatsQuery>) -> ApiResult<Json<Stats>> {
+    Ok(Json(
+        svc.stats(q.range.unwrap_or_default(), q.offset.unwrap_or(0))
+            .await?,
+    ))
 }
 
 /// Change the category of a download, archive it (hide it from the main list) and/or set its own
