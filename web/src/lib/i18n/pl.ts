@@ -236,6 +236,11 @@ const pl: Messages = {
   'settings.accent': 'Kolor akcentu',
   'settings.language': 'Język',
   'settings.language.auto': 'Automatyczny (język przeglądarki)',
+  'settings.speedUnit': 'Jednostka prędkości',
+  'settings.speedUnit.auto': 'Automatyczna (KB/s, MB/s…)',
+  'settings.speedUnit.bits': 'Automatyczna w bitach (Kbit/s, Mbit/s…)',
+  'settings.speedUnit.hint':
+    'Jak prędkości są pokazywane w aplikacji, np. {example}. Wpisywane limity zachowują jednostkę swojego pola.',
   'settings.account': 'Konto',
   'settings.signOut': 'Wyloguj',
   'settings.password': 'Hasło',

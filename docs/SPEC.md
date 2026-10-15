@@ -275,6 +275,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Sorting (date added, name, size, progress, speed, status; unknown sizes always last), status tabs, category filter,
   search; remembered in `localStorage`. System / light / dark / black theme via CSS tokens (`[data-theme]` plus
   `prefers-color-scheme`; black is dark with a pure black background for OLED), applied before first paint.
+- Speed unit shown in the app: a display choice in Settings > Appearance (and the setup wizard), kept per browser in
+  `localStorage` (`dlm.speedUnit`), not a server setting. `Automatic` (B, KB, MB... as before), `Automatic in bits` (bit,
+  Kbit, Mbit, Gbit...) or one fixed unit (KB/s, MB/s, Kbit/s, Mbit/s). It applies to every speed the UI writes (list header,
+  side panel, cards, limits on cards and in menus); the limit fields keep the unit of their own field. Fixed and bit units
+  show three significant figures (123, 12.3, 1.23).
+- Select boxes (language, speed unit, category, sort, field units) are drawn like the text inputs: same height, border, font
+  and hover/focus, no native arrow but one chevron in every theme. Number inputs have no native spin buttons.
 - Settings form works in KB/s, MB/s, Kbit/s and Mbit/s and "limit on/off"; the API stays in bytes/s with `0` = unlimited.
   Bytes are binary (1 KB = 1024 B), bits decimal as network speeds are quoted (1 Mbit/s = 125 000 B/s). The server does
   not store the unit: a stored speed is shown in the first unit (MB, KB, Mbit, Kbit) that gives a whole number, so

@@ -38,8 +38,40 @@ export function formatBytes(bytes: number, locale = 'en'): string {
   return `${decimals(locale, digits).format(value)} ${UNITS[unit]}`;
 }
 
-export function formatSpeed(bytesPerSecond: number, locale = 'en'): string {
-  return `${formatBytes(bytesPerSecond, locale)}/s`;
+/** How speeds are shown in the app: `auto` picks B, KB, MB... itself, `bits` picks bit, Kbit, Mbit...
+ *  itself, anything else is one fixed unit. */
+export type SpeedDisplay = 'auto' | 'bits' | SpeedUnit;
+
+export const SPEED_DISPLAYS: readonly SpeedDisplay[] = ['auto', 'bits', 'KB', 'MB', 'Kbit', 'Mbit'];
+
+const BIT_UNITS = ['bit', 'Kbit', 'Mbit', 'Gbit', 'Tbit'] as const;
+
+/** Three significant figures at most: 123, 12.3, 1.23. */
+function speedDigits(value: number): number {
+  return value >= 100 ? 0 : value >= 10 ? 1 : 2;
+}
+
+export function formatSpeed(bytesPerSecond: number, locale = 'en', display: SpeedDisplay = 'auto'): string {
+  if (display === 'auto') return `${formatBytes(bytesPerSecond, locale)}/s`;
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return '—';
+  if (display === 'bits') {
+    let value = bytesPerSecond * 8;
+    let unit = 0;
+    while (value >= 1000 && unit < BIT_UNITS.length - 1) {
+      value /= 1000;
+      unit++;
+    }
+    let digits = unit === 0 ? 0 : speedDigits(value);
+    // Rounding can land on 1000 (999.96 Kbit): step up instead of showing it.
+    if (unit > 0 && unit < BIT_UNITS.length - 1 && Number(value.toFixed(digits)) >= 1000) {
+      value /= 1000;
+      unit++;
+      digits = 2;
+    }
+    return `${decimals(locale, digits).format(value)} ${BIT_UNITS[unit]}/s`;
+  }
+  const value = bytesPerSecond / SPEED_FACTOR[display];
+  return `${decimals(locale, speedDigits(value)).format(value)} ${SPEED_UNIT_LABEL[display]}`;
 }
 
 /** A duration split into the pieces of one unit pattern; the words around them are translated

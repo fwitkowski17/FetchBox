@@ -1,7 +1,14 @@
 // The active language. Reactive: anything that calls `t(...)` in a template or `$derived`
 // re-renders when the language changes.
 import { ApiError } from '../api/client';
-import { durationParts, formatBytes, formatDate, formatSpeed } from '../util/format';
+import {
+  SPEED_DISPLAYS,
+  durationParts,
+  formatBytes,
+  formatDate,
+  formatSpeed,
+  type SpeedDisplay,
+} from '../util/format';
 import { readJson, writeJson } from '../util/storage';
 import { AUTO, resolveLocale } from './detect';
 import { en, type MessageKey, type Messages } from './en';
@@ -10,7 +17,9 @@ import { translate, translateParts, type Part } from './translate';
 import type { Params } from './types';
 
 const KEY = 'dlm.locale';
+const SPEED_KEY = 'dlm.speedUnit';
 const CODES = LOCALES.map((l) => l.code);
+const isSpeedDisplay = (v: unknown): v is SpeedDisplay => SPEED_DISPLAYS.includes(v as SpeedDisplay);
 const isPref = (v: unknown): v is string => v === AUTO || (typeof v === 'string' && CODES.includes(v));
 
 class I18n {
@@ -18,6 +27,8 @@ class I18n {
   pref = $state<string>(readJson<string>(KEY, AUTO, isPref));
   /** The language actually in use. */
   locale = $state<string>(FALLBACK_LOCALE);
+  /** How speeds are written everywhere in the app (a display choice, not part of the settings). */
+  speedUnit = $state<SpeedDisplay>(readJson<SpeedDisplay>(SPEED_KEY, 'auto', isSpeedDisplay));
   #messages = $state.raw<Messages>(en);
 
   /** Load the dictionary for the stored choice. Await it before the first render. */
@@ -31,6 +42,11 @@ class I18n {
     await this.#activate(next);
     this.pref = next;
     writeJson(KEY, next);
+  }
+
+  setSpeedUnit(unit: SpeedDisplay): void {
+    this.speedUnit = isSpeedDisplay(unit) ? unit : 'auto';
+    writeJson(SPEED_KEY, this.speedUnit);
   }
 
   async #activate(pref: string): Promise<void> {
@@ -60,7 +76,7 @@ class I18n {
     translateParts(this.#messages[key] ?? en[key], params, this.locale);
 
   bytes = (n: number): string => formatBytes(n, this.locale);
-  speed = (n: number): string => formatSpeed(n, this.locale);
+  speed = (n: number): string => formatSpeed(n, this.locale, this.speedUnit);
   date = (unixSeconds: number): string => formatDate(unixSeconds, this.locale);
 
   duration = (seconds: number): string => {

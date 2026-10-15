@@ -33,7 +33,7 @@
         aria-invalid={error ? 'true' : undefined}
       />
       <label class="sr-only" for={`${id}-unit`}>{t('settings.speed.unit')}</label>
-      <select id={`${id}-unit`} class="select w-28 shrink-0" bind:value={value.unit}>
+      <select id={`${id}-unit`} class="select w-36 shrink-0" bind:value={value.unit}>
         {#each SPEED_UNITS as unit (unit)}
           <option value={unit}>{SPEED_UNIT_LABEL[unit]}</option>
         {/each}

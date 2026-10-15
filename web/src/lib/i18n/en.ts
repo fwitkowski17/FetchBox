@@ -239,6 +239,11 @@ export const en = {
   'settings.accent': 'Accent color',
   'settings.language': 'Language',
   'settings.language.auto': 'Automatic (browser language)',
+  'settings.speedUnit': 'Speed unit',
+  'settings.speedUnit.auto': 'Automatic (KB/s, MB/s…)',
+  'settings.speedUnit.bits': 'Automatic in bits (Kbit/s, Mbit/s…)',
+  'settings.speedUnit.hint':
+    'How speeds are shown in the app, for example {example}. Limits you type keep the unit of their own field.',
   'settings.account': 'Account',
   'settings.signOut': 'Sign out',
   'settings.password': 'Password',

@@ -262,6 +262,32 @@
     @apply text-muted;
   }
 
+  /* A select looks like an input: no native arrow (it differs per platform and sits tight against the
+     edge), one chevron drawn the same way in every theme, and the same hover and focus. Number inputs
+     lose their native spin buttons for the same reason; values are typed. */
+  .select {
+    @apply appearance-none truncate bg-no-repeat pr-10;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b93a1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+    background-size: 1.125rem;
+  }
+
+  .input:hover:not(:disabled):not(:focus-visible),
+  .select:hover:not(:disabled):not(:focus-visible) {
+    border-color: color-mix(in oklab, var(--border) 60%, var(--muted));
+  }
+
+  input[type='number'].input {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  input[type='number'].input::-webkit-inner-spin-button,
+  input[type='number'].input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
   .input:focus-visible,
   .select:focus-visible {
     @apply border-accent outline-offset-0;

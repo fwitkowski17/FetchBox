@@ -145,3 +145,35 @@ describe('isHttpUrl', () => {
     expect(isHttpUrl('')).toBe(false);
   });
 });
+
+describe('speed display unit', () => {
+  it('keeps the automatic byte format as it was', () => {
+    expect(formatSpeed(0)).toBe('0 B/s');
+    expect(formatSpeed(1_500_000)).toBe('1.4 MB/s');
+    expect(formatSpeed(1_500_000, 'en', 'auto')).toBe('1.4 MB/s');
+  });
+
+  it('picks bit units by itself, decimal as networks quote them', () => {
+    expect(formatSpeed(0, 'en', 'bits')).toBe('0 bit/s');
+    expect(formatSpeed(125, 'en', 'bits')).toBe('1.00 Kbit/s');
+    expect(formatSpeed(1_500_000, 'en', 'bits')).toBe('12.0 Mbit/s');
+    expect(formatSpeed(12_500_000, 'en', 'bits')).toBe('100 Mbit/s');
+    expect(formatSpeed(125_000_000, 'en', 'bits')).toBe('1.00 Gbit/s');
+    // 999.96 Kbit/s must not be shown as "1000 Kbit/s".
+    expect(formatSpeed(124_995, 'en', 'bits')).toBe('1.00 Mbit/s');
+  });
+
+  it('shows one fixed unit when asked to', () => {
+    expect(formatSpeed(1_048_576, 'en', 'KB')).toBe('1024 KB/s');
+    expect(formatSpeed(5 * 1_048_576, 'en', 'MB')).toBe('5.00 MB/s');
+    expect(formatSpeed(40 * 1024, 'en', 'MB')).toBe('0.04 MB/s');
+    expect(formatSpeed(12_500_000, 'en', 'Mbit')).toBe('100 Mbit/s');
+    expect(formatSpeed(64_000, 'en', 'Kbit')).toBe('512 Kbit/s');
+    expect(formatSpeed(Number.NaN, 'en', 'Mbit')).toBe('—');
+  });
+
+  it('uses the number format of the language', () => {
+    expect(formatSpeed(1_500_000, 'pl', 'bits')).toBe('12,0 Mbit/s');
+  });
+});
+

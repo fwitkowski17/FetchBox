@@ -3,6 +3,7 @@
   import { t } from '../i18n';
   import AccentPicker from './AccentPicker.svelte';
   import LanguageSelect from './LanguageSelect.svelte';
+  import SpeedUnitSelect from './SpeedUnitSelect.svelte';
   import ThemePicker from './ThemePicker.svelte';
 </script>
 
@@ -15,3 +16,5 @@
 </div>
 
 <LanguageSelect />
+
+<SpeedUnitSelect />
