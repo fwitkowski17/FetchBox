@@ -951,6 +951,76 @@
           }
         ]
       }
+    },
+    "/api/stats": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "A summary of the downloads of a period: how many finished, failed or were cancelled, the data\nthey fetched, the average and peak speed, the largest file, the categories and the last 14 days.\nThe numbers outlive the entries of the list: a download that is removed stays in them.",
+        "operationId": "stats",
+        "parameters": [
+          {
+            "name": "range",
+            "in": "path",
+            "description": "How far back to look (default: everything).",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/StatsRange"
+                }
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "description": "The caller's distance from UTC in minutes, east positive (`-new Date().getTimezoneOffset()`\nin a browser). It decides where a day begins. Default 0 (UTC).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1031,6 +1101,31 @@
           "archive",
           "other"
         ]
+      },
+      "CategoryStat": {
+        "type": "object",
+        "description": "Completed downloads of one category.",
+        "required": [
+          "category",
+          "count",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes.",
+            "minimum": 0
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "ChangePasswordRequest": {
         "type": "object",
@@ -1119,6 +1214,34 @@
           "file_exists",
           "name_reserved"
         ]
+      },
+      "DayStat": {
+        "type": "object",
+        "description": "One day of the activity chart.",
+        "required": [
+          "start",
+          "count",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes downloaded by them.",
+            "minimum": 0
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Downloads that ended that day, whatever way.",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix time of the start of the day (in the client's time zone)."
+          }
+        }
       },
       "DiskSpace": {
         "type": "object",
@@ -1365,6 +1488,25 @@
           }
         }
       },
+      "LargestFile": {
+        "type": "object",
+        "description": "The biggest file that was downloaded.",
+        "required": [
+          "name",
+          "size"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes.",
+            "minimum": 0
+          }
+        }
+      },
       "LockedBody": {
         "type": "object",
         "description": "Too many failed logins.",
@@ -1518,6 +1660,117 @@
             "minimum": 0
           }
         }
+      },
+      "Stats": {
+        "type": "object",
+        "description": "A summary of the downloads of a period.",
+        "required": [
+          "range",
+          "completed",
+          "failed",
+          "cancelled",
+          "in_progress",
+          "bytes",
+          "completed_bytes",
+          "active_seconds",
+          "average_speed",
+          "peak_speed",
+          "categories",
+          "days"
+        ],
+        "properties": {
+          "active_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds spent actually transferring (paused and queued time is not counted).",
+            "minimum": 0
+          },
+          "average_speed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes per second over the time spent transferring; `0` when nothing was timed yet.",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes fetched by the downloads of the period, plus what unfinished ones have fetched so far.",
+            "minimum": 0
+          },
+          "cancelled": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Downloads that were cancelled (or removed while unfinished) in the period.",
+            "minimum": 0
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryStat"
+            },
+            "description": "Completed downloads per category, biggest first."
+          },
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Downloads that finished successfully in the period.",
+            "minimum": 0
+          },
+          "completed_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total size of the completed files, bytes.",
+            "minimum": 0
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayStat"
+            },
+            "description": "The last 14 days, oldest first, empty days included (whatever the period)."
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Downloads that failed in the period.",
+            "minimum": 0
+          },
+          "in_progress": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Downloads that are not finished right now (queued, running, paused). Not tied to the period.",
+            "minimum": 0
+          },
+          "largest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LargestFile"
+              }
+            ]
+          },
+          "peak_speed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The highest speed ever seen, bytes per second (all time, whatever the period).",
+            "minimum": 0
+          },
+          "range": {
+            "$ref": "#/components/schemas/StatsRange"
+          }
+        }
+      },
+      "StatsRange": {
+        "type": "string",
+        "description": "How far back the statistics reach. Days are the user's days (the client sends its UTC offset).",
+        "enum": [
+          "today",
+          "7d",
+          "30d",
+          "all"
+        ]
       },
       "Status": {
         "type": "string",

@@ -2139,3 +2139,162 @@ fn killed_process_resumes_from_saved_offsets() {
     );
     server_rt.shutdown_background();
 }
+
+// ---- statistics -------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_finished_download_is_in_the_statistics_and_stays_there_after_it_is_removed() {
+    use fetchbox_core::StatsRange;
+    let h = Harness::new().await;
+    let before = h.mgr.stats(StatsRange::All, 0).await.expect("stats");
+    assert_eq!(
+        (before.completed, before.bytes, before.average_speed),
+        (0, 0, 0)
+    );
+
+    let d = h
+        .mgr
+        .add(h.req("slow", "stat.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+
+    let s = h.mgr.stats(StatsRange::All, 0).await.expect("stats");
+    assert_eq!(
+        (s.completed, s.failed, s.cancelled, s.in_progress),
+        (1, 0, 0, 0)
+    );
+    assert_eq!(
+        (s.completed_bytes, s.bytes),
+        (BODY_LEN as u64, BODY_LEN as u64)
+    );
+    assert!(
+        s.average_speed > 0,
+        "40 KiB over a second or so of transfer"
+    );
+    assert!(s.average_speed < BODY_LEN as u64 * 4, "{}", s.average_speed);
+    assert_eq!(
+        s.largest.as_ref().map(|l| l.name.as_str()),
+        Some("stat.bin")
+    );
+    assert_eq!(s.days.len(), 14);
+    assert_eq!(s.days.last().map(|d| d.count), Some(1), "it finished today");
+    assert_eq!(s.categories.iter().map(|c| c.count).sum::<u64>(), 1);
+
+    // Gone from the list, not from the numbers.
+    h.mgr.remove(d.id, false).await.expect("remove");
+    assert!(h.mgr.list().await.expect("list").is_empty());
+    let after = h.mgr.stats(StatsRange::All, 0).await.expect("stats");
+    assert_eq!((after.completed, after.bytes), (1, BODY_LEN as u64));
+    // And the periods work: it finished within the last day.
+    assert_eq!(
+        h.mgr
+            .stats(StatsRange::Today, 0)
+            .await
+            .expect("today")
+            .completed
+            + h.mgr
+                .stats(StatsRange::Week, 14 * 60)
+                .await
+                .expect("week")
+                .completed,
+        2
+    );
+}
+
+#[tokio::test]
+async fn time_spent_paused_is_not_time_spent_downloading() {
+    use fetchbox_core::StatsRange;
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("slow", "paused.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Downloading).await;
+    h.mgr.pause(d.id).await.expect("pause");
+    h.wait_status(d.id, Status::Paused).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    h.mgr.resume(d.id).await.expect("resume");
+    h.wait_status(d.id, Status::Completed).await;
+
+    let s = h.mgr.stats(StatsRange::All, 0).await.expect("stats");
+    // The whole thing took more than three seconds; transferring it took about one.
+    assert!(
+        s.active_seconds <= 2,
+        "{} s counted, three of them were a pause",
+        s.active_seconds
+    );
+    assert!(s.average_speed > 0);
+}
+
+#[tokio::test]
+async fn cancelling_and_removing_an_unfinished_download_are_recorded_as_cancelled() {
+    use fetchbox_core::StatsRange;
+    let h = Harness::new().await;
+    let cancelled = h
+        .mgr
+        .add(h.req("claim", "5000000", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(cancelled.id, Status::Downloading).await;
+    h.mgr.cancel(cancelled.id).await.expect("cancel");
+
+    let removed = h
+        .mgr
+        .add(h.req("claim", "6000000", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(removed.id, Status::Downloading).await;
+    h.mgr
+        .remove(removed.id, false)
+        .await
+        .expect("remove while running");
+
+    let s = h.mgr.stats(StatsRange::All, 0).await.expect("stats");
+    assert_eq!((s.completed, s.cancelled, s.in_progress), (0, 2, 0));
+}
+
+#[tokio::test]
+async fn the_stats_endpoint_answers_with_the_summary_and_checks_its_query() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req("fast", "api-stat.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+
+    let (status, v) = send(&c, reqwest::Method::GET, format!("{api}/stats"), None).await;
+    assert_eq!(status, 200);
+    assert_eq!(v["range"], "all");
+    assert_eq!(v["completed"], 1);
+    assert_eq!(v["days"].as_array().map(Vec::len), Some(14));
+
+    let (status, v) = send(
+        &c,
+        reqwest::Method::GET,
+        format!("{api}/stats?range=7d&offset=120"),
+        None,
+    )
+    .await;
+    assert_eq!((status, v["range"].as_str()), (200, Some("7d")));
+    let (status, _) = send(
+        &c,
+        reqwest::Method::GET,
+        format!("{api}/stats?range=yesterday"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 400);
+    // Anything but a signed-in user is turned away like on the other protected routes.
+    let locked = spawn_api_with(
+        &h,
+        fetchbox_api::Auth::with_password("correct-horse".to_owned()),
+    )
+    .await;
+    let (status, _) = send(&c, reqwest::Method::GET, format!("{locked}/stats"), None).await;
+    assert_eq!(status, 401);
+}

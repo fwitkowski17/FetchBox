@@ -28,7 +28,7 @@
     'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left font-medium text-text no-underline transition-colors hover:bg-surface-2 aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:text-accent aria-[current=page]:bg-accent-soft aria-[current=page]:font-semibold aria-[current=page]:text-accent';
   const COUNT = 'ml-auto text-sm font-normal tabular-nums opacity-60';
   const HEADING = 'mb-1 px-3 text-[0.7rem] font-bold tracking-widest text-muted uppercase';
-  const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', settings: 'sliders' };
+  const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', stats: 'chart', settings: 'sliders' };
   const THEME_ICONS: Record<ThemePref, IconName> = {
     system: 'monitor',
     light: 'sun',

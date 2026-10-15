@@ -14,6 +14,10 @@ export type AddRequest = Schemas['AddRequest'];
 export type AppEvent = Schemas['Event'];
 export type AuthStatus = Schemas['AuthStatus'];
 export type DiskSpace = Schemas['DiskSpace'];
+export type Stats = Schemas['Stats'];
+export type StatsRange = Schemas['StatsRange'];
+export type DayStat = Schemas['DayStat'];
+export type CategoryStat = Schemas['CategoryStat'];
 
 export const CATEGORIES: readonly Category[] = [
   'photo',

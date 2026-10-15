@@ -2,7 +2,9 @@
 //! so `api` depends on neither the database nor the engine.
 
 use async_trait::async_trait;
-use fetchbox_core::{AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings};
+use fetchbox_core::{
+    AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings, Stats, StatsRange,
+};
 use tokio::sync::{broadcast, watch};
 
 /// Download manager as seen by the API.
@@ -27,6 +29,9 @@ pub trait Service: Send + Sync + 'static {
     async fn update_settings(&self, settings: Settings) -> Result<Settings>;
     /// Free space where downloads are written.
     async fn disk_space(&self) -> Result<DiskSpace>;
+    /// A summary of the downloads of a period. `offset_minutes` is the caller's distance from UTC
+    /// (east is positive), which decides where a day begins.
+    async fn stats(&self, range: StatsRange, offset_minutes: i32) -> Result<Stats>;
     /// Live updates for SSE.
     fn subscribe(&self) -> broadcast::Receiver<Event>;
     /// Turns `true` when the server is shutting down: long-lived responses (the event stream) must

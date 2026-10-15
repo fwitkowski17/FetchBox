@@ -26,6 +26,7 @@
   import Downloads from './routes/Downloads.svelte';
   import Login from './routes/Login.svelte';
   import Settings from './routes/Settings.svelte';
+  import Stats from './routes/Stats.svelte';
   import Setup from './routes/Setup.svelte';
 
   /** Old links and bookmarks to `#/add` now open the dialog over the list. */
@@ -171,6 +172,8 @@
           <div in:fly={{ y: 8, duration: motion(180) }}>
             {#if $route === 'downloads'}
               <Downloads />
+            {:else if $route === 'stats'}
+              <Stats />
             {:else}
               <Settings />
             {/if}

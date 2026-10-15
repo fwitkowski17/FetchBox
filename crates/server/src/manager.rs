@@ -7,8 +7,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::UNIX_EPOCH;
+use std::time::{Instant, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use fetchbox_api::service::Service;
@@ -18,11 +19,11 @@ use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
-    Id, Job, OnConflict, Result, Settings, SourceKind, Status,
+    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status,
 };
 use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
-use fetchbox_storage::{segments, settings, Connection};
+use fetchbox_storage::{segments, settings, stats, Connection};
 use tokio::sync::{broadcast, mpsc, watch};
 
 /// Capacity of the UI event bus; slow subscribers get a lag error and resync.
@@ -49,6 +50,12 @@ pub struct Manager {
     bus: broadcast::Sender<Event>,
     /// `true` once the server is shutting down (see `Service::closing`).
     closing: watch::Sender<bool>,
+    /// Since when each running download has been transferring, as of its last progress tick. The
+    /// time between ticks is added to the download's `active_ms`, which is what an average speed
+    /// is measured against (queued and paused time is not).
+    active: Mutex<HashMap<Id, Instant>>,
+    /// The highest speed seen so far (bytes/s), also kept in the database.
+    peak_speed: AtomicU64,
 }
 
 impl Manager {
@@ -59,6 +66,7 @@ impl Manager {
         policy: UrlPolicy,
     ) -> anyhow::Result<Arc<Self>> {
         let current = settings::load(&conn)?;
+        let peak_speed = stats::peak_speed(&conn)?;
         let limiter = RateLimiter::with_global(current.speed_global);
         let (engine, rx) = HttpDownloader::new(&dir, limiter, policy)?;
         engine.set_default_speed(current.speed_per_download);
@@ -78,6 +86,8 @@ impl Manager {
             add_lock: tokio::sync::Mutex::new(()),
             bus,
             closing: watch::channel(false).0,
+            active: Mutex::new(HashMap::new()),
+            peak_speed: AtomicU64::new(peak_speed),
         });
 
         tokio::spawn(Arc::clone(&me).run_events(rx));
@@ -100,6 +110,50 @@ impl Manager {
     /// For the shutdown deadline in `main`.
     pub fn closing_receiver(&self) -> watch::Receiver<bool> {
         self.closing.subscribe()
+    }
+
+    // ---- time spent transferring ----------------------------------------------------
+
+    fn elapsed_ms(since: Instant) -> u64 {
+        u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// The download starts transferring now.
+    fn active_start(&self, id: Id) {
+        self.active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, Instant::now());
+    }
+
+    /// Milliseconds since the last tick of a running download (`0` for one that is not running),
+    /// and the clock goes on from now.
+    fn active_lap(&self, id: Id) -> u64 {
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        active.get_mut(&id).map_or(0, |since| {
+            let ms = Self::elapsed_ms(*since);
+            *since = Instant::now();
+            ms
+        })
+    }
+
+    /// Like `active_lap`, but the download stops transferring (paused, finished, failed, cancelled).
+    fn active_stop(&self, id: Id) -> u64 {
+        self.active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id)
+            .map_or(0, Self::elapsed_ms)
+    }
+
+    /// Remember a new record speed.
+    fn note_speed(&self, speed: u64) {
+        if speed > self.peak_speed.fetch_max(speed, Ordering::Relaxed) {
+            let r = self.with_db(|c| stats::set_peak_speed(c, speed));
+            if let Err(e) = r {
+                tracing::warn!(error = %e, "cannot store the peak speed");
+            }
+        }
     }
 
     // ---- small helpers -------------------------------------------------------------
@@ -254,6 +308,7 @@ impl Manager {
                     Ok(())
                 });
                 self.log_err("started", id, r);
+                self.active_start(id);
                 self.publish_download(id);
             }
             E::Progress {
@@ -262,12 +317,15 @@ impl Manager {
                 segments: segs,
             } => {
                 let pairs: Vec<(u32, u64)> = segs.iter().map(|s| (s.idx, s.downloaded)).collect();
+                let ms = self.active_lap(id);
                 let r = self.with_db(|c| {
                     downloads::set_downloaded(c, id, downloaded)?;
+                    stats::add_active_ms(c, id, ms)?;
                     segments::update_offsets(c, id, &pairs)
                 });
                 self.log_err("progress", id, r);
                 let p = self.engine.progress(id);
+                self.note_speed(p.speed);
                 self.publish(Event::Progress {
                     id,
                     downloaded,
@@ -284,8 +342,10 @@ impl Manager {
                     return;
                 }
                 let pairs: Vec<(u32, u64)> = segs.iter().map(|s| (s.idx, s.downloaded)).collect();
+                let ms = self.active_stop(id);
                 let r = self.with_db(|c| {
                     downloads::set_downloaded(c, id, downloaded)?;
+                    stats::add_active_ms(c, id, ms)?;
                     segments::update_offsets(c, id, &pairs)?;
                     downloads::transition(c, id, &ACTIVE, Status::Paused, None)?;
                     Ok(())
@@ -300,7 +360,9 @@ impl Manager {
                     return;
                 }
                 let name = path.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+                let ms = self.active_stop(id);
                 let r = self.with_db(|c| {
+                    stats::add_active_ms(c, id, ms)?;
                     downloads::set_downloaded(c, id, size)?;
                     downloads::set_size(c, id, size)?;
                     if let Some(name) = &name {
@@ -320,7 +382,9 @@ impl Manager {
                 if !self.is_active(id) {
                     return;
                 }
+                let ms = self.active_stop(id);
                 let r = self.with_db(|c| {
+                    stats::add_active_ms(c, id, ms)?;
                     downloads::transition(c, id, &ACTIVE, Status::Failed, Some(&error))
                 });
                 self.log_err("failed", id, r);
@@ -461,8 +525,10 @@ impl Manager {
             Err(e) => return Err(e),
         }
         self.remove_part(d.id, &d.subdir, &d.filename).await;
+        let ms = self.active_stop(d.id);
         self.with_db(|c| {
             segments::replace(c, d.id, &[])?;
+            stats::add_active_ms(c, d.id, ms)?;
             downloads::set_status(c, d.id, Status::Cancelled, None).map(|_| ())
         })?;
         self.publish_download(d.id);
@@ -734,6 +800,15 @@ impl Service for Manager {
         let mut space = vol.space;
         space.reserved = self.reserved_on(vol.dev)?;
         Ok(space)
+    }
+
+    async fn stats(&self, range: StatsRange, offset_minutes: i32) -> Result<Stats> {
+        let now = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+        // Real time zones run from UTC-12 to UTC+14.
+        let offset = i64::from(offset_minutes.clamp(-14 * 60, 14 * 60)) * 60;
+        Ok(self.with_db(|c| stats::summary(c, now, range, offset))?)
     }
 
     async fn settings(&self) -> Result<Settings> {

@@ -275,6 +275,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A summary of the downloads of a period: how many finished, failed or were cancelled, the data
+         *     they fetched, the average and peak speed, the largest file, the categories and the last 14 days.
+         *     The numbers outlive the entries of the list: a download that is removed stays in them.
+         */
+        get: operations["stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -312,6 +333,17 @@ export interface components {
          * @enum {string}
          */
         Category: "photo" | "music" | "video" | "program" | "archive" | "other";
+        /** @description Completed downloads of one category. */
+        CategoryStat: {
+            /**
+             * Format: int64
+             * @description Bytes.
+             */
+            bytes: number;
+            category: components["schemas"]["Category"];
+            /** Format: int64 */
+            count: number;
+        };
         /** @description Password change. */
         ChangePasswordRequest: {
             current_password: string;
@@ -351,6 +383,24 @@ export interface components {
          * @enum {string}
          */
         ConflictKind: "duplicate_url" | "file_exists" | "name_reserved";
+        /** @description One day of the activity chart. */
+        DayStat: {
+            /**
+             * Format: int64
+             * @description Bytes downloaded by them.
+             */
+            bytes: number;
+            /**
+             * Format: int64
+             * @description Downloads that ended that day, whatever way.
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Unix time of the start of the day (in the client's time zone).
+             */
+            start: number;
+        };
         /** @description Free space on the file system that holds the download directory. */
         DiskSpace: {
             /**
@@ -452,6 +502,15 @@ export interface components {
             /** @description Always `"ok"`. */
             status: string;
         };
+        /** @description The biggest file that was downloaded. */
+        LargestFile: {
+            name: string;
+            /**
+             * Format: int64
+             * @description Bytes.
+             */
+            size: number;
+        };
         /** @description Too many failed logins. */
         LockedBody: {
             error: string;
@@ -540,6 +599,65 @@ export interface components {
              */
             reserved: number;
         };
+        /** @description A summary of the downloads of a period. */
+        Stats: {
+            /**
+             * Format: int64
+             * @description Seconds spent actually transferring (paused and queued time is not counted).
+             */
+            active_seconds: number;
+            /**
+             * Format: int64
+             * @description Bytes per second over the time spent transferring; `0` when nothing was timed yet.
+             */
+            average_speed: number;
+            /**
+             * Format: int64
+             * @description Bytes fetched by the downloads of the period, plus what unfinished ones have fetched so far.
+             */
+            bytes: number;
+            /**
+             * Format: int64
+             * @description Downloads that were cancelled (or removed while unfinished) in the period.
+             */
+            cancelled: number;
+            /** @description Completed downloads per category, biggest first. */
+            categories: components["schemas"]["CategoryStat"][];
+            /**
+             * Format: int64
+             * @description Downloads that finished successfully in the period.
+             */
+            completed: number;
+            /**
+             * Format: int64
+             * @description Total size of the completed files, bytes.
+             */
+            completed_bytes: number;
+            /** @description The last 14 days, oldest first, empty days included (whatever the period). */
+            days: components["schemas"]["DayStat"][];
+            /**
+             * Format: int64
+             * @description Downloads that failed in the period.
+             */
+            failed: number;
+            /**
+             * Format: int64
+             * @description Downloads that are not finished right now (queued, running, paused). Not tied to the period.
+             */
+            in_progress: number;
+            largest?: null | components["schemas"]["LargestFile"];
+            /**
+             * Format: int64
+             * @description The highest speed ever seen, bytes per second (all time, whatever the period).
+             */
+            peak_speed: number;
+            range: components["schemas"]["StatsRange"];
+        };
+        /**
+         * @description How far back the statistics reach. Days are the user's days (the client sends its UTC offset).
+         * @enum {string}
+         */
+        StatsRange: "today" | "7d" | "30d" | "all";
         /**
          * @description Lifecycle status of a download.
          * @enum {string}
@@ -1268,6 +1386,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description How far back to look (default: everything). */
+                range: null | components["schemas"]["StatsRange"];
+                /**
+                 * @description The caller's distance from UTC in minutes, east positive (`-new Date().getTimezoneOffset()`
+                 *     in a browser). It decides where a day begins. Default 0 (UTC).
+                 */
+                offset: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stats"];
                 };
             };
             /** @description Not logged in */
