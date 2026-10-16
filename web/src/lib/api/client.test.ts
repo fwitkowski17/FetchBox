@@ -52,6 +52,39 @@ describe('api client', () => {
     expect((err as ApiError).conflict).toEqual(conflict);
   });
 
+  it('exposes the host key problem of an SSH server', async () => {
+    const host_key = {
+      kind: 'untrusted',
+      host: 'nas.lan',
+      port: 22,
+      key_type: 'ssh-ed25519',
+      fingerprint: 'SHA256:abc',
+      trusted_fingerprint: null,
+    };
+    mockFetch(respond(409, { error: 'untrusted_host', host_key }));
+    const err = (await api
+      .probeUrl('sftp://nas.lan/a.iso', { username: 'me', password: 'pw' })
+      .catch((e: unknown) => e)) as ApiError;
+    expect(err.status).toBe(409);
+    expect(err.hostKey).toEqual(host_key);
+    expect(err.conflict).toBeUndefined();
+  });
+
+  it('sends the login with a probe and the key the user accepted', async () => {
+    const fn = mockFetch(respond(200, {}));
+    await api.probeUrl('ftp://nas.lan/', { username: 'me', password: 'pw' });
+    const [, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      url: 'ftp://nas.lan/',
+      credentials: { username: 'me', password: 'pw' },
+    });
+    const trust = { host: 'nas.lan', port: 22, key_type: 'ssh-ed25519', fingerprint: 'SHA256:abc' };
+    await api.trustHost(trust);
+    const [url, trustInit] = fn.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/known-hosts');
+    expect(JSON.parse(String(trustInit.body))).toEqual(trust);
+  });
+
   it('keeps the server message and retry-after of a lockout', async () => {
     mockFetch(respond(429, { error: 'too many attempts', retry_after: 42 }));
     const err = (await api.login('x').catch((e: unknown) => e)) as ApiError;

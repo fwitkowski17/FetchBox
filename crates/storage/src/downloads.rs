@@ -1,6 +1,8 @@
 //! Repository for the `downloads` table.
 
-use fetchbox_core::{Category, ChecksumAlgo, ChecksumState, Download, Id, SourceKind, Status};
+use fetchbox_core::{
+    Category, ChecksumAlgo, ChecksumState, Credentials, Download, Id, SourceKind, Status,
+};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::{Error, Result};
@@ -24,16 +26,18 @@ pub struct NewDownload {
     pub start_now: bool,
     /// Verify the finished file against this digest (lowercase hex).
     pub checksum: Option<(ChecksumAlgo, String)>,
+    /// The login of the source, kept for as long as the download exists.
+    pub credentials: Option<Credentials>,
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space, start_at, start_now, checksum_algo, checksum_expected)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space, start_at, start_now, checksum_algo, checksum_expected, username, password)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             new.url,
             new.filename,
@@ -45,7 +49,9 @@ pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
             new.start_at,
             new.start_now,
             new.checksum.as_ref().map(|(a, _)| a.as_str()),
-            new.checksum.as_ref().map(|(_, v)| v.as_str())
+            new.checksum.as_ref().map(|(_, v)| v.as_str()),
+            new.credentials.as_ref().map(|c| c.username.as_str()),
+            new.credentials.as_ref().map(|c| c.password.as_str())
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -181,6 +187,24 @@ pub fn ignore_space_flag(conn: &Connection, id: Id) -> Result<bool> {
         )
         .optional()?
         .unwrap_or(false))
+}
+
+/// The login of a download, if it has one. Kept apart from [`Download`] so that it can not reach
+/// the API by accident.
+pub fn credentials(conn: &Connection, id: Id) -> Result<Option<Credentials>> {
+    let row: Option<(Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT username, password FROM downloads WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.and_then(|(username, password)| {
+        username.map(|username| Credentials {
+            username,
+            password: password.unwrap_or_default(),
+        })
+    }))
 }
 
 /// Downloads of this URL that still count (not failed/cancelled), oldest first.
@@ -350,6 +374,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let checksum_actual: Option<String> = row.get(18)?;
     let verified = row.get(19)?;
     let verify_failed = row.get(20)?;
+    let username = row.get(21)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -367,6 +392,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             resumable,
             etag,
             error,
+            username,
             subdir,
             speed: 0,
             waiting_space,
@@ -408,7 +434,44 @@ mod tests {
             start_now: false,
             subdir: String::new(),
             checksum: None,
+            credentials: None,
         }
+    }
+
+    #[test]
+    fn a_login_is_stored_apart_from_the_download() {
+        let conn = open_in_memory().expect("db");
+        let mut with_login = new("ftp://nas.lan/pub/a.iso");
+        with_login.source_kind = SourceKind::Ftp;
+        with_login.credentials = Some(Credentials {
+            username: "filip".into(),
+            password: "s3cret".into(),
+        });
+        let id = insert(&conn, &with_login).expect("insert");
+        let d = get(&conn, id).expect("get").expect("exists");
+        assert_eq!(d.source_kind, SourceKind::Ftp);
+        assert_eq!(d.username.as_deref(), Some("filip"));
+        // The password is not part of what is read into the model (and so never serialized).
+        assert!(!format!("{d:?}").contains("s3cret"));
+        let login = credentials(&conn, id).expect("credentials").expect("some");
+        assert_eq!(
+            (login.username.as_str(), login.password.as_str()),
+            ("filip", "s3cret")
+        );
+
+        let plain = insert(&conn, &new("http://x/f.bin")).expect("insert");
+        assert!(credentials(&conn, plain).expect("credentials").is_none());
+        assert_eq!(get(&conn, plain).expect("get").expect("row").username, None);
+
+        // A login without a password is still a login.
+        let mut no_pass = new("ftp://nas.lan/b");
+        no_pass.credentials = Some(Credentials {
+            username: "anonymous".into(),
+            password: String::new(),
+        });
+        let id = insert(&conn, &no_pass).expect("insert");
+        let login = credentials(&conn, id).expect("credentials").expect("some");
+        assert_eq!(login.password, "");
     }
 
     #[test]

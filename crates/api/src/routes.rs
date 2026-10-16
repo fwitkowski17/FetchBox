@@ -10,14 +10,14 @@ use axum::{
     Json, Router,
 };
 use fetchbox_core::{
-    AddRequest, Category, DiskSpace, Download, Error, Id, ProbeRequest, Settings, Stats,
-    StatsRange, UrlInfo, VersionInfo,
+    AddRequest, Category, DiskSpace, Download, Error, Id, KnownHost, ProbeRequest, Settings, Stats,
+    StatsRange, TrustHost, UrlInfo, VersionInfo,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::{self, Auth};
-use crate::error::{ApiError, ConflictBody, ErrorBody, SpaceBody};
+use crate::error::{ApiError, ConflictBody, ErrorBody, HostKeyBody, SpaceBody};
 use crate::openapi;
 use crate::service::Service;
 use crate::sse;
@@ -36,6 +36,8 @@ pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
         .route("/downloads/{id}/keep", post(keep))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/probe", post(probe))
+        .route("/known-hosts", get(known_hosts).post(trust_host))
+        .route("/known-hosts/{id}", axum::routing::delete(forget_host))
         .route("/version", get(version))
         .route("/version/check", post(check_version))
         .route("/disk", get(disk))
@@ -124,8 +126,8 @@ pub(crate) async fn list(State(svc): Svc) -> ApiResult<Json<Vec<Download>>> {
         (status = 201, description = "Download created (queued or started)", body = Download),
         (status = 400, description = "Invalid URL, or overwrite of a name another download is still producing", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 409, description = "Collision; the user must choose", body = ConflictBody),
-        (status = 502, description = "The remote server could not be reached", body = ErrorBody),
+        (status = 409, description = "Collision; the user must choose (`conflict`), or the SSH server of an `sftp://` address is not trusted yet (`untrusted_host`) or shows another key than the accepted one (`host_key_changed`)", body = ConflictBody),
+        (status = 502, description = "The remote server could not be reached, or refused the login", body = ErrorBody),
         (status = 507, description = "The file does not fit into the free disk space that the running downloads have not claimed. Send the request again with `ignore_space` to add it anyway.", body = SpaceBody),
     )
 )]
@@ -139,6 +141,12 @@ pub(crate) async fn add(
 /// Look at a URL without adding it: the file name, size, range support and category the server
 /// and the file name suggest. The same checks as an add apply (private addresses can be refused).
 /// A `POST` so that the address, which may carry a token, stays out of access logs.
+///
+/// `http(s)://`, `ftp://`, `ftps://` and `sftp://` addresses work. An address of a folder (an FTP
+/// or SFTP directory, or an HTTP directory index) answers with its `entries`. A login for the
+/// source goes in `credentials`; one written into the address is used too and never stored in it.
+/// An SFTP server must be trusted first: the answer is `409` with its fingerprint (see
+/// `POST /known-hosts`).
 #[utoipa::path(
     post,
     path = "/api/probe",
@@ -147,16 +155,73 @@ pub(crate) async fn add(
     request_body = ProbeRequest,
     responses(
         (status = 200, body = UrlInfo),
-        (status = 400, description = "Not a usable http(s) URL", body = ErrorBody),
+        (status = 400, description = "Not a usable address (http, https, ftp, ftps or sftp)", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 502, description = "The remote server could not be reached", body = ErrorBody),
+        (status = 409, description = "The SSH server of an `sftp://` address is not trusted yet (`untrusted_host`) or shows another key than the accepted one (`host_key_changed`)", body = HostKeyBody),
+        (status = 502, description = "The remote server could not be reached, or refused the login", body = ErrorBody),
     )
 )]
 pub(crate) async fn probe(
     State(svc): Svc,
     Json(req): Json<ProbeRequest>,
 ) -> ApiResult<Json<UrlInfo>> {
-    Ok(Json(svc.probe(&req.url).await?))
+    Ok(Json(svc.probe(&req.url, req.credentials).await?))
+}
+
+/// The SSH servers whose host key was accepted, oldest first.
+#[utoipa::path(
+    get,
+    path = "/api/known-hosts",
+    tag = "sources",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, body = Vec<KnownHost>),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+    )
+)]
+pub(crate) async fn known_hosts(State(svc): Svc) -> ApiResult<Json<Vec<KnownHost>>> {
+    Ok(Json(svc.known_hosts().await?))
+}
+
+/// Accept the host key of an SSH server: send the `host`, `port`, `key_type` and `fingerprint`
+/// that a refused `sftp://` request showed, after the user compared the fingerprint with the one
+/// of the server. An earlier key of the same host and port is replaced.
+#[utoipa::path(
+    post,
+    path = "/api/known-hosts",
+    tag = "sources",
+    security(("session" = []), ("bearer" = [])),
+    request_body = TrustHost,
+    responses(
+        (status = 201, body = KnownHost),
+        (status = 400, description = "Not a host, a port and a `SHA256:` fingerprint", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+    )
+)]
+pub(crate) async fn trust_host(
+    State(svc): Svc,
+    Json(req): Json<TrustHost>,
+) -> ApiResult<(StatusCode, Json<KnownHost>)> {
+    Ok((StatusCode::CREATED, Json(svc.trust_host(req).await?)))
+}
+
+/// Forget an accepted host key: the server is not trusted any more, and downloads from it stop
+/// until the user accepts its key again.
+#[utoipa::path(
+    delete,
+    path = "/api/known-hosts/{id}",
+    tag = "sources",
+    security(("session" = []), ("bearer" = [])),
+    params(("id" = i64, Path, description = "Id of the known host")),
+    responses(
+        (status = 204, description = "Forgotten"),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "Unknown id", body = ErrorBody),
+    )
+)]
+pub(crate) async fn forget_host(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<StatusCode> {
+    svc.forget_host(id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// The running version and, unless update checks are switched off in the settings, whether a newer

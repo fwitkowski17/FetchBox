@@ -2,6 +2,7 @@
 
 mod assets;
 mod clock;
+mod hostkeys;
 mod logfmt;
 mod manager;
 #[cfg(test)]

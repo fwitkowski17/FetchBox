@@ -1,20 +1,126 @@
-//! Per-segment worker: ranged GET, rate limiting, positional writes.
+//! Per-segment worker: opens the source at an offset, rate limiting, positional writes.
+//!
+//! What the bytes come from (an HTTP response, an FTP data connection, an SFTP file) is a
+//! [`ChunkSource`]; writing them to the `.part` file, counting and limiting is the same for all.
 
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use bytes::Bytes;
 use fetchbox_core::limiter::DownloadLimiter;
-use futures_util::StreamExt;
+use fetchbox_core::Credentials;
 use reqwest::header::RANGE;
 use reqwest::{Client, StatusCode, Url};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::EngineError;
+use crate::hostkeys::HostKeys;
+use crate::policy::UrlPolicy;
+use crate::source::Address;
+use crate::{ftp, sftp};
 
 const MAX_RETRIES: u32 = 3;
+
+/// The bytes of a file, in the order they arrive.
+#[async_trait]
+pub trait ChunkSource: Send {
+    /// The next piece, or `None` at the end.
+    async fn next(&mut self) -> Result<Option<Bytes>, EngineError>;
+    /// The stream is no longer needed. `complete`: everything that was asked for has arrived (the
+    /// connection can be ended politely, and a server's last word on the transfer is read); otherwise
+    /// it is dropped as it is. An error is a transfer that the server says did not complete.
+    async fn close(&mut self, _complete: bool) -> Result<(), EngineError> {
+        Ok(())
+    }
+}
+
+/// Where the bytes of a download come from.
+#[derive(Clone)]
+pub enum Transport {
+    Http {
+        client: Client,
+        url: Url,
+        login: Option<Credentials>,
+    },
+    Ftp {
+        policy: UrlPolicy,
+        target: ftp::Target,
+        address: Address,
+    },
+    Sftp {
+        policy: UrlPolicy,
+        target: sftp::Target,
+        address: Address,
+        keys: Arc<dyn HostKeys>,
+    },
+}
+
+impl Transport {
+    /// Open the file at byte `from`. `to` is the last byte wanted (inclusive), where the protocol
+    /// can say so; the others just send on and the caller stops reading.
+    async fn open(&self, from: u64, to: Option<u64>) -> Result<Box<dyn ChunkSource>, EngineError> {
+        match self {
+            Transport::Http { client, url, login } => {
+                let mut req = client.get(url.clone());
+                if let Some(c) = login {
+                    req = req.basic_auth(&c.username, Some(&c.password));
+                }
+                // With an end it is a ranged request; without, a plain stream from the start.
+                if let Some(to) = to {
+                    req = req.header(RANGE, format!("bytes={from}-{to}"));
+                }
+                let resp = req.send().await?;
+                let status = resp.status();
+                let expected_status = if to.is_some() {
+                    StatusCode::PARTIAL_CONTENT
+                } else {
+                    StatusCode::OK
+                };
+                if status != expected_status {
+                    // A 200 for a ranged request means the server ignored `Range`; writing it at
+                    // an offset would corrupt the file.
+                    return Err(if status.is_success() {
+                        EngineError::Protocol(format!("unexpected status {status}"))
+                    } else {
+                        EngineError::Status(status.as_u16())
+                    });
+                }
+                Ok(Box::new(HttpChunks { resp }))
+            }
+            Transport::Ftp {
+                policy,
+                target,
+                address,
+            } => Ok(Box::new(
+                ftp::open(*policy, target, address, from, to.is_some()).await?,
+            )),
+            Transport::Sftp {
+                policy,
+                target,
+                address,
+                keys,
+            } => Ok(Box::new(
+                sftp::open(*policy, target, address, Arc::clone(keys), from).await?,
+            )),
+        }
+    }
+}
+
+struct HttpChunks {
+    resp: reqwest::Response,
+}
+
+#[async_trait]
+impl ChunkSource for HttpChunks {
+    async fn next(&mut self) -> Result<Option<Bytes>, EngineError> {
+        Ok(self.resp.chunk().await?)
+    }
+}
 
 /// What one worker is responsible for.
 #[derive(Debug, Clone, Copy)]
@@ -34,8 +140,7 @@ pub struct SegmentSpec {
 /// point for the process. Making those bytes survive a power cut is the engine's checkpoint
 /// (`sync`). Retries continue from `done`.
 pub async fn run(
-    client: &Client,
-    url: &Url,
+    transport: &Transport,
     part: &Path,
     spec: SegmentSpec,
     done: &AtomicU64,
@@ -51,8 +156,7 @@ pub async fn run(
                     let from = spec.start + already;
                     let to = spec.start + len - 1;
                     fetch(
-                        client,
-                        url,
+                        transport,
                         part,
                         Some((from, to)),
                         from,
@@ -70,7 +174,7 @@ pub async fn run(
         } else {
             // Cannot resume a plain stream: start over.
             done.store(0, Ordering::Relaxed);
-            fetch(client, url, part, None, 0, spec.len, done, limiter).await
+            fetch(transport, part, None, 0, spec.len, done, limiter).await
         };
 
         match result {
@@ -87,8 +191,7 @@ pub async fn run(
 
 #[allow(clippy::too_many_arguments)]
 async fn fetch(
-    client: &Client,
-    url: &Url,
+    transport: &Transport,
     part: &Path,
     range: Option<(u64, u64)>,
     write_at: u64,
@@ -96,37 +199,30 @@ async fn fetch(
     done: &AtomicU64,
     limiter: &DownloadLimiter,
 ) -> Result<(), EngineError> {
-    let mut req = client.get(url.clone());
-    if let Some((from, to)) = range {
-        req = req.header(RANGE, format!("bytes={from}-{to}"));
-    }
-    let resp = req.send().await?;
-    let status = resp.status();
-    let expected_status = if range.is_some() {
-        StatusCode::PARTIAL_CONTENT
-    } else {
-        StatusCode::OK
-    };
-    if status != expected_status {
-        // A 200 for a ranged request means the server ignored `Range`; writing it at an
-        // offset would corrupt the file.
-        return Err(if status.is_success() {
-            EngineError::Protocol(format!("unexpected status {status}"))
-        } else {
-            EngineError::Status(status.as_u16())
-        });
-    }
+    let mut source = transport.open(write_at, range.map(|(_, to)| to)).await?;
+    let result = pump(&mut *source, part, write_at, expected, done, limiter).await;
+    let closed = source.close(result.is_ok()).await;
+    result.and(closed)
+}
 
+/// Write what `source` sends into the `.part` file from `write_at`, until `expected` bytes have
+/// come or the source ends.
+async fn pump(
+    source: &mut dyn ChunkSource,
+    part: &Path,
+    write_at: u64,
+    expected: Option<u64>,
+    done: &AtomicU64,
+    limiter: &DownloadLimiter,
+) -> Result<(), EngineError> {
     let mut file = OpenOptions::new().write(true).open(part).await?;
     file.seek(SeekFrom::Start(write_at)).await?;
 
-    let mut stream = resp.bytes_stream();
     let mut received = 0u64;
     while expected != Some(received) {
-        let Some(chunk) = stream.next().await else {
+        let Some(mut chunk) = source.next().await? else {
             break;
         };
-        let mut chunk = chunk?;
         if let Some(exp) = expected {
             // Never write past the segment, even if the server sends too much.
             let left = usize::try_from(exp - received).unwrap_or(usize::MAX);

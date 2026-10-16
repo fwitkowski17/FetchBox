@@ -28,5 +28,6 @@ tracing-subscriber.workspace = true
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 
 [dev-dependencies]
+fetchbox-http-engine = { workspace = true, features = ["test-servers"] }
 tempfile = "3"
 futures-util.workspace = true

@@ -95,6 +95,7 @@ mod tests {
                 start_now: false,
                 subdir: String::new(),
                 checksum: None,
+                credentials: None,
             },
         )
         .expect("insert")

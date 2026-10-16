@@ -8,6 +8,9 @@ pub enum Error {
     /// No download with this id.
     #[error("download {0} not found")]
     NotFound(Id),
+    /// Something other than a download is not there (a trusted host, ...).
+    #[error("{0}")]
+    Missing(String),
     /// Operation not allowed in the current status.
     #[error("invalid state: {0}")]
     InvalidState(String),
@@ -27,6 +30,9 @@ pub enum Error {
         /// Bytes of `free` that other unfinished downloads still have to write.
         reserved: u64,
     },
+    /// The host key of an SSH server is not trusted yet, or is not the one that was accepted.
+    #[error("{0}")]
+    HostKey(Box<crate::model::HostKeyProblem>),
     /// Unexpected internal failure (database, ...).
     #[error("internal error: {0}")]
     Internal(String),

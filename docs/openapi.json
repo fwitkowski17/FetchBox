@@ -380,7 +380,7 @@
             }
           },
           "409": {
-            "description": "Collision; the user must choose",
+            "description": "Collision; the user must choose (`conflict`), or the SSH server of an `sftp://` address is not trusted yet (`untrusted_host`) or shows another key than the accepted one (`host_key_changed`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -390,7 +390,7 @@
             }
           },
           "502": {
-            "description": "The remote server could not be reached",
+            "description": "The remote server could not be reached, or refused the login",
             "content": {
               "application/json": {
                 "schema": {
@@ -927,12 +927,166 @@
         }
       }
     },
+    "/api/known-hosts": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "The SSH servers whose host key was accepted, oldest first.",
+        "operationId": "known_hosts",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/KnownHost"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Accept the host key of an SSH server: send the `host`, `port`, `key_type` and `fingerprint`\nthat a refused `sftp://` request showed, after the user compared the fingerprint with the one\nof the server. An earlier key of the same host and port is replaced.",
+        "operationId": "trust_host",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrustHost"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnownHost"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a host, a port and a `SHA256:` fingerprint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/known-hosts/{id}": {
+      "delete": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Forget an accepted host key: the server is not trusted any more, and downloads from it stop\nuntil the user accepts its key again.",
+        "operationId": "forget_host",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the known host",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Forgotten"
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/probe": {
       "post": {
         "tags": [
           "downloads"
         ],
         "summary": "Look at a URL without adding it: the file name, size, range support and category the server\nand the file name suggest. The same checks as an add apply (private addresses can be refused).\nA `POST` so that the address, which may carry a token, stays out of access logs.",
+        "description": "`http(s)://`, `ftp://`, `ftps://` and `sftp://` addresses work. An address of a folder (an FTP\nor SFTP directory, or an HTTP directory index) answers with its `entries`. A login for the\nsource goes in `credentials`; one written into the address is used too and never stored in it.\nAn SFTP server must be trusted first: the answer is `409` with its fingerprint (see\n`POST /known-hosts`).",
         "operationId": "probe",
         "requestBody": {
           "content": {
@@ -956,7 +1110,7 @@
             }
           },
           "400": {
-            "description": "Not a usable http(s) URL",
+            "description": "Not a usable address (http, https, ftp, ftps or sftp)",
             "content": {
               "application/json": {
                 "schema": {
@@ -975,8 +1129,18 @@
               }
             }
           },
+          "409": {
+            "description": "The SSH server of an `sftp://` address is not trusted yet (`untrusted_host`) or shows another key than the accepted one (`host_key_changed`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostKeyBody"
+                }
+              }
+            }
+          },
           "502": {
-            "description": "The remote server could not be reached",
+            "description": "The remote server could not be reached, or refused the login",
             "content": {
               "application/json": {
                 "schema": {
@@ -1272,6 +1436,17 @@
               }
             ]
           },
+          "credentials": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Credentials",
+                "description": "Log in to the source with this user name and password (SPEC 6.12). They win over a login\nwritten into the address (`ftp://user:password@host/file`), which is moved here anyway."
+              }
+            ]
+          },
           "filename": {
             "type": [
               "string",
@@ -1507,6 +1682,22 @@
           "name_reserved"
         ]
       },
+      "Credentials": {
+        "type": "object",
+        "description": "A user name and password for a source that asks for a login (SPEC 6.12). Kept on the server so\nthat a paused or restarted download can go on; the password is never sent back by the API and\nnever written to the log.",
+        "required": [
+          "username"
+        ],
+        "properties": {
+          "password": {
+            "type": "string",
+            "description": "May be empty (a login without a password)."
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "DayStat": {
         "type": "object",
         "description": "One day of the activity chart.",
@@ -1684,6 +1875,13 @@
           "url": {
             "type": "string"
           },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The user name the download logs in with, if it has a login. The password is kept on the\nserver and never shown."
+          },
           "verified": {
             "type": "boolean",
             "description": "The file was checked against `checksum` and matched."
@@ -1834,6 +2032,109 @@
           "time"
         ]
       },
+      "HostKeyBody": {
+        "type": "object",
+        "description": "`409` body of `POST /downloads` and `POST /probe` when the host key of an SSH server (SFTP) is\nnot trusted, or is not the accepted one. For an unknown server the UI shows `host_key` (the\nfingerprint to compare) and, when the user agrees, sends it to `POST /known-hosts` and asks again.",
+        "required": [
+          "error",
+          "host_key"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "`untrusted_host` or `host_key_changed`."
+          },
+          "host_key": {
+            "$ref": "#/components/schemas/HostKeyProblem"
+          }
+        }
+      },
+      "HostKeyProblem": {
+        "type": "object",
+        "description": "A refused connection to an SSH server because of its host key.",
+        "required": [
+          "kind",
+          "host",
+          "port",
+          "key_type",
+          "fingerprint"
+        ],
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "description": "The fingerprint the server just presented."
+          },
+          "host": {
+            "type": "string"
+          },
+          "key_type": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/HostKeyProblemKind"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "trusted_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accepted fingerprint, for `changed`."
+          }
+        }
+      },
+      "HostKeyProblemKind": {
+        "type": "string",
+        "description": "What is wrong with the host key of an SSH server.",
+        "enum": [
+          "untrusted",
+          "changed"
+        ]
+      },
+      "KnownHost": {
+        "type": "object",
+        "description": "An SSH server the user has accepted the host key of (SPEC 6.12). SFTP has no certificate\nauthorities: the key a server presents is only believed when it is the one that was accepted.",
+        "required": [
+          "id",
+          "host",
+          "port",
+          "key_type",
+          "fingerprint",
+          "added_at"
+        ],
+        "properties": {
+          "added_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it was accepted (unix seconds)."
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "`SHA256:` and the unpadded base64 of the key's hash, as `ssh-keygen -l` prints it."
+          },
+          "host": {
+            "type": "string",
+            "description": "Host name or address, lowercase, as written in the download address."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "key_type": {
+            "type": "string",
+            "description": "Kind of the key (`ssh-ed25519`, `ssh-rsa`, ...)."
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "LargestFile": {
         "type": "object",
         "description": "The biggest file that was downloaded.",
@@ -1957,6 +2258,17 @@
           "url"
         ],
         "properties": {
+          "credentials": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Credentials",
+                "description": "The login to look at the address with (see `AddRequest::credentials`)."
+              }
+            ]
+          },
           "url": {
             "type": "string"
           }
@@ -2085,6 +2397,8 @@
         "description": "What kind of source a download comes from.",
         "enum": [
           "http",
+          "ftp",
+          "sftp",
           "magnet",
           "torrent_file"
         ]
@@ -2246,6 +2560,31 @@
           "failed",
           "cancelled"
         ]
+      },
+      "TrustHost": {
+        "type": "object",
+        "description": "Request to accept the host key of an SSH server: send back what a refused add showed.",
+        "required": [
+          "host",
+          "port",
+          "fingerprint"
+        ],
+        "properties": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "key_type": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "UpdateDownload": {
         "type": "object",
@@ -2428,6 +2767,10 @@
     {
       "name": "settings",
       "description": "Global settings, applied live"
+    },
+    {
+      "name": "sources",
+      "description": "Remote servers: the SSH servers that are trusted"
     },
     {
       "name": "events",

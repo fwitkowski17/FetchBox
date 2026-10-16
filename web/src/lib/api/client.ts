@@ -6,10 +6,14 @@ import type {
   Category,
   Conflict,
   DiskSpace,
+  Credentials,
   Download,
+  HostKeyProblem,
+  KnownHost,
   Settings,
   Stats,
   StatsRange,
+  TrustHost,
   UrlInfo,
   VersionInfo,
 } from './types';
@@ -32,6 +36,8 @@ export class ApiError extends Error {
   /** Set on `507` when a file does not fit: what it needs, what is free, and how much of that
    *  other unfinished downloads have reserved. */
   readonly space: SpaceInfo | undefined;
+  /** Set on `409` when the host key of an SSH server (SFTP) is unknown or not the accepted one. */
+  readonly hostKey: HostKeyProblem | undefined;
 
   constructor(
     status: number,
@@ -40,6 +46,7 @@ export class ApiError extends Error {
       conflict?: Conflict;
       retryAfter?: number;
       space?: SpaceInfo;
+      hostKey?: HostKeyProblem;
     } = {},
   ) {
     // `message` is for logs and tests; the UI builds its own text (see `errorText`).
@@ -50,6 +57,7 @@ export class ApiError extends Error {
     this.conflict = extra.conflict;
     this.retryAfter = extra.retryAfter;
     this.space = extra.space;
+    this.hostKey = extra.hostKey;
   }
 }
 
@@ -77,7 +85,9 @@ function parseError(status: number, body: unknown): ApiError {
     typeof body.reserved === 'number'
       ? { needed: body.needed, free: body.free, reserved: body.reserved }
       : undefined;
-  return new ApiError(status, message, { conflict, retryAfter, space });
+  const hostKey =
+    isRecord(body) && isRecord(body.host_key) ? (body.host_key as HostKeyProblem) : undefined;
+  return new ApiError(status, message, { conflict, retryAfter, space, hostKey });
 }
 
 /** The answer the page asked for before the app started, if there is a usable one. */
@@ -137,8 +147,12 @@ export const api = {
 
   listDownloads: () => request<Download[]>('GET', '/downloads'),
   addDownload: (req: AddRequest) => request<Download>('POST', '/downloads', req),
-  probeUrl: (url: string, signal?: AbortSignal) =>
-    request<UrlInfo>('POST', '/probe', { url }, signal),
+  probeUrl: (url: string, credentials?: Credentials, signal?: AbortSignal) =>
+    request<UrlInfo>('POST', '/probe', { url, credentials }, signal),
+  getKnownHosts: () => request<KnownHost[]>('GET', '/known-hosts'),
+  /** Accept the host key of an SSH server, as a refused request showed it. */
+  trustHost: (host: TrustHost) => request<KnownHost>('POST', '/known-hosts', host),
+  forgetHost: (id: number) => request<void>('DELETE', `/known-hosts/${id}`),
   pause: (id: number) => request<Download>('POST', `/downloads/${id}/pause`),
   resume: (id: number) => request<Download>('POST', `/downloads/${id}/resume`),
   cancel: (id: number) => request<Download>('POST', `/downloads/${id}/cancel`),

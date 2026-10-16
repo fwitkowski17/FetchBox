@@ -133,14 +133,31 @@ export function hostOf(url: string): string {
   }
 }
 
-/** Quick client-side check; the server validates for real. */
-export function isHttpUrl(text: string): boolean {
+/** What kind of source an address is (decided by its scheme), or `null` for one that cannot be
+ *  downloaded from. A quick client-side check; the server validates for real. */
+export type SourceKind = 'http' | 'ftp' | 'sftp';
+
+export function sourceOf(text: string): SourceKind | null {
   try {
-    const u = new URL(text.trim());
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    switch (new URL(text.trim()).protocol) {
+      case 'http:':
+      case 'https:':
+        return 'http';
+      case 'ftp:':
+      case 'ftps:':
+        return 'ftp';
+      case 'sftp:':
+        return 'sftp';
+      default:
+        return null;
+    }
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isSourceUrl(text: string): boolean {
+  return sourceOf(text) !== null;
 }
 
 // ---- speed limits in the settings form -------------------------------------------

@@ -125,7 +125,10 @@
     <div class="min-w-0 flex-1">
       <h3 class="truncate font-semibold tracking-tight" title={d.filename}>{d.filename}</h3>
       <p class="flex flex-wrap items-center gap-x-3 text-sm text-muted">
-        <span class="max-w-full truncate">{hostOf(d.url)}</span>
+        <span class="max-w-full truncate" title={d.username ? t('card.login', { user: d.username }) : undefined}>
+          {#if d.source_kind === 'ftp' || d.source_kind === 'sftp'}<span class="font-semibold uppercase">{d.source_kind}</span>{/if}
+          {d.username ? `${d.username}@` : ''}{hostOf(d.url)}
+        </span>
         {#if folder}
           <span class="inline-flex items-center gap-1"><Icon name="folder" size={13} />{folder}</span>
         {/if}

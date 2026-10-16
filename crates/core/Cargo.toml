@@ -17,4 +17,5 @@ async-trait.workspace = true
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
+serde_json.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros", "rt"] }

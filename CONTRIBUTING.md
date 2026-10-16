@@ -47,7 +47,7 @@ cd web && npm run check && npm test && npm run build
 ```text
 crates/
   core/            models, categories, the Downloader trait, scheduler, rate limiter (no HTTP, no SQL, no axum)
-  http_engine/     segmented HTTP download with Range, pause/resume, probing, directory-index parsing
+  http_engine/     the download engine: segmented HTTP with Range, FTP/FTPS and SFTP, pause/resume, probing, folder listings
   torrent_engine/  empty stub for BitTorrent later (librqbit)
   storage/         SQLite repositories and migrations
   api/             axum routes, SSE, authentication, the OpenAPI document
@@ -80,6 +80,10 @@ The API is described by an OpenAPI 3.1 document generated from the Rust code (`u
 ```
 
 A test fails when `docs/openapi.json` is stale, and CI fails when the generated TypeScript is. `fetchbox --print-openapi` prints the document without starting the server.
+
+### Testing FTP and SFTP
+
+The engine's tests run against in-process servers (`crates/http_engine/src/testftp.rs`, `testsftp.rs`); they are behind the `test-servers` feature, which the engine and the server crate switch on for their own tests, so no real server is needed and nothing extra is built into the program. To try a change against real servers, a throwaway `vsftpd` and `sshd` on high ports are enough (`apt install vsftpd openssh-server`; a `vsftpd.conf` with `listen=YES`, `listen_port=2121`, `anonymous_enable=YES`, `anon_root=...` and an `sshd_config` with `Port 2222`, `PasswordAuthentication yes`, `UsePAM no`). A server with a self-signed certificate cannot be used for FTPS (the certificate has to come from a CA that browsers trust); the tests give their own server's certificate to the client instead.
 
 ## Adding a language
 

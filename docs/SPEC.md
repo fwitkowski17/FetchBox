@@ -7,7 +7,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 ## 2. Functional requirements (v1)
 
 - Download list with live progress (status, size, speed, ETA).
-- Add download by URL.
+- Add download by URL: `http(s)://`, `ftp://`, `ftps://` and `sftp://` (6.12), with a login where the source needs one.
 - Mobile-friendly UI (mobile-first, installable PWA).
 - File category: Photo, Music, Video, Program, Archive, Other. Auto-detected from extension / `Content-Type`, manually changeable. Optional per-category subdirectory.
 - Pause and resume (resume must continue from the saved offset, not restart).
@@ -28,12 +28,10 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 ## 3. Future
 
 - BitTorrent: magnet links and `.torrent` files via `librqbit`, behind the same `Downloader` abstraction.
-- More sources behind the same abstraction (the HTTP engine is the only one today; `validate_url` accepts `http` and `https`): FTP and
-  SFTP, WebDAV and S3-compatible storage (S3, R2, MinIO; a pre-signed link is already an HTTPS address). Each needs new `source_kind`
-  values (a table rebuild for the CHECK, as in migration 0010) and its own URL validation.
-- Downloading files that require authorization: user and password, token or custom headers per download (the source's
-  credentials, not FetchBox's own sign-in), stored server side and never returned by the API or written to the log (see 6.10);
-  needed by all of the above and by plain HTTP(S) sources behind a login.
+- More sources behind the same abstraction: WebDAV and S3-compatible storage (S3, R2, MinIO; a pre-signed link is already an HTTPS
+  address). FTP, FTPS and SFTP exist (6.12); still missing there are SFTP with a private key and FTPS with a self-signed certificate.
+- More ways to authorize a download: tokens and custom headers, and changing the login of an existing download (a user name and
+  password already work for HTTP basic authentication, FTP, FTPS and SFTP, see 6.12).
 
 ## 4. Architecture
 
@@ -58,9 +56,9 @@ FetchBox/
 ├── rust-toolchain.toml
 ├── crates/
 │   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,error}.rs
-│   ├── http_engine/src/{lib,segments,worker}.rs
+│   ├── http_engine/src/{lib,segments,worker,source,ftp,sftp,hostkeys,net,listing,probe}.rs   # also FTP(S) and SFTP, see 6.12
 │   ├── torrent_engine/src/lib.rs        # stub, later librqbit
-│   ├── storage/{migrations/,src/{lib,downloads,segments,settings,stats}.rs}
+│   ├── storage/{migrations/,src/{lib,downloads,known_hosts,segments,settings,stats}.rs}
 │   ├── api/src/{lib,routes,sse,auth,openapi}.rs
 │   └── server/src/main.rs
 ├── web/
@@ -94,7 +92,8 @@ pub trait Downloader: Send + Sync {
 }
 ```
 
-DB field `source_kind`: `http` | `magnet` | `torrent_file`.
+DB field `source_kind`: `http` | `ftp` (also `ftps://`) | `sftp` | `magnet` | `torrent_file`. The engine of 6.2 (`HttpDownloader`, the name kept from
+the first version) is the one implementation of the trait for `http`, `ftp` and `sftp`: the scheme of the address picks the transport (6.12).
 
 ### 6.2 HTTP engine
 
@@ -245,8 +244,11 @@ For mobile connections with a night package, or a line that must stay free by da
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, start_at, start_now, active_ms, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, start_at, start_now, active_ms, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, password, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
+- `known_hosts`: id, host, port, key_type, fingerprint, added_at (unique per host and port): the SSH servers the user accepted (6.12).
+  `downloads.password` is read by `storage::downloads::credentials` only and is not a column of the `Download` model, so it cannot reach
+  an API answer by accident.
 - `history`: download_id, added_at, finished_at, outcome (`completed` | `failed` | `cancelled`), name, category, size, bytes,
   active_ms. One row per download that ended, written by a trigger on `downloads.status`, so whichever code path ends a
   download (also a removal while it runs) is recorded, and a retried download replaces its earlier row. It has no foreign
@@ -267,10 +269,18 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
 - `PATCH /api/downloads/:id` (`category`, `archived`, `start_now` (6.3.2) and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
   the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
   checks)
-- `POST /api/probe {url}` (looks at a URL without adding anything and answers `{kind, filename, size?, resumable, category,
+- `POST /api/probe {url, credentials?}` (looks at a URL without adding anything and answers `{kind, filename, size?, resumable, category,
   entries, truncated}`: the same probe an add makes, with the same URL policy and the same errors, `400` for a bad URL and
   `502` when the server cannot be reached; a `POST` so that an address with a token stays out of access logs. `kind` is
-  `file`, or `listing` when the address is a directory index page, see 6.2.1)
+  `file`, or `listing` when the address is a directory index page, see 6.2.1, or an FTP or SFTP folder, see 6.12)
+- `GET /api/known-hosts`, `POST /api/known-hosts {host, port, key_type, fingerprint}` (`201`; accepts the key, replacing an earlier one of the
+  same host and port), `DELETE /api/known-hosts/:id` (`204`, `404`): the trusted SSH servers (6.12). `AddRequest.credentials` and
+  `ProbeRequest.credentials` (`{username, password}`) carry a login; `Download.username` shows which one a download uses, its password is
+  never returned.
+- `409 {"error":"untrusted_host"|"host_key_changed","host_key":{kind,host,port,key_type,fingerprint,trusted_fingerprint}}` from `POST
+  /api/probe` and `POST /api/downloads` when the SSH server of an `sftp://` address is not trusted, or shows another key than the accepted
+  one (6.12). A refused login or a missing file at an FTP or SFTP server is `502` with the server's words, never `401` (that means that
+  FetchBox's own session is missing).
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/disk` (free space of the download disk)
 - `GET /api/stats?range=today|7d|30d|all&offset=<minutes east of UTC>` (a summary of the downloads of a period, in the
@@ -361,6 +371,14 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   trash button, which opens the delete dialog (offering to take the file with it). `verifying` is part of the "Active" tab.
   A download that was kept although the checksum did not match is `completed` and shows a warning icon beside its "Completed"
   badge; the tooltip gives the expected and the real digest.
+- Logins and SSH servers (6.12): the add dialog has the checkbox "This address needs a login" (always on and not removable for `sftp://`)
+  with the user name and password (`autocomplete="new-password"`, so the browser does not offer FetchBox's own password), a line on where the
+  password is kept and, for `http://` and `ftp://`, a warning that it travels unencrypted. An `sftp://` address is looked at only once
+  there is a user name. When the probe or the add answers `409 untrusted_host`, the area under the address shows the fingerprint (and how
+  to read it on the server) with "Trust this server", which posts to `/api/known-hosts` and looks again; `host_key_changed` shows both
+  fingerprints and a button to Settings instead, and "Start" is disabled while either is shown. Settings has the card "Trusted SSH
+  servers" (host, port, key type, fingerprint, date, "Forget" with a confirmation). A card of an FTP or SFTP download shows the protocol
+  and `user@host`.
 - A waiting download (`hold`) shows the badge "Waiting for the hours" or "Scheduled", "Starts 01:00" / "Starts tomorrow 02:30"
   instead of "Waiting for a free slot", and its main button is "Download now"; a pause button sits next to it.
 - Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel
@@ -539,6 +557,9 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   `FETCHBOX_PASSWORD` / `--password-file` is not affected (a warning says so) and an empty `FETCHBOX_PASSWORD` counts as
   not set. A reset needs access to the host or the container, the same access that could read the database anyway; there
   is deliberately no reset from the login screen.
+- Logins of sources (6.12): stored in `downloads.username` / `downloads.password` (plain text: the download needs the password again after a
+  pause or a restart, so a hash would be no use), never part of an API answer, an event or a log line, and shown in `Debug` output as
+  `***`. A login in an address is taken out of it before anything is stored or shown. The database is as private as the data directory.
 - Sanitize filenames, never write outside download dir.
 - Optional blocklist of private IP ranges for URLs (SSRF), `--block-private-urls`, off by default because fetching
   from a NAS in the LAN is normal use. It blocks loopback, RFC 1918, link-local (cloud metadata), CGNAT, multicast,
@@ -629,7 +650,7 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
   size, bytes fetched, average speed and whether the file was deleted too). Refused adds are `warn`.
 - Settings: one line listing only what changed (`connections 4 -> 8; download hours off -> 22:00-06:00 Europe/Warsaw`).
 - Download hours: they opened or closed, how many downloads were released or stopped, and what the end does.
-- Sign-in and sign-out; a newer version found by the update check.
+- Sign-in and sign-out; a newer version found by the update check; an SSH host key accepted or forgotten (host, port, fingerprint).
 - Never logged: passwords, tokens, setup codes, session ids, and the path and query of a URL (only its host, because an address
   may carry a token). Progress ticks and the 15 s hours check log nothing unless something changes.
 
@@ -667,9 +688,60 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
   from the first versions (program in `/opt/fetchbox`) is moved to the package by `update`, carrying the database and settings over.
   The repository does not run a package repository: `apt` and `dnf` do not see new releases by themselves.
 
+### 6.12 FTP, FTPS and SFTP sources
+
+- **Addresses.** `ftp://[user[:password]@]host[:port]/path` (plain FTP, port 21), `ftps://...` (FTP over TLS: explicit, `AUTH TLS` on the
+  given port, or implicit, TLS from the first byte, when the port is 990) and `sftp://...` (port 22). The scheme is all that decides
+  (`SourceKind::for_url`, `fetchbox_http_engine::source::parse`); `ftp` and `ftps` are one `source_kind`. FTP paths follow RFC 1738: relative
+  to where the login starts, `//` for the root. SFTP paths are absolute, and `/~/` starts in the home folder (as curl reads them). A
+  path with a control character (a line break would be a second FTP command) is refused when the address is parsed, as is a login with one.
+- **Logins.** `AddRequest.credentials` / `ProbeRequest.credentials`, or `user:password@` in the address (escapes undone). Whatever is given
+  in the address is taken out of it first (`source::split_login`), so the stored and shown `url` never has a password; an explicit
+  `credentials` wins. FTP without a login is `anonymous`; SFTP has none (an error before connecting). HTTP gets the login as basic
+  authentication on the probe, the listing and every segment (`reqwest` drops it on a redirect to another host). `Job.credentials` is read
+  from the database when a download starts, so resuming and restarting need nothing from the browser.
+- **One engine.** `worker::Transport` (`Http`, `Ftp`, `Sftp`) opens the file at an offset and returns a `ChunkSource`; writing, counting,
+  rate limiting, checkpoints (6.2), events and the segment bookkeeping are the same code for all. FTP and SFTP use a single segment
+  (`segments::plan(size, 1)`): servers often allow few connections per user, and a pipelined SFTP read or one TCP stream fills a line. A file
+  is resumable when its size is known and the server can continue (FTP: `REST`; SFTP: always). `RemoteInfo.etag` is `mtime:<the server's
+  modification time>` (`MDTM`, SFTP `mtime`), so a resume starts over when the file changed. A refused connection and a dropped one are
+  retried like an HTTP error (`EngineError::is_retryable`: FTP `4xx`, network errors); a refused login, a missing file and an unknown host
+  key are not. The download hours, limits and the disk checks of 6.2 and 6.3 apply unchanged.
+- **FTP client** (`ftp.rs`, no dependency): control connection with multi-line replies (bounded), `USER`/`PASS`, `FEAT`, `OPTS UTF8 ON`,
+  `TYPE I`, `SIZE`, `MDTM`, `REST`, `RETR`, `MLSD` (else `LIST` in the Unix or the DOS style), passive mode only: `EPSV`, else `PASV`. The
+  address a server names in a `PASV` reply is ignored: the data connection goes to the address of the control connection, so a server
+  cannot aim this program at another machine (and a server behind NAT that names its inside address still works). Timeouts: 15 s to
+  connect, 30 s for a reply, 30 s of silence on a transfer. The data connection is closed (with the TLS closing handshake) before the final
+  reply is read, which some servers need before they send it.
+- **FTPS.** `AUTH TLS`, `PBSZ 0`, `PROT P`; the data connections are protected too and use the same TLS client config, so they can resume
+  the control connection's session (vsftpd requires that by default). The certificate is verified against the roots of `webpki-roots`
+  (the same as for HTTPS) and the name of the host; a server that does not answer `AUTH TLS` is an error, never a plain connection.
+  Self-signed certificates are not supported yet.
+- **SFTP** (`sftp.rs`, `russh` and `russh-sftp`): the host key is checked in the handler before any authentication, so no password is
+  sent to a server nobody vouched for. `HostKeys::trusted(host, port)` (the engine's trait, implemented by the server over an in-memory copy
+  of `known_hosts`) returns the accepted `SHA256:` fingerprint; none is `HostKeyProblem::Untrusted`, a different one `Changed`, both
+  carrying the fingerprint and key type that were offered, and both reach the user as `409` (6.5). The user accepts a key with
+  `POST /api/known-hosts` after comparing the fingerprint with the server's own; there is no trust on first use. Only password logins
+  exist. Reads are pipelined by the SFTP library (16 requests in flight), seeking is `SeekFrom::Start(offset)`.
+- **Folders.** An address that is a folder (an FTP address ending in `/` or answering `CWD`, an SFTP directory) is listed through
+  `POST /api/probe` as `kind: "listing"`, like a directory index page (6.2.1): folders first, then files, each by name, entries with an
+  unusable name (`/`, `\`, control characters, `.` and `..`) dropped, at most 2000 (`truncated`), each with an absolute address (the login
+  is not in it: the add dialog sends the same login with every chosen file). A folder is not a file: adding it is `400`.
+- **Policy.** `--block-private-urls` applies as for HTTP: an address written as a number is checked up front, a name is resolved by the
+  engine itself (`net::connect`), which drops the blocked addresses and connects to one it resolved, so a name cannot be rebound to a
+  private address afterwards.
+- **Not supported yet.** SFTP private keys and agents, FTPS with a self-signed certificate, active-mode FTP, connecting through a proxy,
+  more than one connection per download, and changing a login after the download was added.
+- **Tests.** The engine's tests run against in-process servers (`testftp`: users, `REST`, listings in three styles, TLS explicit and
+  implicit, cut transfers, refused connections, a lying `PASV`; `testsftp`: `russh` with `russh-sftp`, password logins, a cut transfer),
+  which the `test-servers` feature also gives to the server crate's tests. Interoperability was checked by hand against vsftpd (plain
+  and TLS with `require_ssl_reuse`) and OpenSSH.
+
 ## 7. Dependencies (Rust)
 
-`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `jiff` (time zones for the download hours, with its tz database bundled so no `tzdata` is needed), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix). Later: `librqbit`.
+`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `jiff` (time zones for the download hours, with its tz database bundled so no `tzdata` is needed), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix), `russh` and `russh-sftp` (SFTP; pure Rust with the `ring` backend, about a hundred
+mostly RustCrypto crates, about 4 MB of the binary), `tokio-rustls`, `rustls` and `webpki-roots` (FTPS; already built for `reqwest`) and `bytes`.
+Tests: `rcgen` and `rand` (a throwaway certificate and a host key) behind the engine's `test-servers` feature. Later: `librqbit`.
 
 ## 8. Milestones
 

@@ -5,14 +5,26 @@
 
 pub mod disk;
 pub mod error;
+pub mod ftp;
+pub mod hostkeys;
 pub mod listing;
+mod net;
 pub mod policy;
 pub mod probe;
 pub mod segments;
+pub mod sftp;
+pub mod source;
 pub mod sync;
 pub mod verify;
 pub mod worker;
 
+#[cfg(test)]
+mod remote_tests;
+/// Test servers for FTP and SFTP (see the `test-servers` feature).
+#[cfg(any(test, feature = "test-servers"))]
+pub mod testftp;
+#[cfg(any(test, feature = "test-servers"))]
+pub mod testsftp;
 #[cfg(test)]
 mod testutil;
 
@@ -25,15 +37,17 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use fetchbox_core::filename::sanitize;
 use fetchbox_core::limiter::{DownloadLimiter, RateLimiter};
-use fetchbox_core::{Downloader, Handle, Id, Job, Progress, SegmentState};
+use fetchbox_core::{Credentials, Downloader, Handle, Id, Job, Progress, SegmentState};
 use reqwest::Client;
 use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, JoinSet};
 
 pub use error::EngineError;
+pub use hostkeys::{HostKeys, NoHostKeys};
 pub use policy::UrlPolicy;
 pub use probe::{probe, validate_url, RemoteInfo};
-use worker::SegmentSpec;
+use source::{Address, Inspected, Scheme};
+use worker::{SegmentSpec, Transport};
 
 /// How often progress is reported.
 const TICK: Duration = Duration::from_secs(1);
@@ -72,7 +86,8 @@ pub enum Event {
     Failed { id: Id, error: String },
 }
 
-/// HTTP implementation of [`Downloader`].
+/// The engine: HTTP(S), FTP(S) and SFTP downloads behind one implementation of [`Downloader`], so
+/// the queue, the limits, the checkpoints and the events are the same for all of them.
 #[derive(Clone)]
 pub struct HttpDownloader {
     inner: Arc<Inner>,
@@ -81,6 +96,8 @@ pub struct HttpDownloader {
 struct Inner {
     client: Client,
     policy: UrlPolicy,
+    /// The SSH servers whose host keys are accepted.
+    host_keys: Arc<dyn HostKeys>,
     dir: PathBuf,
     limiter: RateLimiter,
     /// Speed limit of every download without one of its own, bytes/s (`0` = none). Read and
@@ -195,6 +212,17 @@ impl HttpDownloader {
         limiter: RateLimiter,
         policy: UrlPolicy,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Event>), EngineError> {
+        Self::with_host_keys(dir, limiter, policy, Arc::new(NoHostKeys))
+    }
+
+    /// Like [`new`](Self::new), with the list of accepted SSH host keys (SFTP refuses every other
+    /// server).
+    pub fn with_host_keys(
+        dir: impl Into<PathBuf>,
+        limiter: RateLimiter,
+        policy: UrlPolicy,
+        host_keys: Arc<dyn HostKeys>,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<Event>), EngineError> {
         let mut builder = Client::builder()
             .user_agent(concat!("FetchBox/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(15))
@@ -208,6 +236,7 @@ impl HttpDownloader {
         let inner = Inner {
             client,
             policy,
+            host_keys,
             dir: dir.into(),
             limiter,
             default_rate: AtomicU64::new(0),
@@ -227,19 +256,65 @@ impl HttpDownloader {
         &self.inner.limiter
     }
 
-    /// Validate `raw` and inspect the remote file (size, ranges, name) without downloading.
-    pub async fn probe_url(&self, raw: &str) -> Result<RemoteInfo, EngineError> {
-        let url = validate_url(raw)?;
-        self.inner.policy.check(&url)?;
-        probe(&self.inner.client, &url).await
+    /// Validate `raw` and inspect the remote file (size, resume support, name) without downloading.
+    /// A login written into the address is used when `login` is `None`. A folder is not a file:
+    /// it is refused (see [`inspect_url`](Self::inspect_url) to list it).
+    pub async fn probe_url(
+        &self,
+        raw: &str,
+        login: Option<&Credentials>,
+    ) -> Result<RemoteInfo, EngineError> {
+        let (address, login) = prepare(raw, login)?;
+        self.inner.policy.check(&address.url)?;
+        self.inner.probe_file(&address, login).await
     }
 
-    /// Read a directory index page (Apache, nginx, ...) and list what is in it. `None` when the
-    /// address answers with something that is not such a page, so it is a file to download.
-    pub async fn listing_url(&self, raw: &str) -> Result<Option<listing::Listing>, EngineError> {
-        let url = validate_url(raw)?;
-        self.inner.policy.check(&url)?;
-        listing::fetch(&self.inner.client, &url).await
+    /// Look at an address that may be a folder: a file gives its [`RemoteInfo`], a folder (an
+    /// FTP or SFTP directory, or an HTTP directory index page) its listing as well.
+    pub async fn inspect_url(
+        &self,
+        raw: &str,
+        login: Option<&Credentials>,
+    ) -> Result<Inspection, EngineError> {
+        let (address, login) = prepare(raw, login)?;
+        self.inner.policy.check(&address.url)?;
+        match address.scheme {
+            Scheme::Http => {
+                let info = probe(&self.inner.client, &address.url, login.as_ref()).await?;
+                let is_html = info.content_type.as_deref().is_some_and(|c| {
+                    let c = c.to_ascii_lowercase();
+                    c.starts_with("text/html") || c.starts_with("application/xhtml")
+                });
+                // A directory index is offered as a list to choose from. Reading it is an extra
+                // request, and a failure of that one only means "treat it as a file": the add
+                // reports real problems.
+                let listing = if is_html {
+                    listing::fetch(&self.inner.client, &address.url, login.as_ref())
+                        .await
+                        .ok()
+                        .flatten()
+                } else {
+                    None
+                };
+                Ok(Inspection { info, listing })
+            }
+            Scheme::Ftp | Scheme::Ftps | Scheme::Sftp => {
+                match self.inner.inspect_remote(&address, login).await? {
+                    Inspected::File {
+                        size,
+                        modified,
+                        resumable,
+                    } => Ok(Inspection {
+                        info: remote_file_info(&address, size, modified, resumable),
+                        listing: None,
+                    }),
+                    Inspected::Dir(listing) => Ok(Inspection {
+                        info: remote_file_info(&address, None, None, false),
+                        listing: Some(listing),
+                    }),
+                }
+            }
+        }
     }
 
     /// Change the limit of one download live. `own` replaces the default speed (`0` = use the
@@ -311,7 +386,109 @@ impl HttpDownloader {
     }
 }
 
+/// Take a login out of the address and check it: the address to use, and the login (the given one,
+/// else the one written in the address).
+fn prepare(
+    raw: &str,
+    login: Option<&Credentials>,
+) -> Result<(Address, Option<Credentials>), EngineError> {
+    let (clean, login) = source::split_login(raw, login)?;
+    Ok((source::parse(&clean)?, login))
+}
+
+/// What an FTP or SFTP file looks like to the rest of the program.
+fn remote_file_info(
+    address: &Address,
+    size: Option<u64>,
+    modified: Option<String>,
+    resumable: bool,
+) -> RemoteInfo {
+    RemoteInfo {
+        size,
+        resumable: resumable && size.is_some(),
+        // What tells a resume that the file is still the same one.
+        etag: modified.map(|m| format!("mtime:{m}")),
+        filename: probe::filename_from_url(&address.url),
+        content_type: None,
+    }
+}
+
+/// What looking at an address found.
+#[derive(Debug, Clone)]
+pub struct Inspection {
+    /// The file (for a folder: nothing worth using but the name).
+    pub info: RemoteInfo,
+    /// The items of a folder, to choose from; `None` for a file.
+    pub listing: Option<listing::Listing>,
+}
+
 impl Inner {
+    /// How the bytes of an address are fetched.
+    fn transport(&self, address: &Address, login: Option<Credentials>) -> Transport {
+        match address.scheme {
+            Scheme::Http => Transport::Http {
+                client: self.client.clone(),
+                url: address.url.clone(),
+                login,
+            },
+            Scheme::Ftp | Scheme::Ftps => Transport::Ftp {
+                policy: self.policy,
+                target: ftp::Target::new(address, login),
+                address: address.clone(),
+            },
+            Scheme::Sftp => Transport::Sftp {
+                policy: self.policy,
+                target: sftp::Target::new(address, login),
+                address: address.clone(),
+                keys: Arc::clone(&self.host_keys),
+            },
+        }
+    }
+
+    /// Ask an FTP or SFTP server about an address.
+    async fn inspect_remote(
+        &self,
+        address: &Address,
+        login: Option<Credentials>,
+    ) -> Result<Inspected, EngineError> {
+        match address.scheme {
+            Scheme::Ftp | Scheme::Ftps => {
+                ftp::inspect(self.policy, &ftp::Target::new(address, login), address).await
+            }
+            Scheme::Sftp => {
+                sftp::inspect(
+                    self.policy,
+                    Arc::clone(&self.host_keys),
+                    &sftp::Target::new(address, login),
+                    address,
+                )
+                .await
+            }
+            Scheme::Http => Err(EngineError::Protocol("not a remote folder protocol".into())),
+        }
+    }
+
+    /// Look at the one file an address names. A folder is an error.
+    async fn probe_file(
+        &self,
+        address: &Address,
+        login: Option<Credentials>,
+    ) -> Result<RemoteInfo, EngineError> {
+        if address.scheme == Scheme::Http {
+            return probe(&self.client, &address.url, login.as_ref()).await;
+        }
+        match self.inspect_remote(address, login).await? {
+            Inspected::File {
+                size,
+                modified,
+                resumable,
+            } => Ok(remote_file_info(address, size, modified, resumable)),
+            Inspected::Dir(_) => Err(EngineError::InvalidUrl(
+                "this address is a folder, not a file".into(),
+            )),
+        }
+    }
+
     /// Bytes the running downloads on file system `dev` (all but `except`) still have to write;
     /// unknown sizes count 0.
     fn running_remaining(&self, except: Option<Id>, dev: u64) -> u64 {
@@ -428,9 +605,10 @@ async fn download(
     shared: &Arc<Shared>,
     limiter: &DownloadLimiter,
 ) -> Result<(PathBuf, u64), EngineError> {
-    let url = validate_url(&job.url)?;
-    inner.policy.check(&url)?;
-    let info = probe(&inner.client, &url).await?;
+    let (address, login) = prepare(&job.url, job.credentials.as_ref())?;
+    inner.policy.check(&address.url)?;
+    let transport = inner.transport(&address, login.clone());
+    let info = inner.probe_file(&address, login).await?;
     let dir = target_dir(&inner.dir, &job.subdir);
     if !job.subdir.is_empty() {
         tokio::fs::create_dir_all(&dir).await?;
@@ -470,8 +648,15 @@ async fn download(
     let remote = if reuse {
         build_remote(&info, &job.segments)
     } else {
+        // FTP and SFTP use one connection: servers often allow only a few per user, and the
+        // protocols are not slowed by a single one (HTTP servers are, which is what segments are for).
+        let connections = if address.scheme == Scheme::Http {
+            job.connections
+        } else {
+            1
+        };
         let fresh = match (info.resumable, info.size) {
-            (true, Some(size)) => segments::plan(size, job.connections),
+            (true, Some(size)) => segments::plan(size, connections),
             _ => Vec::new(),
         };
         let file = tokio::fs::File::create(&part).await?;
@@ -503,18 +688,13 @@ async fn download(
             len: seg.len,
             ranged: remote.resumable,
         };
-        let (client, url, part, limiter) = (
-            inner.client.clone(),
-            url.clone(),
-            part.clone(),
-            limiter.clone(),
-        );
+        let (transport, part, limiter) = (transport.clone(), part.clone(), limiter.clone());
         let shared = Arc::clone(shared);
         set.spawn(async move {
             let Some(remote) = shared.remote.get() else {
                 return Err(EngineError::Protocol("remote state not set".into()));
             };
-            worker::run(&client, &url, &part, spec, &remote.segs[i].done, &limiter).await
+            worker::run(&transport, &part, spec, &remote.segs[i].done, &limiter).await
         });
     }
 
@@ -605,8 +785,8 @@ fn build_remote(info: &RemoteInfo, planned: &[SegmentState]) -> Remote {
 #[async_trait]
 impl Downloader for HttpDownloader {
     async fn start(&self, job: &Job) -> fetchbox_core::Result<Handle> {
-        let url = validate_url(&job.url)?;
-        self.inner.policy.check(&url)?;
+        let (address, _) = prepare(&job.url, job.credentials.as_ref())?;
+        self.inner.policy.check(&address.url)?;
         let shared = Arc::new(Shared::default());
         // Hold the lock across spawn so the task cannot finish before the entry exists.
         let mut entries = self.inner.entries();
@@ -772,6 +952,7 @@ mod tests {
             overwrite: false,
             ignore_space: false,
             subdir: String::new(),
+            credentials: None,
         }
     }
 
@@ -1155,6 +1336,7 @@ mod tests {
             overwrite: false,
             ignore_space: false,
             subdir: String::new(),
+            credentials: None,
         };
         assert!(matches!(
             dl.start(&j).await,
@@ -1293,7 +1475,7 @@ mod tests {
         // IP literal: refused before any connection is made.
         let literal = server.url("file.bin");
         assert!(matches!(
-            dl.probe_url(&literal).await,
+            dl.probe_url(&literal, None).await,
             Err(EngineError::InvalidUrl(_))
         ));
         assert!(matches!(
@@ -1307,14 +1489,17 @@ mod tests {
 
         // Host name that resolves to loopback: refused where it is resolved.
         let named = literal_to_localhost(&server.url("file.bin"));
-        let err = dl.probe_url(&named).await.expect_err("must be blocked");
+        let err = dl
+            .probe_url(&named, None)
+            .await
+            .expect_err("must be blocked");
         assert!(matches!(err, EngineError::Http(_)), "{err}");
         assert!(err.to_string().contains("blocked"), "{err}");
 
         // Without the policy the very same server is reachable.
         let (open, _rx2) =
             HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
-        assert!(open.probe_url(&server.url("file.bin")).await.is_ok());
+        assert!(open.probe_url(&server.url("file.bin"), None).await.is_ok());
     }
 
     fn literal_to_localhost(url: &str) -> String {

@@ -8,8 +8,9 @@ import {
   formatSpeed,
   fraction,
   hostOf,
-  isHttpUrl,
+  isSourceUrl,
   joinSpeed,
+  sourceOf,
   splitSpeed,
 } from './format';
 
@@ -135,14 +136,23 @@ describe('hostOf', () => {
   });
 });
 
-describe('isHttpUrl', () => {
-  it('accepts only http(s) URLs', () => {
-    expect(isHttpUrl('https://example.com/a.zip')).toBe(true);
-    expect(isHttpUrl('  http://nas/file  ')).toBe(true);
-    expect(isHttpUrl('ftp://example.com/a')).toBe(false);
-    expect(isHttpUrl('file:///etc/passwd')).toBe(false);
-    expect(isHttpUrl('example.com/a.zip')).toBe(false);
-    expect(isHttpUrl('')).toBe(false);
+describe('sourceOf', () => {
+  it('knows the protocols the server can download from', () => {
+    expect(sourceOf('https://example.com/a.zip')).toBe('http');
+    expect(sourceOf('  http://nas/file  ')).toBe('http');
+    expect(sourceOf('ftp://example.com/a')).toBe('ftp');
+    expect(sourceOf('FTPS://example.com/a')).toBe('ftp');
+    expect(sourceOf('sftp://user@nas.lan:2222/srv/a.iso')).toBe('sftp');
+  });
+
+  it('refuses everything else', () => {
+    expect(sourceOf('file:///etc/passwd')).toBeNull();
+    expect(sourceOf('javascript:alert(1)')).toBeNull();
+    expect(sourceOf('magnet:?xt=urn:btih:abc')).toBeNull();
+    expect(sourceOf('example.com/a.zip')).toBeNull();
+    expect(sourceOf('')).toBeNull();
+    expect(isSourceUrl('ftp://nas/a')).toBe(true);
+    expect(isSourceUrl('gopher://nas/a')).toBe(false);
   });
 });
 

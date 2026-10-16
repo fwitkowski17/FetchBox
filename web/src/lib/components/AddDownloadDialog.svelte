@@ -1,11 +1,20 @@
 <script lang="ts">
   import { ApiError, api, type SpaceInfo } from '../api/client';
-  import type { Category, ChecksumAlgo, Conflict, ListingEntry, OnConflict, UrlInfo } from '../api/types';
+  import type {
+    Category,
+    ChecksumAlgo,
+    Conflict,
+    HostKeyProblem,
+    ListingEntry,
+    OnConflict,
+    UrlInfo,
+  } from '../api/types';
   import { CATEGORIES } from '../api/types';
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import ConflictDialog from './ConflictDialog.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
+  import HostKeyPrompt from './HostKeyPrompt.svelte';
   import Icon from './Icon.svelte';
   import ListingPicker from './ListingPicker.svelte';
   import Modal from './Modal.svelte';
@@ -15,7 +24,7 @@
   import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
   import { ALGOS, algoLabel, checkChecksum, detectAlgo } from '../util/checksum';
-  import { isHttpUrl } from '../util/format';
+  import { isSourceUrl, sourceOf } from '../util/format';
   import { emptySummary, tally, type BatchSummary } from '../util/listing';
   import { formatWhen, minutesToTime, nextOccurrence } from '../util/schedule';
 
@@ -45,7 +54,7 @@
     return startAt ? { start_at: Math.floor(startAt.getTime() / 1000) } : {};
   }
 
-  const urlOk = $derived(isHttpUrl(url));
+  const urlOk = $derived(isSourceUrl(url));
   const showUrlHint = $derived(url.trim() !== '' && !urlOk);
 
   /** What the server says about the address, shown under the field. Failing to look is never a
@@ -54,6 +63,10 @@
     | { state: 'idle' }
     | { state: 'checking' }
     | { state: 'ok'; info: UrlInfo }
+    /** An SFTP address needs its login before there is anything to look at. */
+    | { state: 'needLogin' }
+    /** The host key of an SSH server is unknown, or is not the accepted one. */
+    | { state: 'hostkey'; problem: HostKeyProblem }
     | { state: 'failed'; reason: string };
   let probe = $state<Probe>({ state: 'idle' });
   const chosen = new SvelteSet<string>();
@@ -64,6 +77,54 @@
   /** The listing on screen. It stays while the next folder is being looked at, so the list does not
    *  collapse and spring back on every step. */
   let listing = $state<UrlInfo | null>(null);
+
+  // ---- login: FTP, SFTP, HTTP basic authentication (SPEC 6.12) ---------------------------
+  const source = $derived(sourceOf(url));
+  let loginOn = $state(false);
+  let username = $state('');
+  let password = $state('');
+  // SFTP has no anonymous login: its section is simply open.
+  $effect(() => {
+    if (source === 'sftp') untrack(() => (loginOn = true));
+  });
+  const login = $derived(
+    loginOn && username.trim() !== '' ? { username: username.trim(), password } : undefined,
+  );
+  const loginReady = $derived(source !== 'sftp' || login !== undefined);
+  /** FTP and HTTP without TLS send the password as it is: say so. */
+  const plainLogin = $derived(/^\s*(ftp|http):/i.test(url));
+  /** Asking the server again (after the user trusted its host key). */
+  let probeAgain = $state(0);
+  let trusting = $state(false);
+
+  function resetLogin(): void {
+    loginOn = false;
+    username = '';
+    password = '';
+  }
+
+  async function trustHost(problem: HostKeyProblem): Promise<void> {
+    trusting = true;
+    try {
+      await api.trustHost({
+        host: problem.host,
+        port: problem.port,
+        key_type: problem.key_type,
+        fingerprint: problem.fingerprint,
+      });
+      lookAtOnce = true;
+      probeAgain += 1;
+    } catch (e) {
+      toast.error(e instanceof ApiError ? i18n.errorText(e) : t('add.hostkey.failed'));
+    } finally {
+      trusting = false;
+    }
+  }
+
+  function openSettings(): void {
+    addDialog.hide();
+    location.hash = '#/settings';
+  }
 
   // ---- verify the finished file against a checksum (SPEC 6.2.2) ----------------------
   let verifyOn = $state(false);
@@ -101,8 +162,15 @@
 
   $effect(() => {
     const address = url.trim();
-    if (!addDialog.open || !isHttpUrl(address)) {
+    const credentials = login;
+    void probeAgain; // asked again once the host key was trusted
+    if (!addDialog.open || !isSourceUrl(address)) {
       probe = { state: 'idle' };
+      listing = null;
+      return;
+    }
+    if (!loginReady) {
+      probe = { state: 'needLogin' };
       listing = null;
       return;
     }
@@ -112,7 +180,7 @@
     lookAtOnce = false;
     const timer = setTimeout(() => {
       api
-        .probeUrl(address, abort.signal)
+        .probeUrl(address, credentials, abort.signal)
         .then((info) => {
           probe = { state: 'ok', info };
           listing = info.kind === 'listing' ? info : null;
@@ -122,8 +190,12 @@
         })
         .catch((e: unknown) => {
           if (abort.signal.aborted) return;
-          probe = { state: 'failed', reason: i18n.errorText(e) };
           listing = null;
+          if (e instanceof ApiError && e.hostKey) {
+            probe = { state: 'hostkey', problem: e.hostKey };
+            return;
+          }
+          probe = { state: 'failed', reason: i18n.errorText(e) };
         });
     }, delay);
     return () => {
@@ -183,6 +255,7 @@
         await api.addDownload({
           url: file.url,
           category: category === 'auto' ? undefined : category,
+          credentials: login,
           ...startFields(),
         });
         tally(summary, 'added');
@@ -211,6 +284,7 @@
     category = 'auto';
     startNow = false;
     startLater = false;
+    resetLogin();
     addDialog.hide();
     location.hash = '#/';
   }
@@ -225,6 +299,7 @@
         category: category === 'auto' ? undefined : category,
         on_conflict: onConflict,
         ignore_space: ignoreSpace || undefined,
+        credentials: login,
         ...startFields(),
         ...checksumFields(),
       });
@@ -239,10 +314,14 @@
       startLater = false;
       verifyOn = false;
       sumValue = '';
+      resetLogin();
       addDialog.hide();
       location.hash = '#/';
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && e.conflict) {
+      if (e instanceof ApiError && e.status === 409 && e.hostKey) {
+        conflict = null;
+        probe = { state: 'hostkey', problem: e.hostKey }; // shown under the address
+      } else if (e instanceof ApiError && e.status === 409 && e.conflict) {
         conflict = e.conflict; // the dialog lets the user choose, then we send again
       } else if (e instanceof ApiError && e.status === 507 && e.space) {
         conflict = null;
@@ -346,10 +425,67 @@
               <span class="text-muted">{t('add.probe.noResume')}</span>
             {/if}
           </p>
+        {:else if probe.state === 'needLogin'}
+          <p class="text-muted" data-part="need-login">{t('add.login.needed')}</p>
+        {:else if probe.state === 'hostkey'}
+          <HostKeyPrompt
+            problem={probe.problem}
+            busy={trusting}
+            ontrust={() => probe.state === 'hostkey' && trustHost(probe.problem)}
+            onsettings={openSettings}
+          />
         {:else if probe.state === 'failed'}
           <p class="line-clamp-3 text-warning [overflow-wrap:anywhere]">{t('add.probe.failed', { reason: probe.reason })}</p>
         {/if}
       </div>
+    </div>
+
+    <div class="grid gap-2" data-part="login-options">
+      <label class="flex cursor-pointer items-center gap-3">
+        <input
+          type="checkbox"
+          class="size-5 shrink-0 accent-[var(--accent)]"
+          bind:checked={loginOn}
+          disabled={source === 'sftp'}
+          data-part="login"
+        />
+        <span class="font-semibold">{t('add.login')}</span>
+      </label>
+      {#if loginOn}
+        <div class="grid items-start gap-3 pl-8 sm:grid-cols-2">
+          <div class="field">
+            <label for="login-user">{t('add.login.user')}</label>
+            <input
+              id="login-user"
+              class="input"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              bind:value={username}
+              data-part="login-user"
+            />
+          </div>
+          <div class="field">
+            <label for="login-password">{t('add.login.password')}</label>
+            <input
+              id="login-password"
+              class="input"
+              type="password"
+              autocomplete="new-password"
+              bind:value={password}
+              data-part="login-password"
+            />
+          </div>
+          <p class="hint sm:col-span-2" data-part="login-hint">
+            {t(`add.login.hint.${source ?? 'http'}`)} {t('add.login.stored')}
+          </p>
+          {#if plainLogin}
+            <p class="flex items-start gap-2 text-sm text-warning sm:col-span-2" data-part="login-plain">
+              <Icon name="alert" size={16} />{t('add.login.plain')}
+            </p>
+          {/if}
+        </div>
+      {/if}
     </div>
 
     {#if listing}
@@ -503,6 +639,8 @@
       disabled={!urlOk ||
         busy ||
         !sumReady ||
+        !loginReady ||
+        probe.state === 'hostkey' ||
         (startLater && !hoursOn && startAt === null) ||
         (listing !== null && (chosen.size === 0 || probe.state === 'checking'))}
     >
