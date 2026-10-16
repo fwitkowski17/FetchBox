@@ -33,6 +33,7 @@ pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
         .route("/downloads/{id}/pause", post(pause))
         .route("/downloads/{id}/resume", post(resume))
         .route("/downloads/{id}/cancel", post(cancel))
+        .route("/downloads/{id}/keep", post(keep))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/probe", post(probe))
         .route("/version", get(version))
@@ -366,6 +367,25 @@ pub(crate) async fn resume(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<Jso
 )]
 pub(crate) async fn cancel(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<Json<Download>> {
     Ok(Json(svc.cancel(id).await?))
+}
+
+/// Keep the file of a download that is being verified, or that failed its verification, whatever
+/// the checksum says. The download becomes `completed`, without the mark "verified".
+#[utoipa::path(
+    post,
+    path = "/api/downloads/{id}/keep",
+    tag = "downloads",
+    security(("session" = []), ("bearer" = [])),
+    params(("id" = i64, Path, description = "Download id")),
+    responses(
+        (status = 200, body = Download),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "Unknown id", body = ErrorBody),
+        (status = 409, description = "Not being verified and not failed by its verification", body = ErrorBody),
+    )
+)]
+pub(crate) async fn keep(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<Json<Download>> {
+    Ok(Json(svc.keep(id).await?))
 }
 
 /// Current settings.

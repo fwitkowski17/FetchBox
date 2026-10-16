@@ -1,6 +1,6 @@
 //! Repository for the `downloads` table.
 
-use fetchbox_core::{Category, Download, Id, SourceKind, Status};
+use fetchbox_core::{Category, ChecksumAlgo, ChecksumState, Download, Id, SourceKind, Status};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::{Error, Result};
@@ -22,16 +22,18 @@ pub struct NewDownload {
     pub start_at: Option<i64>,
     /// Ignore the global download hours for this download.
     pub start_now: bool,
+    /// Verify the finished file against this digest (lowercase hex).
+    pub checksum: Option<(ChecksumAlgo, String)>,
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space, start_at, start_now)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space, start_at, start_now, checksum_algo, checksum_expected)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             new.url,
             new.filename,
@@ -41,7 +43,9 @@ pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
             new.subdir,
             new.ignore_space,
             new.start_at,
-            new.start_now
+            new.start_now,
+            new.checksum.as_ref().map(|(a, _)| a.as_str()),
+            new.checksum.as_ref().map(|(_, v)| v.as_str())
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -245,6 +249,48 @@ pub fn set_downloaded(conn: &Connection, id: Id, downloaded: u64) -> Result<()> 
     Ok(())
 }
 
+/// What a verification came to. `verified`: the file matched. Otherwise `actual` is the digest
+/// the file really has (`None` when it could not be read) and the download is marked as having
+/// failed its verification. Returns whether the id exists.
+pub fn set_verification(
+    conn: &Connection,
+    id: Id,
+    verified: bool,
+    actual: Option<&str>,
+) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE downloads SET verified = ?2, verify_failed = NOT ?2, checksum_actual = ?3 WHERE id = ?1",
+        params![id, verified, if verified { None } else { actual }],
+    )?;
+    Ok(n > 0)
+}
+
+/// The user keeps the file whatever the verification said: it counts as completed, not verified.
+pub fn clear_verification(conn: &Connection, id: Id) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE downloads SET verified = 0, verify_failed = 0, checksum_actual = NULL WHERE id = ?1",
+        [id],
+    )?;
+    Ok(n > 0)
+}
+
+/// Back to the beginning for a new download of the same entry (after a failed verification): no
+/// bytes, no stored plan, no verdict. The caller removes the segments and the file.
+pub fn reset_for_redownload(conn: &Connection, id: Id) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE downloads
+            SET downloaded = 0, etag = NULL, verified = 0, verify_failed = 0, checksum_actual = NULL
+          WHERE id = ?1",
+        [id],
+    )?;
+    Ok(n > 0)
+}
+
+/// Downloads whose files are being verified (to be started again after a restart).
+pub fn list_verifying(conn: &Connection) -> Result<Vec<Download>> {
+    list_by_status(conn, Status::Verifying)
+}
+
 /// Change the category (manual override).
 pub fn set_category(conn: &Connection, id: Id, category: Category) -> Result<bool> {
     let n = conn.execute(
@@ -299,6 +345,11 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let archived = row.get(13)?;
     let speed_limit: i64 = row.get(14)?;
     let start_at = row.get(15)?;
+    let checksum_algo: Option<String> = row.get(16)?;
+    let checksum_expected: Option<String> = row.get(17)?;
+    let checksum_actual: Option<String> = row.get(18)?;
+    let verified = row.get(19)?;
+    let verify_failed = row.get(20)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -324,6 +375,17 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             start_at,
             hold: None,
             starts_at: None,
+            checksum: match (checksum_algo, checksum_expected) {
+                (Some(algo), Some(expected)) => Some(ChecksumState {
+                    algo: ChecksumAlgo::parse(&algo)
+                        .ok_or_else(|| Error::Corrupt(format!("checksum_algo {algo:?}")))?,
+                    expected,
+                    actual: checksum_actual,
+                }),
+                _ => None,
+            },
+            verified,
+            verify_failed,
         })
     })();
     Ok(mapped)
@@ -345,6 +407,7 @@ mod tests {
             start_at: None,
             start_now: false,
             subdir: String::new(),
+            checksum: None,
         }
     }
 
@@ -404,6 +467,51 @@ mod tests {
         let queued = list_by_status(&conn, Status::Queued).expect("queued");
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].id, b);
+    }
+
+    #[test]
+    fn a_checksum_is_stored_and_the_verdict_recorded() {
+        let conn = open_in_memory().expect("db");
+        let digest = "d41d8cd98f00b204e9800998ecf8427e".to_owned();
+        let mut with = new("http://x/c");
+        with.checksum = Some((ChecksumAlgo::Md5, digest.clone()));
+        let id = insert(&conn, &with).expect("insert");
+        let d = get(&conn, id).expect("get").expect("e");
+        let state = d.checksum.expect("checksum");
+        assert_eq!(
+            (state.algo, state.expected.as_str()),
+            (ChecksumAlgo::Md5, digest.as_str())
+        );
+        assert_eq!(state.actual, None);
+        assert!(!d.verified && !d.verify_failed);
+        assert!(get(&conn, insert(&conn, &new("http://x/n")).expect("n"))
+            .expect("get")
+            .expect("e")
+            .checksum
+            .is_none());
+
+        set_status(&conn, id, Status::Verifying, None).expect("verifying");
+        assert_eq!(list_verifying(&conn).expect("list").len(), 1);
+        assert!(!Status::Verifying.is_terminal());
+        set_verification(&conn, id, false, Some("ffff")).expect("verdict");
+        set_status(&conn, id, Status::Failed, Some("checksum mismatch")).expect("failed");
+        let d = get(&conn, id).expect("get").expect("e");
+        assert!(d.verify_failed && !d.verified);
+        assert_eq!(d.checksum.expect("c").actual.as_deref(), Some("ffff"));
+
+        // Keeping the file: completed, but not verified.
+        clear_verification(&conn, id).expect("clear");
+        set_status(&conn, id, Status::Completed, None).expect("completed");
+        let d = get(&conn, id).expect("get").expect("e");
+        assert!(!d.verified && !d.verify_failed);
+        assert_eq!(d.checksum.expect("c").actual, None);
+
+        set_verification(&conn, id, true, None).expect("ok");
+        assert!(get(&conn, id).expect("get").expect("e").verified);
+        set_downloaded(&conn, id, 5).expect("noop outside downloading");
+        reset_for_redownload(&conn, id).expect("reset");
+        let d = get(&conn, id).expect("get").expect("e");
+        assert!(!d.verified && d.downloaded == 0 && d.etag.is_none());
     }
 
     #[test]

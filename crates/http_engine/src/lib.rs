@@ -10,6 +10,7 @@ pub mod policy;
 pub mod probe;
 pub mod segments;
 pub mod sync;
+pub mod verify;
 pub mod worker;
 
 #[cfg(test)]

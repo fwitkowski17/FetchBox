@@ -12,7 +12,8 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use fetchbox_api::service::Service;
 use fetchbox_core::{
-    AddRequest, Category, ConflictKind, Download, Error, Id, OnConflict, Settings, Status,
+    AddRequest, Category, ChecksumAlgo, ChecksumInput, ConflictKind, Download, Error, Id,
+    OnConflict, Settings, Status,
 };
 use futures_util::{stream, StreamExt};
 
@@ -114,6 +115,18 @@ impl Harness {
             ignore_space: false,
             start_at: None,
             start_now: false,
+            checksum: None,
+        }
+    }
+
+    /// Like `req`, with a checksum to verify the finished file against.
+    fn req_sum(&self, kind: &str, name: &str, algo: ChecksumAlgo, value: &str) -> AddRequest {
+        AddRequest {
+            checksum: Some(ChecksumInput {
+                algo,
+                value: value.to_owned(),
+            }),
+            ..self.req(kind, name, OnConflict::Reject)
         }
     }
 
@@ -183,6 +196,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         ignore_space: false,
         start_at: None,
         start_now: false,
+        checksum: None,
     };
     assert!(matches!(h.mgr.add(bad).await, Err(Error::InvalidInput(_))));
     let dead = AddRequest {
@@ -193,6 +207,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         ignore_space: false,
         start_at: None,
         start_now: false,
+        checksum: None,
     };
     assert!(matches!(h.mgr.add(dead).await, Err(Error::Engine(_))));
 }
@@ -1537,6 +1552,371 @@ async fn apost(
     .await
 }
 
+// ---- checksum verification (SPEC 6.2.2) ---------------------------------------------------
+
+/// Digests of `body()`.
+const SHA256: &str = "dfb4847de067bacf1057c453e3860ac05782032ac193b011b1c2bfee36a8636b";
+const MD5: &str = "39087f27c90778c54568042b3f6f17b3";
+const SHA512: &str = "02ecaa1775aa4a2e3cabc50926ef5d96ef06767075b1f4cfb9f14cfd4ba59976181008b7153265cdffad4885a4293661e400af92e3dec8cccc2c8abde881b20e";
+
+#[tokio::test]
+async fn a_matching_checksum_ends_completed_and_verified() {
+    let h = Harness::new().await;
+    for (algo, digest, name) in [
+        (ChecksumAlgo::Sha256, SHA256, "a.bin"),
+        (ChecksumAlgo::Md5, MD5, "b.bin"),
+        (ChecksumAlgo::Sha512, SHA512, "c.bin"),
+    ] {
+        let d = h
+            .mgr
+            .add(h.req_sum("fast", name, algo, digest))
+            .await
+            .expect("add");
+        let done = h.wait_status(d.id, Status::Completed).await;
+        assert!(done.verified && !done.verify_failed, "{algo:?}");
+        assert_eq!(done.checksum.expect("kept").expected, digest);
+        assert_eq!(file(&h.path(name)), body());
+    }
+    // Without a checksum nothing is claimed.
+    let plain = h
+        .mgr
+        .add(h.req("fast", "plain.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let plain = h.wait_status(plain.id, Status::Completed).await;
+    assert!(!plain.verified && plain.checksum.is_none());
+}
+
+#[tokio::test]
+async fn a_pasted_checksum_is_normalised() {
+    let h = Harness::new().await;
+    let line = format!("SHA256: {}  ubuntu.iso", SHA256.to_ascii_uppercase());
+    let d = h
+        .mgr
+        .add(h.req_sum("fast", "pasted.bin", ChecksumAlgo::Sha256, &line))
+        .await
+        .expect("add");
+    assert_eq!(d.checksum.expect("stored").expected, SHA256);
+    assert!(h.wait_status(d.id, Status::Completed).await.verified);
+}
+
+#[tokio::test]
+async fn a_checksum_that_cannot_be_right_is_refused_before_anything_is_added() {
+    let h = Harness::new().await;
+    for (algo, value) in [
+        (ChecksumAlgo::Sha256, ""),
+        (ChecksumAlgo::Sha256, MD5), // a md5 digest is not a sha256 one
+        (ChecksumAlgo::Md5, "not a checksum at all"),
+    ] {
+        let r = h.mgr.add(h.req_sum("fast", "x.bin", algo, value)).await;
+        assert!(matches!(r, Err(Error::InvalidInput(_))), "{value}: {r:?}");
+    }
+    assert!(h.mgr.list().await.expect("list").is_empty());
+    assert!(!h.path("x.bin").exists());
+}
+
+#[tokio::test]
+async fn a_wrong_checksum_fails_the_download_and_keeps_the_file_for_the_user_to_decide() {
+    let h = Harness::new().await;
+    let wrong = "0".repeat(64);
+    let d = h
+        .mgr
+        .add(h.req_sum("fast", "bad.bin", ChecksumAlgo::Sha256, &wrong))
+        .await
+        .expect("add");
+    let failed = h.wait_status(d.id, Status::Failed).await;
+    assert!(failed.verify_failed && !failed.verified);
+    let sum = failed.checksum.expect("checksum");
+    assert_eq!(sum.expected, wrong);
+    assert_eq!(
+        sum.actual.as_deref(),
+        Some(SHA256),
+        "what the file really has"
+    );
+    let error = failed.error.expect("error");
+    assert!(
+        error.contains("mismatch") && error.contains(SHA256),
+        "{error}"
+    );
+    assert_eq!(file(&h.path("bad.bin")), body(), "the file is still there");
+    let stats = h
+        .mgr
+        .stats(fetchbox_core::StatsRange::All, 0)
+        .await
+        .expect("stats");
+    assert_eq!(
+        (stats.completed, stats.failed),
+        (0, 1),
+        "counted as a failure"
+    );
+}
+
+#[tokio::test]
+async fn keeping_a_file_that_failed_its_verification_completes_it_without_the_mark() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req_sum("fast", "keepme.bin", ChecksumAlgo::Sha256, &"0".repeat(64)))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Failed).await;
+    let kept = h.mgr.keep(d.id).await.expect("keep");
+    assert_eq!(kept.status, Status::Completed);
+    assert!(!kept.verified && !kept.verify_failed && kept.error.is_none());
+    assert_eq!(
+        kept.checksum.expect("c").actual,
+        None,
+        "the verdict is forgotten"
+    );
+    assert_eq!(file(&h.path("keepme.bin")), body());
+    let stats = h
+        .mgr
+        .stats(fetchbox_core::StatsRange::All, 0)
+        .await
+        .expect("stats");
+    assert_eq!(
+        (stats.completed, stats.failed),
+        (1, 0),
+        "now a completed download"
+    );
+    // Only a download that is verifying or failed its verification has something to keep.
+    assert!(matches!(
+        h.mgr.keep(d.id).await,
+        Err(Error::InvalidState(_))
+    ));
+}
+
+#[tokio::test]
+async fn downloading_again_after_a_failed_verification_starts_from_the_beginning() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req_sum("slow", "again.bin", ChecksumAlgo::Sha256, &"0".repeat(64)))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Failed).await;
+    assert!(h.path("again.bin").exists());
+    let again = h.mgr.resume(d.id).await.expect("download again");
+    assert!(!again.verify_failed && again.downloaded == 0, "{again:?}");
+    assert!(
+        !h.path("again.bin").exists(),
+        "the bad file is gone at once"
+    );
+    // It really downloads again (the slow file takes a second) and is verified again.
+    h.wait_status(d.id, Status::Downloading).await;
+    let second = h.wait_status(d.id, Status::Failed).await;
+    assert!(second.verify_failed);
+    assert_eq!(file(&h.path("again.bin")), body());
+}
+
+#[tokio::test]
+async fn a_download_that_failed_its_verification_can_be_deleted_with_its_file() {
+    let h = Harness::new().await;
+    let d = h
+        .mgr
+        .add(h.req_sum("fast", "drop.bin", ChecksumAlgo::Md5, &"f".repeat(32)))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Failed).await;
+    h.mgr
+        .remove(d.id, true)
+        .await
+        .expect("remove with the file");
+    assert!(!h.path("drop.bin").exists());
+    assert!(h.mgr.list().await.expect("list").is_empty());
+
+    // And without the file option the file stays.
+    let e = h
+        .mgr
+        .add(h.req_sum("fast", "stay.bin", ChecksumAlgo::Md5, &"f".repeat(32)))
+        .await
+        .expect("add");
+    h.wait_status(e.id, Status::Failed).await;
+    h.mgr.remove(e.id, false).await.expect("remove");
+    assert!(h.path("stay.bin").exists());
+}
+
+#[tokio::test]
+async fn a_verification_does_not_hold_a_download_slot() {
+    let h = Harness::new().await;
+    let mut s = h.mgr.settings().await.expect("settings");
+    s.max_concurrent = 1;
+    h.mgr.update_settings(s).await.expect("settings");
+    let first = h
+        .mgr
+        .add(h.req_sum("fast", "first.bin", ChecksumAlgo::Sha256, SHA256))
+        .await
+        .expect("add");
+    let second = h
+        .mgr
+        .add(h.req("fast", "second.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(first.id, Status::Completed).await;
+    h.wait_status(second.id, Status::Completed).await;
+}
+
+#[tokio::test]
+async fn a_verification_interrupted_by_a_restart_is_done_again() {
+    let dir = tempfile::tempdir().expect("tmp");
+    let db_path = dir.path().join("fetchbox.db");
+    let downloads_dir = dir.path().join("dl");
+    std::fs::create_dir_all(&downloads_dir).expect("dir");
+    std::fs::write(downloads_dir.join("half.bin"), body()).expect("file");
+    {
+        // What a process that died while verifying left behind.
+        let db = fetchbox_storage::open(&db_path).expect("db");
+        let id = fetchbox_storage::downloads::insert(
+            &db,
+            &fetchbox_storage::downloads::NewDownload {
+                url: "http://example.invalid/half.bin".into(),
+                filename: "half.bin".into(),
+                category: fetchbox_core::Category::Other,
+                source_kind: fetchbox_core::SourceKind::Http,
+                overwrite: false,
+                subdir: String::new(),
+                ignore_space: false,
+                start_at: None,
+                start_now: false,
+                checksum: Some((ChecksumAlgo::Sha256, SHA256.to_owned())),
+            },
+        )
+        .expect("insert");
+        fetchbox_storage::downloads::set_status(&db, id, Status::Verifying, None).expect("status");
+    }
+    let db = fetchbox_storage::open(&db_path).expect("db");
+    let mgr = Manager::start(
+        db,
+        downloads_dir,
+        fetchbox_http_engine::UrlPolicy::default(),
+    )
+    .await
+    .expect("start");
+    for _ in 0..100 {
+        let all = mgr.list().await.expect("list");
+        if all.first().is_some_and(|d| d.status == Status::Completed) {
+            assert!(all[0].verified);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the verification was not resumed");
+}
+
+#[tokio::test]
+async fn a_missing_file_fails_the_verification_with_a_reason() {
+    let dir = tempfile::tempdir().expect("tmp");
+    let db_path = dir.path().join("fetchbox.db");
+    let db = fetchbox_storage::open(&db_path).expect("db");
+    let id = fetchbox_storage::downloads::insert(
+        &db,
+        &fetchbox_storage::downloads::NewDownload {
+            url: "http://example.invalid/gone.bin".into(),
+            filename: "gone.bin".into(),
+            category: fetchbox_core::Category::Other,
+            source_kind: fetchbox_core::SourceKind::Http,
+            overwrite: false,
+            subdir: String::new(),
+            ignore_space: false,
+            start_at: None,
+            start_now: false,
+            checksum: Some((ChecksumAlgo::Md5, MD5.to_owned())),
+        },
+    )
+    .expect("insert");
+    fetchbox_storage::downloads::set_status(&db, id, Status::Verifying, None).expect("status");
+    let mgr = Manager::start(
+        db,
+        dir.path().to_owned(),
+        fetchbox_http_engine::UrlPolicy::default(),
+    )
+    .await
+    .expect("start");
+    for _ in 0..100 {
+        let d = mgr.list().await.expect("list").remove(0);
+        if d.status == Status::Failed {
+            assert!(d.verify_failed && d.checksum.expect("c").actual.is_none());
+            assert!(d.error.expect("e").contains("cannot verify"));
+            // "Keep" works for it too, and "download again" starts over.
+            let kept = mgr.keep(id).await.expect("keep");
+            assert_eq!(kept.status, Status::Completed);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the verification did not fail");
+}
+
+#[tokio::test]
+async fn keep_over_http() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let body = format!(
+        r#"{{"url":"{}","checksum":{{"algo":"sha256","value":"{}"}}}}"#,
+        h.url("fast", "http.bin"),
+        "1".repeat(64)
+    );
+    let (status, added) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/downloads"),
+        Some(&body),
+    )
+    .await;
+    assert_eq!(status, 201, "{added}");
+    assert_eq!(added["checksum"]["algo"], "sha256");
+    let id = added["id"].as_i64().expect("id");
+    h.wait_status(id, Status::Failed).await;
+
+    let (_, listed) = send(&c, reqwest::Method::GET, format!("{api}/downloads"), None).await;
+    assert_eq!(listed[0]["verify_failed"], true);
+    assert_eq!(listed[0]["checksum"]["actual"], SHA256);
+
+    let (status, kept) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/downloads/{id}/keep"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        (kept["status"].as_str(), kept["verified"].as_bool()),
+        (Some("completed"), Some(false))
+    );
+    let (status, _) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/downloads/{id}/keep"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 409);
+    let (status, _) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/downloads/999/keep"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 404);
+
+    // A bad checksum is a 400 and adds nothing.
+    let bad = format!(
+        r#"{{"url":"{}","checksum":{{"algo":"md5","value":"xyz"}}}}"#,
+        h.url("fast", "other.bin")
+    );
+    let (status, _) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/downloads"),
+        Some(&bad),
+    )
+    .await;
+    assert_eq!(status, 400);
+}
+
 #[tokio::test]
 async fn delete_over_http_takes_the_file_only_when_asked() {
     let h = Harness::new().await;
@@ -2071,6 +2451,7 @@ fn killed_process_resumes_from_saved_offsets() {
             ignore_space: false,
             start_at: None,
             start_now: false,
+            checksum: None,
         };
         let id = mgr.add(req).await.expect("add").id;
         let probe = fetchbox_storage::open(&db_path).expect("second connection");

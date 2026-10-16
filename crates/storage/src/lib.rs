@@ -39,6 +39,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007_speed_limit.sql"),
     include_str!("../migrations/0008_stats.sql"),
     include_str!("../migrations/0009_schedule.sql"),
+    include_str!("../migrations/0010_checksum.sql"),
 ];
 
 /// Open (creating if needed) the database at `path` and run pending migrations.
@@ -60,12 +61,32 @@ pub fn open_in_memory() -> Result<Connection> {
 
 fn migrate(conn: &mut Connection) -> Result<()> {
     let current: usize = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    for (i, sql) in MIGRATIONS.iter().enumerate().skip(current) {
-        let tx = conn.transaction()?;
-        tx.execute_batch(sql)?;
-        tx.pragma_update(None, "user_version", i + 1)?;
-        tx.commit()?;
-        tracing::info!(version = i + 1, "applied migration");
+    if current >= MIGRATIONS.len() {
+        return Ok(());
+    }
+    // A migration may rebuild a table (SQLite cannot alter a CHECK): that needs foreign keys off,
+    // which cannot be changed inside a transaction. They are checked afterwards.
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
+    let applied = (|| -> Result<()> {
+        for (i, sql) in MIGRATIONS.iter().enumerate().skip(current) {
+            let tx = conn.transaction()?;
+            tx.execute_batch(sql)?;
+            tx.pragma_update(None, "user_version", i + 1)?;
+            tx.commit()?;
+            tracing::info!(version = i + 1, "applied migration");
+        }
+        Ok(())
+    })();
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    applied?;
+    let broken: usize = conn
+        .prepare("PRAGMA foreign_key_check")?
+        .query_map([], |_| Ok(()))?
+        .count();
+    if broken > 0 {
+        return Err(Error::Corrupt(format!(
+            "{broken} rows break a foreign key after the migrations"
+        )));
     }
     Ok(())
 }
@@ -89,6 +110,106 @@ mod tests {
         for t in ["downloads", "segments", "settings"] {
             assert!(table_exists(&conn, t), "missing table {t}");
         }
+    }
+
+    /// The database as it was before the checksum migration, with a row to carry over.
+    fn database_at_version_9() -> Connection {
+        let mut conn = Connection::open_in_memory().expect("open");
+        conn.pragma_update(None, "foreign_keys", "ON").expect("fk");
+        for (i, sql) in MIGRATIONS.iter().enumerate().take(9) {
+            let tx = conn.transaction().expect("tx");
+            tx.execute_batch(sql).expect("migration");
+            tx.pragma_update(None, "user_version", i + 1).expect("v");
+            tx.commit().expect("commit");
+        }
+        conn
+    }
+
+    #[test]
+    fn the_checksum_migration_keeps_rows_segments_history_and_the_id_counter() {
+        let mut conn = database_at_version_9();
+        for name in ["a", "b", "c"] {
+            conn.execute(
+                "INSERT INTO downloads (url, filename, category, status, size, downloaded, subdir, archived, speed_limit)
+                 VALUES (?1, ?1, 'video', 'queued', 100, 10, 'video', 1, 500)",
+                [name],
+            )
+            .expect("insert");
+        }
+        conn.execute("INSERT INTO segments VALUES (1, 0, 0, 99, 10)", [])
+            .expect("segment");
+        conn.execute(
+            "UPDATE downloads SET status = 'completed', finished_at = 1000 WHERE id = 2",
+            [],
+        )
+        .expect("completed");
+        // The highest id is deleted: the counter must stay above it.
+        conn.execute("DELETE FROM downloads WHERE id = 3", [])
+            .expect("delete");
+
+        migrate(&mut conn).expect("migrate");
+
+        let (name, size, subdir, archived, limit): (String, i64, String, bool, i64) = conn
+            .query_row(
+                "SELECT filename, size, subdir, archived, speed_limit FROM downloads WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .expect("row");
+        assert_eq!(
+            (name.as_str(), size, subdir.as_str(), archived, limit),
+            ("a", 100, "video", true, 500)
+        );
+        let segments: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM segments WHERE download_id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .expect("segments");
+        assert_eq!(segments, 1, "segments survive the rebuild");
+        let history: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM history WHERE download_id = 2",
+                [],
+                |r| r.get(0),
+            )
+            .expect("history");
+        assert_eq!(history, 1);
+        // Never reused: the next id is 4, not 3.
+        conn.execute(
+            "INSERT INTO downloads (url, filename) VALUES ('u', 'f')",
+            [],
+        )
+        .expect("insert");
+        assert_eq!(conn.last_insert_rowid(), 4);
+        // The new status is allowed, a made-up one is not, and the history trigger still works.
+        conn.execute("UPDATE downloads SET status = 'verifying' WHERE id = 4", [])
+            .expect("verifying");
+        assert!(conn
+            .execute("UPDATE downloads SET status = 'bogus' WHERE id = 4", [])
+            .is_err());
+        conn.execute("UPDATE downloads SET status = 'failed' WHERE id = 4", [])
+            .expect("failed");
+        let outcome: String = conn
+            .query_row(
+                "SELECT outcome FROM history WHERE download_id = 4",
+                [],
+                |r| r.get(0),
+            )
+            .expect("trigger");
+        assert_eq!(outcome, "failed");
+        // Deleting a download still removes its segments (the foreign key survived).
+        conn.execute("DELETE FROM downloads WHERE id = 1", [])
+            .expect("delete");
+        let left: i64 = conn
+            .query_row("SELECT COUNT(*) FROM segments", [], |r| r.get(0))
+            .expect("count");
+        assert_eq!(left, 0);
+        let fk_on: bool = conn
+            .pragma_query_value(None, "foreign_keys", |r| r.get(0))
+            .expect("pragma");
+        assert!(fk_on, "foreign keys are back on after the migrations");
     }
 
     #[test]

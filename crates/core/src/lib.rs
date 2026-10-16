@@ -2,6 +2,7 @@
 //! scheduler and rate limiter. No HTTP, no SQL, no axum.
 
 pub mod category;
+pub mod checksum;
 pub mod error;
 pub mod filename;
 pub mod limiter;
@@ -12,6 +13,7 @@ pub mod stats;
 
 use async_trait::async_trait;
 
+pub use checksum::{ChecksumAlgo, ChecksumInput, ChecksumState};
 pub use error::{Error, Result};
 pub use model::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, Handle, Hold, Id,

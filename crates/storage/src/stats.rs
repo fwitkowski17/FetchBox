@@ -116,7 +116,7 @@ pub fn summary(conn: &Connection, now: i64, range: StatsRange, offset: i64) -> R
     let (in_progress, live_bytes, live_ms, live_timed): (i64, i64, i64, i64) = conn.query_row(
         "SELECT COUNT(*), COALESCE(SUM(downloaded), 0), COALESCE(SUM(active_ms), 0),
                 COALESCE(SUM(CASE WHEN active_ms > 0 THEN downloaded END), 0)
-           FROM downloads WHERE status IN ('queued','downloading','paused')",
+           FROM downloads WHERE status IN ('queued','downloading','paused','verifying')",
         [],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )?;
@@ -243,6 +243,7 @@ mod tests {
                 ignore_space: false,
                 start_at: None,
                 start_now: false,
+                checksum: None,
             },
         )
         .expect("insert")

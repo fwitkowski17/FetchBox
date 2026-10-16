@@ -180,6 +180,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/downloads/{id}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep the file of a download that is being verified, or that failed its verification, whatever
+         *     the checksum says. The download becomes `completed`, without the mark "verified".
+         */
+        post: operations["keep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/downloads/{id}/pause": {
         parameters: {
             query?: never;
@@ -361,6 +381,7 @@ export interface components {
         /** @description Request to add a download by URL. */
         AddRequest: {
             category?: null | components["schemas"]["Category"];
+            checksum?: null | components["schemas"]["ChecksumInput"];
             /** @description Override the file name suggested by the server. */
             filename?: string | null;
             /**
@@ -415,6 +436,28 @@ export interface components {
             current_password: string;
             /** @description At least 8 characters. */
             new_password: string;
+        };
+        /**
+         * @description A hash algorithm offered for verification. The common ones that sites publish.
+         * @enum {string}
+         */
+        ChecksumAlgo: "md5" | "sha1" | "sha256" | "sha512";
+        /** @description What the user entered when adding a download: the algorithm and the text they pasted. */
+        ChecksumInput: {
+            algo: components["schemas"]["ChecksumAlgo"];
+            /**
+             * @description The checksum as pasted: `d41d8cd9...`, `SHA256: d41d...`, or a line of a checksum file
+             *     (`d41d...  name.iso`). Normalised by the server.
+             */
+            value: string;
+        };
+        /** @description A checksum a download is verified against, and what came out of the verification. */
+        ChecksumState: {
+            /** @description The digest of the downloaded file when it did not match. */
+            actual?: string | null;
+            algo: components["schemas"]["ChecksumAlgo"];
+            /** @description The expected digest: lowercase hexadecimal. */
+            expected: string;
         };
         /** @description Description of a collision, shown to the user so they can choose. */
         Conflict: {
@@ -497,6 +540,7 @@ export interface components {
              */
             archived?: boolean;
             category: components["schemas"]["Category"];
+            checksum?: null | components["schemas"]["ChecksumState"];
             /** Format: int64 */
             downloaded: number;
             error?: string | null;
@@ -539,6 +583,13 @@ export interface components {
             /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
             subdir?: string;
             url: string;
+            /** @description The file was checked against `checksum` and matched. */
+            verified?: boolean;
+            /**
+             * @description The verification did not succeed: the file does not match, or it could not be read.
+             *     Status `failed`; the user can download again, keep the file anyway or delete it.
+             */
+            verify_failed?: boolean;
             /**
              * @description Held back because the file does not fit on the disk: it was added on purpose but not
              *     started (status `paused`). Free some space and resume it.
@@ -813,7 +864,7 @@ export interface components {
          * @description Lifecycle status of a download.
          * @enum {string}
          */
-        Status: "queued" | "downloading" | "paused" | "completed" | "failed" | "cancelled";
+        Status: "queued" | "downloading" | "paused" | "verifying" | "completed" | "failed" | "cancelled";
         /** @description Body of `PATCH /downloads/{id}`. */
         UpdateDownload: {
             /**
@@ -1379,6 +1430,55 @@ export interface operations {
                 };
             };
             /** @description Already finished */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    keep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Download id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Download"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not being verified and not failed by its verification */
             409: {
                 headers: {
                     [name: string]: unknown;
