@@ -100,6 +100,38 @@ export function countCategories(
   return out;
 }
 
+// ---- what the main button of a download does ----------------------------------------
+
+/** The one action that matters for a download's status (the card's big button, the row's first icon). */
+export type PrimaryKind = 'startNow' | 'pause' | 'skipVerify' | 'resume' | 'retry' | 'downloadAgain';
+
+/** Queued on purpose (download hours, or a start time): it starts by itself, or now on request. */
+export function isHeld(d: Download): boolean {
+  return d.status === 'queued' && d.hold != null;
+}
+
+/** The checksum did not match (or the file could not be read): the user decides what to do. */
+export function isVerifyFailed(d: Download): boolean {
+  return d.status === 'failed' && d.verify_failed === true;
+}
+
+export function primaryAction(d: Download): PrimaryKind | null {
+  switch (d.status) {
+    case 'queued':
+      return isHeld(d) ? 'startNow' : 'pause';
+    case 'downloading':
+      return 'pause';
+    case 'verifying':
+      return 'skipVerify';
+    case 'paused':
+      return 'resume';
+    case 'failed':
+      return isVerifyFailed(d) ? 'downloadAgain' : 'retry';
+    default:
+      return null;
+  }
+}
+
 /** Current speed in bytes/s; the schema marks it optional (only running downloads have one). */
 export function speedOf(d: Download): number {
   return d.speed ?? 0;
@@ -187,6 +219,11 @@ export function sortDownloads(
 export function defaultDir(key: SortKey): SortDir {
   return key === 'name' || key === 'status' ? 'asc' : 'desc';
 }
+
+// ---- how the list is drawn ----------------------------------------------------------
+
+export type ViewMode = 'cards' | 'table';
+export const VIEW_MODES: readonly ViewMode[] = ['cards', 'table'];
 
 // ---- live updates ------------------------------------------------------------------
 

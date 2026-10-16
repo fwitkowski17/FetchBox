@@ -16,7 +16,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 - 🗂️ **Categories** (Photo, Music, Video, Program, Archive, Other), detected from the name or the server, changeable, with optional folders per category.
 - 💾 **Disk aware**: a ring shows the free space, a download that does not fit is refused or held until there is room.
 - 📊 **Statistics**: totals, success rate, data downloaded, average and peak speed, per category and for the last 14 days. They survive removing entries from the list.
-- 🔎 **Lists**: sort, filter, search, select several downloads, archive finished ones.
+- 🔎 **Lists**: sort, filter, search, select several downloads, archive finished ones. Show them as cards or as a compact table (the choice is remembered), where a click on a column header sorts by it.
 - 📱 **Phone friendly**: installable web app, light / dark / black (for OLED) themes and eight accent colours, [English and Polish](#-languages).
 - 🔒 **Safe by default**: password protected (set in the browser on first run), optional blocking of private addresses, file names are sanitised and nothing is written outside the download folder. An SSH server is only used after you have compared its fingerprint and trusted it.
 - 🔔 **Update notice**: tells you when a new release is out and what changed, with the steps to update. It can be switched off.

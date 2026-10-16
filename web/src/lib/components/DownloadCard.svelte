@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { Download } from '../api/types';
   import { i18n, t } from '../i18n';
-  import { confirmAction } from '../stores/confirm.svelte';
   import { deleteDialog } from '../stores/deleteDialog.svelte';
   import { downloads } from '../stores/downloads.svelte';
+  import { confirmCancel, primaryUi, runPrimary } from '../stores/downloadActions';
   import { selection } from '../stores/selection.svelte';
   import { algoLabel } from '../util/checksum';
-  import { speedOf } from '../util/downloads';
+  import { isHeld, isVerifyFailed, primaryAction, speedOf } from '../util/downloads';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
   import { formatWhen } from '../util/schedule';
   import CardMenu from './CardMenu.svelte';
@@ -32,13 +32,13 @@
   const unfinished = $derived(d.status === 'queued' || d.status === 'downloading' || d.status === 'paused');
   const folder = $derived(d.subdir ? `${d.subdir}/` : '');
   /** Queued on purpose (download hours, or a start time): it starts by itself, or now on request. */
-  const held = $derived(d.status === 'queued' && d.hold != null);
+  const held = $derived(isHeld(d));
   /** The file is complete and its checksum is being computed. */
   const verifying = $derived(d.status === 'verifying');
   /** Completed, and the file matched its checksum. */
   const verified = $derived(d.status === 'completed' && d.verified === true && d.checksum != null);
   /** The checksum did not match (or the file could not be read): the user decides what to do. */
-  const verifyFailed = $derived(d.status === 'failed' && d.verify_failed === true);
+  const verifyFailed = $derived(isVerifyFailed(d));
   const sumLabel = $derived(d.checksum ? algoLabel(d.checksum.algo) : '');
   /** Kept by the user although the checksum did not match: completed, with a warning beside it. */
   const keptMismatch = $derived(d.status === 'completed' && d.verify_failed === true);
@@ -50,27 +50,8 @@
 
   /** The one big button that matters for this status. */
   const primary = $derived.by(() => {
-    switch (d.status) {
-      case 'queued':
-        if (held) {
-          return { label: t('card.startNow'), icon: 'down', run: () => downloads.startNow(d.id) } as const;
-        }
-        return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
-      case 'downloading':
-        return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
-      case 'verifying':
-        return { label: t('card.skipVerify'), icon: 'x', run: () => downloads.keep(d.id) } as const;
-      case 'paused':
-        return { label: t('card.resume'), icon: 'play', run: () => downloads.resume(d.id) } as const;
-      case 'failed':
-        return {
-          label: verifyFailed ? t('card.downloadAgain') : t('card.retry'),
-          icon: 'retry',
-          run: () => downloads.resume(d.id),
-        } as const;
-      default:
-        return null;
-    }
+    const kind = primaryAction(d);
+    return kind ? { ...primaryUi(kind), run: () => runPrimary(kind, d.id) } : null;
   });
 
   async function act(run: () => Promise<boolean>): Promise<void> {
@@ -83,13 +64,7 @@
   }
 
   async function cancel(): Promise<void> {
-    const ok = await confirmAction({
-      title: t('confirm.cancel.title'),
-      message: t('confirm.cancel.message', { name: d.filename }),
-      confirmLabel: t('confirm.cancel.yes'),
-      danger: true,
-    });
-    if (ok) await act(() => downloads.cancel(d.id));
+    if (await confirmCancel(d)) await act(() => downloads.cancel(d.id));
   }
 
   const remove = () => act(() => downloads.remove(d.id));
