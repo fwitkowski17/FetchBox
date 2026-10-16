@@ -19,7 +19,8 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 - 🔔 **Update notice**: tells you when a new release is out and what changed, with the steps to update. It can be switched off.
 - 🪶 **Light**: one Rust binary of about 10 MB, around 64 MB of RAM when idle, no database server and no Node.js at runtime.
 
-Status: usable, version 0.x. What comes next is in the [roadmap](#-roadmap).
+> [!NOTE]
+> Status: usable, version 0.x. What comes next is in the [roadmap](#-roadmap).
 
 ## 📋 Requirements
 
@@ -43,14 +44,18 @@ A few notes behind those numbers:
 
 ### 💽 Disk speed and memory cards
 
-> ⚠️ **Downloading to a memory card (SD, microSD) is NOT recommended, above all when the system is on that card.** A download manager writes all day, a card has little endurance and slow writes, and when it wears out, fills up or is cut off in the middle of a write, it takes the operating system with it. On a Raspberry Pi keep the system on the card if you must, but put the downloads on an SSD or a hard disk on USB. The same goes for USB sticks.
+> [!WARNING]
+> **Downloading to a memory card (SD, microSD) is NOT recommended, above all when the system is on that card.** A download manager writes all day, a card has little endurance and slow writes, and when it wears out, fills up or is cut off in the middle of a write, it takes the operating system with it. On a Raspberry Pi keep the system on the card if you must, but put the downloads on an SSD or a hard disk on USB. The same goes for USB sticks.
 
-**What happens when the line is faster than the disk.** FetchBox reads from the network only as fast as it can hand the data to the disk, so nothing piles up in memory (a few MB per connection) and the download does not fail: the server is simply slowed down through the connection. The data first goes into the operating system's write cache, so the first seconds, or the first gigabytes on a machine with a lot of free RAM, can run at line speed and look faster than the disk really is; once the cache is full the speed falls to what the disk sustains. The speed shown in the app is the speed at which data is accepted for writing. **This has not been tested thoroughly yet**, in particular not on slow or SMR drives; if you see something else, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues).
+**What happens when the line is faster than the disk.** FetchBox reads from the network only as fast as it can hand the data to the disk, so nothing piles up in memory (a few MB per connection) and the download does not fail: the server is simply slowed down through the connection. The data first goes into the operating system's write cache, so the first seconds, or the first gigabytes on a machine with a lot of free RAM, can run at line speed and look faster than the disk really is; once the cache is full the speed falls to what the disk sustains. The speed shown in the app is the speed at which data is accepted for writing.
 
 - **SMR hard disks** (shingled, common in cheap 2.5" and some "desktop" drives) take short bursts quickly into a small cache area and then rewrite whole bands of tracks in the background. A long download of many gigabytes can drop to a fraction of the advertised speed, and writes to several places of the file at once make it worse. If your line is faster than about 100 MB/s, or you download huge files, prefer an SSD or a CMR drive (the data sheet says which; "SMR" is often not stated, the model number tells).
 - **An SSD is the recommended choice, but a CMR hard disk is entirely enough** (especially for lines up to 1 Gbit/s), and it is rarely the bottleneck; a RAID array even less. A conventional (CMR) 3.5" disk sustains roughly 100 to 250 MB/s of sequential writes, which covers a 1 Gbit/s line (about 120 MB/s); a 2.5" one is nearer the lower end and may be the limit at 1 Gbit/s. Striped arrays (RAID 0, 5, 6, 10, ZFS or Btrfs over several disks) add the speed of their disks together, so even a 2.5 or 10 Gbit/s line is within reach, while RAID 1 writes at the speed of one disk. Downloads are large sequential writes, which arrays handle well. The one thing to check is that the drives really are CMR: the name on the box does not always tell, and not every maker states it in the product name, so look up the exact model number in the maker's CMR/SMR list or its data sheet before you rely on it. A RAID is not a backup, and arrays built from SMR drives are known for painfully slow rebuilds.
 - **On any hard disk, fewer connections per download is gentler**: several connections write to different places of the same file, so the head has to jump between them. Try 1 to 2 in **Settings** (connections per download) and keep the number of simultaneous downloads low. A speed limit under what the disk sustains gives a steady transfer instead of bursts and stalls.
-- **A power cut or a kernel crash.** The data you have downloaded is forced to the disk every couple of seconds, and the point a download resumes from is stored only after that, so after a power cut a download continues from what is really in the file (at most a few seconds are fetched again). A finished file is synced before it gets its real name. This costs a little speed on a slow disk, because the program waits for the disk instead of hiding behind the system's cache for long, and it is new, so it is part of what has not been tested thoroughly yet.
+- **A power cut or a kernel crash.** The data you have downloaded is forced to the disk every couple of seconds, and the point a download resumes from is stored only after that, so after a power cut a download continues from what is really in the file (at most a few seconds are fetched again). A finished file is synced before it gets its real name. This costs a little speed on a slow disk, because the program waits for the disk instead of hiding behind the system's cache for long.
+
+> [!NOTE]
+> How FetchBox behaves when the line is faster than the disk, on slow and SMR drives, and the syncing after a power cut are new and **not tested thoroughly yet**. If you see something different, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues).
 
 ## 📦 Install
 
@@ -113,7 +118,12 @@ curl -fsSLO "$url" && sudo dnf install "./$(basename "$url")"
 | database | `/var/lib/fetchbox` |
 | downloads | `/var/lib/fetchbox/downloads`, or the folder you set as `FETCHBOX_DOWNLOAD_DIR` (it must be writable for the user `fetchbox`) |
 
-To update, install the newer file the same way (the service is restarted). `apt` and `dnf` do not know about GitHub releases, so `apt upgrade` does not update FetchBox. Removing the package (`apt remove fetchbox`, `dnf remove fetchbox`) stops the service but keeps the database, the downloads and the user; delete `/var/lib/fetchbox` (and `apt purge` removes the settings) to wipe it. The packages are tested on Debian 12 and Fedora on both CPUs by the release workflow.
+To update, install the newer file the same way (the service is restarted).
+
+> [!NOTE]
+> `apt` and `dnf` do not know about GitHub releases, so `apt upgrade` does not update FetchBox.
+
+Removing the package (`apt remove fetchbox`, `dnf remove fetchbox`) stops the service but keeps the database, the downloads and the user; delete `/var/lib/fetchbox` (and `apt purge` removes the settings) to wipe it. The packages are tested on Debian 12 and Fedora on both CPUs by the release workflow.
 
 ### Linux host (systemd)
 
@@ -169,14 +179,20 @@ Everything day to day (connections, limits, category folders, theme, language, u
 | `--download-dir <dir>` / `FETCHBOX_DOWNLOAD_DIR` | where files are saved (default `./downloads`) |
 | `--port <port>` / `FETCHBOX_PORT` | TCP port (default `8080`) |
 | `--password-file <file>` | read the password from a file, e.g. a Docker secret |
-| `--no-auth` | no password at all: only on a fully trusted network |
+| `--no-auth` | no password at all: see the caution below |
 | `--block-private-urls` / `FETCHBOX_BLOCK_PRIVATE_URLS` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
 | `FETCHBOX_PASSWORD` | a fixed password (8+ characters) instead of one created in the browser |
 | `FETCHBOX_UPDATE_URL` | use another releases endpoint for the update check (a mirror, a fork) |
 | `--log-activity` / `FETCHBOX_LOG_ACTIVITY` | log every added, paused, finished and removed download (with its average speed), settings changes, the download hours and sign-ins; without it the console shows start-up information, warnings and errors |
 | `RUST_LOG` | log level of everything else, e.g. `debug` (default `info`) |
 
-Put a reverse proxy with HTTPS in front when it is reachable beyond your LAN, and send `X-Forwarded-Proto: https` so the session cookie gets `Secure`. The live updates use server-sent events: switch response buffering off for `/api/events` (the server already sends `X-Accel-Buffering: no`).
+> [!CAUTION]
+> `--no-auth` lets **anyone who can reach the port** add and delete downloads and write files into your download folder. Use it only on a network you fully trust, never on one that is reachable from the internet.
+
+> [!IMPORTANT]
+> Put a reverse proxy with HTTPS in front when FetchBox is reachable beyond your LAN, and send `X-Forwarded-Proto: https` so the session cookie gets `Secure`.
+
+The live updates use server-sent events: switch response buffering off for `/api/events` (the server already sends `X-Accel-Buffering: no`).
 
 ## 🔑 Signing in
 
@@ -209,7 +225,7 @@ A password from `FETCHBOX_PASSWORD` or `--password-file` is not stored by the se
 
 ## 🔄 Updating
 
-FetchBox looks at the GitHub releases now and then (only a request for the list of releases is sent; **Settings > About** switches it off) and tells you in the app when there is a newer version, with the changes since yours and these steps:
+FetchBox looks at the GitHub releases now and then (only a request for the list of releases is sent; **Settings > About** switches it off) and tells you in the app when there is a newer version, with the changes since yours and these steps. Pre-releases (`0.7.0-rc.1`) are left out unless you switch on *Also announce pre-releases* in the same card:
 
 - **Docker Compose**: `git pull && docker compose up -d --build fetchbox`
 - **Proxmox LXC**: run `update` in the container's console
@@ -218,7 +234,12 @@ FetchBox looks at the GitHub releases now and then (only a request for the list 
 - **Release binary**: replace the file and restart it
 - **From source**: `git pull && ./scripts/build.sh`
 
-Your data stays and unfinished downloads continue after the restart. The app does not update itself (inside a container that is neither possible nor safe). 
+Your data stays and unfinished downloads continue after the restart.
+
+> [!NOTE]
+> The app does not update itself (inside a container that is neither possible nor safe). The update commands of the installers (`update` in the Proxmox container, `install.sh update` without `--version`) install only stable versions; to try a pre-release, install it from its release page (`install.sh update --version 0.7.0-rc.1` also works).
+
+
 <details>
 <summary>Coming from the old name <code>dlmanager</code>?</summary>
 
@@ -254,7 +275,8 @@ Ideas in rough order, with no promised dates. The ones marked 🧭 are being des
 - 🏔️ **A static (musl) build** for Alpine and very small containers.
 - 🌐 **More languages**: [one file and one line each](CONTRIBUTING.md#adding-a-language).
 
-Wishes and bug reports go into the [issues](https://github.com/fwitkowski17/WebDownloadManager/issues).
+> [!TIP]
+> Wishes and bug reports go into the [issues](https://github.com/fwitkowski17/WebDownloadManager/issues).
 
 ## 📚 Documentation
 

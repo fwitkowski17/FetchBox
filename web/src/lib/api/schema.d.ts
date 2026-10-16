@@ -645,6 +645,8 @@ export interface components {
         ReleaseNote: {
             /** @description The description of the release (Markdown, shortened when very long). Show it as text. */
             body: string;
+            /** @description A pre-release (`0.7.0-rc.1`); only listed when `Settings::check_prereleases` is on. */
+            prerelease: boolean;
             /** @description Page of the release. */
             url: string;
             /** @description Version without a leading `v`. */
@@ -657,6 +659,11 @@ export interface components {
              *     Existing downloads keep the directory they were created with.
              */
             category_subdirs?: boolean;
+            /**
+             * @description Also announce pre-releases (`0.7.0-rc.1`) as updates. Off by default: a pre-release is for
+             *     those who want to try what is coming and do not mind a rough edge.
+             */
+            check_prereleases?: boolean;
             /**
              * @description Ask GitHub now and then whether a newer release exists (`GET /api/version`). Nothing is
              *     sent but the request itself (address of the server, program name and version).
@@ -869,6 +876,8 @@ export interface components {
             enabled: boolean;
             /** @description Version of the newest published release, without a leading `v`. */
             latest?: string | null;
+            /** @description `latest` is a pre-release (only possible when `Settings::check_prereleases` is on). */
+            latest_prerelease: boolean;
             /** @description What changed in every release newer than `current`, newest first (at most ten). */
             notes: components["schemas"]["ReleaseNote"][];
             /** @description Page of the newest release. */

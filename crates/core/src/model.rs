@@ -224,6 +224,10 @@ pub struct Settings {
     /// sent but the request itself (address of the server, program name and version).
     #[serde(default = "default_check_updates")]
     pub check_updates: bool,
+    /// Also announce pre-releases (`0.7.0-rc.1`) as updates. Off by default: a pre-release is for
+    /// those who want to try what is coming and do not mind a rough edge.
+    #[serde(default)]
+    pub check_prereleases: bool,
     /// Download only during set hours (SPEC 6.3.2): outside them downloads wait, and running ones
     /// are put back in the queue. A single download can opt out (`start_now`).
     #[serde(default)]
@@ -300,6 +304,7 @@ impl Default for Settings {
             speed_global: 0,
             category_subdirs: false,
             check_updates: true,
+            check_prereleases: false,
             schedule_enabled: false,
             schedule_from: 0,
             schedule_to: default_schedule_to(),
@@ -393,6 +398,8 @@ pub struct ReleaseNote {
     pub url: String,
     /// The description of the release (Markdown, shortened when very long). Show it as text.
     pub body: String,
+    /// A pre-release (`0.7.0-rc.1`); only listed when `Settings::check_prereleases` is on.
+    pub prerelease: bool,
 }
 
 /// The version of the running program and what is known about newer ones.
@@ -407,6 +414,8 @@ pub struct VersionInfo {
     pub latest: Option<String>,
     /// `latest` is newer than `current`.
     pub update_available: bool,
+    /// `latest` is a pre-release (only possible when `Settings::check_prereleases` is on).
+    pub latest_prerelease: bool,
     /// Page of the newest release.
     pub release_url: Option<String>,
     /// When the answer was obtained (unix seconds); `None` if no check has succeeded yet.

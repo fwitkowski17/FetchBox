@@ -112,7 +112,7 @@ Maintainers: put the new version in `Cargo.toml` (`[workspace.package] version`)
 git tag v0.7.0 && git push origin v0.7.0
 ```
 
-`.github/workflows/release.yml` checks that the tag equals the version, builds the web app and the binary for x86_64 and aarch64 Linux, wraps them in DEB and RPM packages (`packaging/`), installs each package in a clean Debian 12 or Fedora container as a test and publishes a GitHub Release with the archives, packages, checksums and generated notes. A tag with a dash (`v0.7.0-rc.1`) makes a pre-release, which the update check ignores. The Proxmox installer and the update notice in the app read that release; the notes are what users see in the update dialog, so read them before they go out. See [deploy/proxmox/README.md](deploy/proxmox/README.md#releasing) for the details.
+`.github/workflows/release.yml` checks that the tag equals the version, builds the web app and the binary for x86_64 and aarch64 Linux, wraps them in DEB and RPM packages (`packaging/`), installs each package in a clean Debian 12 or Fedora container as a test and publishes a GitHub Release with the archives, packages, checksums and generated notes. A tag with a dash (`v0.7.0-rc.1`) makes a pre-release, which the update check announces only to users who switched on pre-releases, and which the installers' update commands skip. The Proxmox installer and the update notice in the app read that release; the notes are what users see in the update dialog, so read them before they go out. See [deploy/proxmox/README.md](deploy/proxmox/README.md#releasing) for the details.
 
 ## Licence
 

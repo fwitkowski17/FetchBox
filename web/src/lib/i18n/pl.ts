@@ -331,6 +331,13 @@ const pl: Messages = {
   'settings.update.off': 'Sprawdzanie aktualizacji jest wyłączone.',
   'settings.update.checked': 'Ostatnie sprawdzenie: {date}',
   'settings.update.toggle': 'Sprawdzaj aktualizacje automatycznie',
+  'settings.update.prereleaseToggle': 'Informuj także o wersjach wstępnych (pre-release)',
+  'settings.update.prereleaseHint':
+    'Wersje wstępne (np. 0.7.0-rc.1) pozwalają wypróbować to, co nadchodzi, i mogą mieć niedociągnięcia. Są ogłaszane tutaj; instalatory i polecenie update w kontenerze Proxmox instalują tylko wersje stabilne.',
+  'settings.update.availablePre': 'Dostępna jest wersja wstępna {version}.',
+  'update.prerelease': 'wersja wstępna',
+  'update.prereleaseNote':
+    'To wersja wstępna: może mieć niedociągnięcia. Pobierz ją ze strony wydania; polecenia poniżej instalują wersję stabilną.',
   'settings.update.hint':
     'Serwer co jakiś czas pyta GitHub o najnowsze wydanie. Wysyłane jest tylko samo zapytanie: adres IP serwera, nazwa programu i jego wersja.',
   'settings.account': 'Konto',

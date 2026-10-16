@@ -135,13 +135,18 @@ pub fn settings_changes(old: &Settings, new: &Settings) -> Vec<String> {
         on_off(old.check_updates).to_owned(),
         on_off(new.check_updates).to_owned(),
     );
+    change(
+        "pre-release updates",
+        on_off(old.check_prereleases).to_owned(),
+        on_off(new.check_prereleases).to_owned(),
+    );
     out
 }
 
 /// The settings in one line, for the start-up log.
 pub fn settings_summary(s: &Settings) -> String {
     format!(
-        "connections {}, simultaneous downloads {}, speed of each download {}, total speed {}, category folders {}, download hours {}, update check {}",
+        "connections {}, simultaneous downloads {}, speed of each download {}, total speed {}, category folders {}, download hours {}, update check {}, pre-releases {}",
         s.connections,
         s.max_concurrent,
         limit(s.speed_per_download),
@@ -149,6 +154,7 @@ pub fn settings_summary(s: &Settings) -> String {
         on_off(s.category_subdirs),
         hours(s),
         on_off(s.check_updates),
+        on_off(s.check_prereleases),
     )
 }
 
@@ -214,6 +220,7 @@ mod tests {
             schedule_timezone: "Europe/Warsaw".into(),
             schedule_on_end: OnHoursEnd::Finish,
             check_updates: false,
+            check_prereleases: true,
             ..Settings::default()
         };
         assert_eq!(
@@ -224,6 +231,7 @@ mod tests {
                 "download hours off -> 22:00-06:00 Europe/Warsaw",
                 "when the hours end pause running downloads -> let running downloads finish",
                 "update check on -> off",
+                "pre-release updates off -> on",
             ]
         );
     }

@@ -5,12 +5,13 @@
     checked: boolean;
     children: Snippet;
     hint?: string;
+    disabled?: boolean;
   }
 
-  let { checked = $bindable(), children, hint }: Props = $props();
+  let { checked = $bindable(), children, hint, disabled = false }: Props = $props();
 </script>
 
-<label class="flex min-h-11 cursor-pointer items-center justify-between gap-4">
+<label class="flex min-h-11 items-center justify-between gap-4 {disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}">
   <span class="grid gap-0.5">
     <span class="font-semibold">{@render children()}</span>
     {#if hint}<span class="hint">{hint}</span>{/if}
@@ -23,6 +24,7 @@
       role="switch"
       class="peer absolute inset-0 z-10 size-full cursor-pointer opacity-0"
       bind:checked
+      {disabled}
     />
     <span
       class="block h-7 w-12 rounded-full bg-border p-0.5 transition-colors peer-checked:bg-accent peer-checked:*:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"

@@ -2538,6 +2538,9 @@ fn update_checks_are_on_unless_switched_off() {
     let s: Settings = serde_json::from_str(body).expect("settings");
     assert!(s.check_updates);
     assert!(Settings::default().check_updates);
+    // Pre-releases are announced only by those who ask for them.
+    assert!(!s.check_prereleases);
+    assert!(!Settings::default().check_prereleases);
     let off = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0,"check_updates":false}"#;
     let s: Settings = serde_json::from_str(off).expect("settings");
     assert!(!s.check_updates);

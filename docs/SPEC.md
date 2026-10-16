@@ -18,7 +18,8 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
   - download hours (`schedule_*`, off by default): download only between two times of the day, see 6.3.2
-  - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9)
+  - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9); also announce
+    pre-releases (`check_prereleases`, off by default)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
 
@@ -215,7 +216,7 @@ For mobile connections with a night package, or a line that must stay free by da
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -516,8 +517,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   `--version`, the API with `GET /api/version` and Settings shows it in the "About" card (also in `docs/openapi.json`, whose
   `info.version` it is). `web/package.json` carries the same number.
 - Update check: the server asks the GitHub releases API for the list of releases (`/repos/<owner>/<repo>/releases?per_page=20`;
-  drafts and pre-releases are skipped) with a 5 s timeout, takes the highest version as `latest` and compares its tag
-  (`v0.7.0` -> `0.7.0`, numbers compared one by one, a pre-release below its release) with its own version. `notes` holds the
+  drafts are skipped, pre-releases are kept in the cached answer and shown only with `Settings.check_prereleases`) with a 5 s timeout, takes the highest version as `latest` and compares its tag
+  (`v0.7.0` -> `0.7.0`, numbers compared one by one, a pre-release below its release, the pre-releases of one version in the order
+  of semantic versioning: `rc.1` < `rc.2` < `rc.10`) with its own version. `latest_prerelease` says that `latest` is one, and
+  each note carries `prerelease`. `notes` holds the
   description (Markdown, at most 8000 characters) of each release newer than the running version, newest first, at most ten:
   what changed since the user's version. An answer is kept for 6 hours, a failure for 15 minutes (an offline
   server does not retry on every page view), and "Check now" cannot ask more often than every 30 s (anonymous GitHub limit: 60
@@ -542,7 +545,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   opens the dialog with "Remind me later" (hides it for that version for 24 hours; Escape and the backdrop mean the same) and
   "Skip this version" (never announces that version again; a later one is announced); both are kept per browser in
   `localStorage` (`fetchbox.updateSnooze`, `fetchbox.updateSkip`). From Settings ("How to update" in the About card) it opens
-  with a plain "Close". It does not open while update checks are off.
+  with a plain "Close". It does not open while update checks are off. The About card has a second switch, "Also announce
+  pre-releases" (disabled while checks are off; saved with the form; Settings and the update dialog use "Pre-release X" and a
+  "pre-release" badge, and the dialog says that the commands below install the stable version).
 - The app does not update itself. In the container the image is read-only (distroless, no shell, no package manager) and a
   restart or `docker compose up` brings back the image's version, so a self-replaced binary would not survive; updating the
   container from inside would also need access to the Docker socket, which is root on the host. A user who wants unattended
@@ -553,7 +558,8 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   container are Debian 13), wraps each binary in a DEB and an RPM (6.11), installs every package in a clean container as a test
   and publishes a GitHub Release with `fetchbox-linux-<arch>.tar.gz` (just the binary, the web UI is inside it),
   `fetchbox_<version>_<amd64|arm64>.deb` and `fetchbox-<version>-1.<x86_64|aarch64>.rpm`, and a `.sha256` file for each, with
-  generated notes; a tag with a dash is a pre-release. That release is what the update check finds and what the installers
+  generated notes; a tag with a dash is a pre-release (the update check announces it only to those who switched on pre-releases;
+  the installers' own update commands take only stable releases). That release is what the update check finds and what the installers
   (`deploy/install.sh`, `deploy/proxmox`) install and update from; nothing is compiled on the user's machine. Raising the version
   means changing `Cargo.toml` (and `web/package.json`) first.
 

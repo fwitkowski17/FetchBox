@@ -21,6 +21,7 @@ const base: Settings = {
   speed_global: 5 * 1024 * 1024,
   category_subdirs: true,
   check_updates: true,
+  check_prereleases: false,
   schedule_enabled: false,
   schedule_from: 0,
   schedule_to: 360,
@@ -56,6 +57,13 @@ describe('settings form', () => {
     const { check_updates: _omit, ...legacy } = base;
     expect(toDraft(legacy).checkUpdates).toBe(true);
     expect(fromDraft({ ...toDraft(base), checkUpdates: false }).check_updates).toBe(false);
+  });
+
+  it('treats a missing pre-release flag as off and sends the choice back', () => {
+    const { check_prereleases: _omit, ...legacy } = base;
+    expect(toDraft(legacy).checkPrereleases).toBe(false);
+    expect(fromDraft({ ...toDraft(base), checkPrereleases: true }).check_prereleases).toBe(true);
+    expect(sameSettings(base, { ...base, check_prereleases: true })).toBe(false);
   });
 
   it('shows the download hours as times and keeps their zone', () => {

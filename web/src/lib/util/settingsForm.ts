@@ -21,6 +21,8 @@ export interface Draft {
   global: SpeedDraft;
   categorySubdirs: boolean;
   checkUpdates: boolean;
+  /** Also announce pre-releases as updates. */
+  checkPrereleases: boolean;
   /** Download only during set hours. */
   scheduleEnabled: boolean;
   /** `"HH:MM"`, as the time inputs have it. */
@@ -55,6 +57,7 @@ export function toDraft(s: Settings): Draft {
     categorySubdirs: s.category_subdirs ?? false,
     // Older servers do not know the field; checks are on unless switched off.
     checkUpdates: s.check_updates ?? true,
+    checkPrereleases: s.check_prereleases ?? false,
     scheduleEnabled: s.schedule_enabled ?? false,
     scheduleFrom: minutesToTime(s.schedule_from ?? 0),
     scheduleTo: minutesToTime(s.schedule_to ?? 360),
@@ -73,6 +76,7 @@ export function fromDraft(d: Draft): Settings {
     speed_global: speedFromDraft(d.global),
     category_subdirs: d.categorySubdirs,
     check_updates: d.checkUpdates,
+    check_prereleases: d.checkPrereleases,
     schedule_enabled: d.scheduleEnabled,
     schedule_from: timeToMinutes(d.scheduleFrom) ?? 0,
     schedule_to: timeToMinutes(d.scheduleTo) ?? 360,
@@ -120,6 +124,7 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.speed_global === b.speed_global &&
     (a.category_subdirs ?? false) === (b.category_subdirs ?? false) &&
     (a.check_updates ?? true) === (b.check_updates ?? true) &&
+    (a.check_prereleases ?? false) === (b.check_prereleases ?? false) &&
     (a.schedule_enabled ?? false) === (b.schedule_enabled ?? false) &&
     (a.schedule_from ?? 0) === (b.schedule_from ?? 0) &&
     (a.schedule_to ?? 360) === (b.schedule_to ?? 360) &&
