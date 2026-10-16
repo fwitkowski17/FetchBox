@@ -7,19 +7,20 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 
 ## ✨ Features
 
+- 🌍 **HTTP, HTTPS, FTP, FTPS and SFTP**: one list, queue and set of limits for all of them, with logins for the servers that need one. [Details](#-sources-and-logins).
 - ⬇️ **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
 - 🚦 **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
 - 🌙 **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
 - ✅ **Checksum verification**: tick *Verify the checksum* when adding, pick the type (MD5, SHA-1, SHA-256, SHA-512; recognised from the pasted text) and paste it. The finished file is checked in the background (the card says *Verifying* and shows how far it has got) and then gets a green tick. A file that does not match lands in the failed ones, where you can download it again, keep it anyway, or delete it together with the file; a file you keep is *Completed* with a warning icon beside it (its tooltip shows the two checksums).
-- 🔗 **Adding**: paste a link (there is a paste button) and see the file's size and name before you start. If the link is a directory index page (Apache, nginx and the like), pick which files to download.
+- 🔗 **Adding**: paste a link (there is a paste button) and see the file's size and name before you start. If the link is a folder (a directory index page of Apache or nginx, or an FTP or SFTP folder), pick which files to download.
 - 🗂️ **Categories** (Photo, Music, Video, Program, Archive, Other), detected from the name or the server, changeable, with optional folders per category.
 - 💾 **Disk aware**: a ring shows the free space, a download that does not fit is refused or held until there is room.
 - 📊 **Statistics**: totals, success rate, data downloaded, average and peak speed, per category and for the last 14 days. They survive removing entries from the list.
 - 🔎 **Lists**: sort, filter, search, select several downloads, archive finished ones.
 - 📱 **Phone friendly**: installable web app, light / dark / black (for OLED) themes and eight accent colours, [English and Polish](#-languages).
-- 🔒 **Safe by default**: password protected (set in the browser on first run), optional blocking of private addresses, file names are sanitised and nothing is written outside the download folder.
+- 🔒 **Safe by default**: password protected (set in the browser on first run), optional blocking of private addresses, file names are sanitised and nothing is written outside the download folder. An SSH server is only used after you have compared its fingerprint and trusted it.
 - 🔔 **Update notice**: tells you when a new release is out and what changed, with the steps to update. It can be switched off.
-- 🪶 **Light**: one Rust binary of about 10 MB, around 64 MB of RAM when idle, no database server and no Node.js at runtime.
+- 🪶 **Light**: one Rust binary of about 14 MB, around 64 MB of RAM when idle, no database server and no Node.js at runtime.
 
 > [!NOTE]
 > Status: usable, version 0.x. What comes next is in the [roadmap](#-roadmap).
@@ -197,6 +198,24 @@ Everything day to day (connections, limits, category folders, theme, language, u
 
 The live updates use server-sent events: switch response buffering off for `/api/events` (the server already sends `X-Accel-Buffering: no`).
 
+## 🌍 Sources and logins
+
+Besides `http://` and `https://`, FetchBox downloads from FTP and SFTP servers: paste the address in the add dialog like any other link. A folder shows a list to choose files from. Pause, resume from the saved offset, limits, hours, the queue and the checksum check work as for HTTP.
+
+| Address | Protocol | Notes |
+| --- | --- | --- |
+| `ftp://host/path/file` | FTP, plain | Port 21. Anonymous unless you give a login. The password is not encrypted on the way. |
+| `ftps://host/path/file` | FTP over TLS | Port 21 with `AUTH TLS`, or TLS from the first byte on port 990. The certificate must be one that browsers trust. |
+| `sftp://host/path/file` | SSH file transfer | Port 22. Needs a user name and a password. |
+
+- **Paths.** FTP paths start in the folder the login lands in, so `ftp://host/pub/a.iso` is `pub/a.iso` there; write `ftp://host//srv/a.iso` for the root. SFTP paths are absolute (`sftp://host/srv/a.iso`); write `sftp://host/~/a.iso` for a path in the home folder.
+- **Logins.** Tick *This address needs a login* (for SFTP it is always on), or write `ftp://user:password@host/file` and FetchBox takes the login out of the address. The password is kept on the server, in its database, so a paused or restarted download can go on; it is never shown again, returned by the API or written to the log. Plain `http://` and `ftp://` send it unencrypted, and the dialog says so. The same login also works for HTTP servers that ask for basic authentication.
+- **SSH servers must be trusted first.** SFTP has no certificate authorities: a server is believed because its key is the one you accepted. The first time you use a server, the dialog shows its fingerprint (`SHA256:...`, the same as `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` prints on the server); compare it and press *Trust this server*. No password is sent before that. If the key of a trusted server changes, nothing is sent and the dialog says so, which is what a reinstalled server looks like but also what a man in the middle looks like. The accepted keys are listed under **Settings → Trusted SSH servers**, where you can forget them.
+- **One connection.** FTP and SFTP use a single connection per download, whatever *Connections per download* says: servers often allow only a few per user, and these protocols do not need more to fill a line.
+
+> [!NOTE]
+> Not supported yet: SFTP with a private key (only a password), FTPS servers with a self-signed certificate, active-mode FTP, and changing the login of a download after it was added (remove it and add it again). FTP and SFTP are tested against vsftpd and OpenSSH and against test servers, but not against every server out there: if one misbehaves, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues) with its name.
+
 ## 🔑 Signing in
 
 There is one shared password. In order of precedence:
@@ -258,11 +277,11 @@ The interface is translated without a library, and a new language is one file an
 Ideas in rough order, with no promised dates. The ones marked 🧭 are being designed.
 
 - 🧲 **BitTorrent**: magnet links and `.torrent` files through [`librqbit`](https://github.com/ikatson/rqbit), behind the same queue, limits, hours and statistics as the other downloads. The `torrent_engine` crate is already in place as a stub.
-- 🌍 **More kinds of sources**, all behind the same queue, limits, hours, statistics and checksum check. Today FetchBox downloads over HTTP and HTTPS only; planned next, roughly in this order:
-  - **FTP and SFTP** (`ftp://`, `sftp://`), with resume from the saved offset.
+- 🌍 **More kinds of sources**, behind the same queue, limits, hours, statistics and checksum check (FTP, FTPS and SFTP are done, see [above](#-sources-and-logins)):
   - **WebDAV** (for example a Nextcloud or a NAS), over HTTPS with the same segmented download where the server allows ranges.
   - **S3-compatible storage** (Amazon S3, Cloudflare R2, MinIO, Backblaze B2 and the like): a pre-signed link should already work as an ordinary HTTPS address; a direct `s3://bucket/key` address with your own keys is the part to be added. Providers differ in the details, so each one will be checked before it is listed as supported.
-- 🔑 **Downloading files that require authorization**: a user name and password, a token or your own headers can be given for a download (a private server, a NAS, a Nextcloud share, a link behind a login, a private S3 bucket), kept on the server and never shown in the list, the logs or the API answers. FTP, SFTP, WebDAV and S3 need it anyway. This is about the source of a download; signing in to FetchBox itself already exists.
+  - The rest of FTP and SFTP: SFTP with a private key, FTPS with a self-signed certificate (trusted by its fingerprint, like an SSH key).
+- 🔑 **More ways to authorize a download**: a user name and password already work for HTTP (basic authentication), FTP, FTPS and SFTP. Still to come: tokens and your own headers (a private server, a Nextcloud share, a link behind a login, a private S3 bucket), and changing the login of a download that already exists.
 - 📈 **Metrics for Prometheus and VictoriaMetrics**: a `/metrics` endpoint in the Prometheus text format (downloads by state, queue length, current and total speed, bytes fetched, disk space), which both scrape as they are, plus an example Grafana dashboard. Pushing to VictoriaMetrics may follow.
 - 🧩 **Plugins** 🧭: an extension system, with a place for it in the web app (a tab above Settings, or a part of Settings): hooks on events such as added, finished or failed (notifications, moving or renaming files, calling a webhook) and, later, extra sources. It is designed first so that an extension cannot take down the downloads.
 - 📬 **A package repository**: `apt` and `dnf` pick up new releases by themselves, instead of installing a downloaded file.
