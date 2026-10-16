@@ -161,9 +161,9 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   counted as a failure in the statistics; keeping the file later replaces that row by a completed one.
 - **What the user can do with a failed verification** (the file stays on disk until they decide): *download again*
   (`POST .../resume`: the file is deleted, offsets and etag are reset and the download starts from the beginning, with the same
-  checksum), *keep* (`POST /api/downloads/:id/keep`: `completed`, `verified: false`, the verdict forgotten) or *delete with the
+  checksum), *keep* (`POST /api/downloads/:id/keep`: `completed`, `verified: false`; `verify_failed` and `checksum.actual` stay, so the list can show that it was kept although the checksum did not match) or *delete with the
   file* (`DELETE ...?delete_file=true`, which is allowed for a completed download, one being verified, and one that failed its
-  verification). `keep` also skips a verification that is still running (`409` for any other download). `cancel` on a download
+  verification). `keep` also skips a verification that is still running (no verdict is left then; `409` for any other download). `cancel` on a download
   being verified is refused (`409`): the file is complete; `DELETE` stops the verification (and may take the file).
 - **Restart**: a download left `verifying` by a dead process hashes its file again at the next start.
 - **Data**: `downloads.checksum_algo`, `checksum_expected`, `checksum_actual`, `verified`, `verify_failed`. Adding the status
@@ -353,6 +353,8 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   and verified download shows a green tick and "Checksum verified (SHA-256)". A failed verification shows the expected digest and
   the one the file has (monospace, wrapped), a hint, and three choices: "Download again" (main button), "Keep the file" and the
   trash button, which opens the delete dialog (offering to take the file with it). `verifying` is part of the "Active" tab.
+  A download that was kept although the checksum did not match is `completed` and shows a warning icon beside its "Completed"
+  badge; the tooltip gives the expected and the real digest.
 - A waiting download (`hold`) shows the badge "Waiting for the hours" or "Scheduled", "Starts 01:00" / "Starts tomorrow 02:30"
   instead of "Waiting for a free slot", and its main button is "Download now"; a pause button sits next to it.
 - Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel

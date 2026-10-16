@@ -40,6 +40,13 @@
   /** The checksum did not match (or the file could not be read): the user decides what to do. */
   const verifyFailed = $derived(d.status === 'failed' && d.verify_failed === true);
   const sumLabel = $derived(d.checksum ? algoLabel(d.checksum.algo) : '');
+  /** Kept by the user although the checksum did not match: completed, with a warning beside it. */
+  const keptMismatch = $derived(d.status === 'completed' && d.verify_failed === true);
+  const keptText = $derived(
+    d.checksum?.actual
+      ? t('card.keptMismatch', { algo: sumLabel, expected: d.checksum.expected, actual: d.checksum.actual })
+      : t('card.keptUnverified'),
+  );
 
   /** The one big button that matters for this status. */
   const primary = $derived.by(() => {
@@ -124,6 +131,11 @@
         {/if}
       </p>
     </div>
+    {#if keptMismatch}
+      <span class="inline-flex shrink-0 text-warning" role="img" title={keptText} aria-label={keptText} data-part="kept-warning">
+        <Icon name="alert" size={20} />
+      </span>
+    {/if}
     <StatusBadge status={d.status} waiting={heldForSpace} hold={held ? d.hold : null} />
   </div>
 

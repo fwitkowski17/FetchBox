@@ -165,6 +165,9 @@ export const en = {
   'card.retry': 'Retry',
   'card.verifying': 'Verifying the checksum',
   'card.verified': 'Checksum verified ({algo})',
+  'card.keptMismatch':
+    'The checksum did not match; the file was kept anyway. Expected {algo}: {expected}. The file has: {actual}.',
+  'card.keptUnverified': 'The file could not be verified; it was kept anyway.',
   'card.skipVerify': 'Skip verification',
   'card.keepFile': 'Keep the file',
   'card.downloadAgain': 'Download again',

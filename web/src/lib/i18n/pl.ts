@@ -162,6 +162,9 @@ const pl: Messages = {
   'card.retry': 'Ponów',
   'card.verifying': 'Weryfikacja sumy kontrolnej',
   'card.verified': 'Suma kontrolna zgodna ({algo})',
+  'card.keptMismatch':
+    'Suma kontrolna się nie zgadzała, plik został mimo to zachowany. Oczekiwana {algo}: {expected}. Plik ma: {actual}.',
+  'card.keptUnverified': 'Nie udało się zweryfikować pliku; został mimo to zachowany.',
   'card.skipVerify': 'Pomiń weryfikację',
   'card.keepFile': 'Zachowaj plik',
   'card.downloadAgain': 'Pobierz ponownie',

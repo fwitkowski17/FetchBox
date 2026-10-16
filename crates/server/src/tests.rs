@@ -1652,7 +1652,7 @@ async fn a_wrong_checksum_fails_the_download_and_keeps_the_file_for_the_user_to_
 }
 
 #[tokio::test]
-async fn keeping_a_file_that_failed_its_verification_completes_it_without_the_mark() {
+async fn keeping_a_file_that_failed_its_verification_completes_it_but_remembers_the_mismatch() {
     let h = Harness::new().await;
     let d = h
         .mgr
@@ -1662,12 +1662,10 @@ async fn keeping_a_file_that_failed_its_verification_completes_it_without_the_ma
     h.wait_status(d.id, Status::Failed).await;
     let kept = h.mgr.keep(d.id).await.expect("keep");
     assert_eq!(kept.status, Status::Completed);
-    assert!(!kept.verified && !kept.verify_failed && kept.error.is_none());
-    assert_eq!(
-        kept.checksum.expect("c").actual,
-        None,
-        "the verdict is forgotten"
-    );
+    assert!(!kept.verified && kept.error.is_none());
+    // Completed, but it remembers that the checksum did not match (the list shows a warning).
+    assert!(kept.verify_failed);
+    assert_eq!(kept.checksum.expect("c").actual.as_deref(), Some(SHA256));
     assert_eq!(file(&h.path("keepme.bin")), body());
     let stats = h
         .mgr

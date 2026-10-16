@@ -1380,7 +1380,11 @@ impl Service for Manager {
         }
         self.stop_verification(id);
         self.with_db(|c| {
-            downloads::clear_verification(c, id)?;
+            // Skipping a verification leaves no verdict. Keeping a file that did not match leaves
+            // it: the download is completed, but remembers (and shows) that its checksum differed.
+            if !failed_check {
+                downloads::clear_verification(c, id)?;
+            }
             downloads::transition(
                 c,
                 id,

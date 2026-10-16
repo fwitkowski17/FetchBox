@@ -586,8 +586,9 @@ export interface components {
             /** @description The file was checked against `checksum` and matched. */
             verified?: boolean;
             /**
-             * @description The verification did not succeed: the file does not match, or it could not be read.
-             *     Status `failed`; the user can download again, keep the file anyway or delete it.
+             * @description The verification did not succeed: the file does not match, or it could not be read. While
+             *     the status is `failed` the user decides (download again, keep the file anyway, delete it);
+             *     once they keep it the status is `completed` and this stays, to be shown as a warning.
              */
             verify_failed?: boolean;
             /**
