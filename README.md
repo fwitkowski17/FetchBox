@@ -8,6 +8,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 
 - **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
 - **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
+- **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
 - **Adding**: paste a link (there is a paste button) and see the file's size and name before you start. If the link is a directory index page (Apache, nginx and the like), pick which files to download.
 - **Categories** (Photo, Music, Video, Program, Archive, Other), detected from the name or the server, changeable, with optional folders per category.
 - **Disk aware**: a ring shows the free space, a download that does not fit is refused or held until there is room.

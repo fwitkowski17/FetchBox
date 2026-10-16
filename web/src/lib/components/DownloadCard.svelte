@@ -6,6 +6,7 @@
   import { selection } from '../stores/selection.svelte';
   import { speedOf } from '../util/downloads';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
+  import { formatWhen } from '../util/schedule';
   import CardMenu from './CardMenu.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
   import Icon from './Icon.svelte';
@@ -28,11 +29,17 @@
   const heldForSpace = $derived(d.status === 'paused' && d.waiting_space === true && d.size != null);
   const unfinished = $derived(d.status === 'queued' || d.status === 'downloading' || d.status === 'paused');
   const folder = $derived(d.subdir ? `${d.subdir}/` : '');
+  /** Queued on purpose (download hours, or a start time): it starts by itself, or now on request. */
+  const held = $derived(d.status === 'queued' && d.hold != null);
 
   /** The one big button that matters for this status. */
   const primary = $derived.by(() => {
     switch (d.status) {
       case 'queued':
+        if (held) {
+          return { label: t('card.startNow'), icon: 'down', run: () => downloads.startNow(d.id) } as const;
+        }
+        return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
       case 'downloading':
         return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
       case 'paused':
@@ -101,7 +108,7 @@
         {/if}
       </p>
     </div>
-    <StatusBadge status={d.status} waiting={heldForSpace} />
+    <StatusBadge status={d.status} waiting={heldForSpace} hold={held ? d.hold : null} />
   </div>
 
   {#if heldForSpace && d.size != null}
@@ -116,7 +123,14 @@
 
   {#if !heldForSpace}
     <p data-part="stats" class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted tabular-nums">
-      {#if d.status === 'queued'}
+      {#if d.status === 'queued' && held}
+        <span data-part="starts-at">
+          {d.starts_at != null
+            ? t('card.startsAt', { when: formatWhen(d.starts_at, i18n.locale) })
+            : t('card.waitingHours')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}
+        </span>
+        {#if d.speed_limit}<span>{t('card.limit', { speed: i18n.speed(d.speed_limit) })}</span>{/if}
+      {:else if d.status === 'queued'}
         <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
         {#if d.speed_limit}<span>{t('card.limit', { speed: i18n.speed(d.speed_limit) })}</span>{/if}
       {:else if d.status === 'completed'}
@@ -158,6 +172,18 @@
       {#if primary}
         <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
           <Icon name={primary.icon} size={18} />{primary.label}
+        </button>
+      {/if}
+
+      {#if held}
+        <button
+          class="btn icon"
+          disabled={busy}
+          aria-label={t('card.pause')}
+          title={t('card.pause')}
+          onclick={() => act(() => downloads.pause(d.id))}
+        >
+          <Icon name="pause" />
         </button>
       {/if}
 

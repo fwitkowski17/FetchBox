@@ -17,6 +17,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - default speed of each download (a single download can get its own speed from its menu, which replaces the default, see 6.6)
   - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
+  - download hours (`schedule_*`, off by default): download only between two times of the day, see 6.3.2
   - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
@@ -47,7 +48,7 @@ FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── core/src/{lib,model,category,scheduler,limiter,stats,error}.rs
+│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,error}.rs
 │   ├── http_engine/src/{lib,segments,worker}.rs
 │   ├── torrent_engine/src/lib.rs        # stub, later librqbit
 │   ├── storage/{migrations/,src/{lib,downloads,segments,settings,stats}.rs}
@@ -150,6 +151,31 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   so a start cannot miss a change. Finished and cancelled downloads have nothing to limit (`409`).
 - Settings changes are propagated live (watch channel).
 
+### 6.3.2 Download hours and start times
+
+For mobile connections with a night package, or a line that must stay free by day.
+
+- **Download hours** (global, `Settings`): `schedule_enabled`, `schedule_from` and `schedule_to` (minutes after local midnight,
+  `to` exclusive; `to` before `from` means over midnight, `22:00`-`06:00`; equal ends are refused while the hours are on) and
+  `schedule_timezone`, an IANA zone (`Europe/Warsaw`). The server's own clock is usually UTC, so the zone is stated; the UI
+  fills in the zone of the browser. Zones come from the database bundled in the binary (`jiff`), so a container without
+  `tzdata` behaves the same and daylight saving moves the hours with the local clock. An unknown zone is refused (`400`).
+- **Outside the hours** a download that is added or resumed stays `queued` without taking a slot (the manager keeps it
+  `held`, outside the scheduler); a running one is stopped through the engine's pause, keeps its offsets and goes back to
+  `queued` (held), not to `paused`. When the hours open it is admitted again and continues from where it was. A check runs
+  every 15 s and at once when the settings are saved, so switching the hours off or moving them acts immediately. The state
+  survives a restart (a `queued` download is judged again at start-up).
+- **"Download now"** (`start_now`, stored per download): the hours do not apply to that download; it is not held, and not
+  stopped when they close. It is chosen when adding (`AddRequest.start_now`) or later for a waiting or running download
+  (`PATCH {start_now: true}`, `409` for one that is not queued or downloading). It also drops a start time.
+- **Start time** (`start_at`, unix seconds, `AddRequest.start_at`): the download waits until then (at most 31 days ahead, not
+  in the past, not together with `start_now`). Meant for when there are no download hours; with hours on, both must allow it.
+  Once begun, the start time no longer matters (a running download only obeys the hours).
+- A user's own **pause** is a pause: it takes the download out of the hold and nothing starts it but "Resume" (which
+  queues it again, and then the hours decide). A cancelled or removed download leaves the hold too.
+- A waiting download is reported with `hold` (`window` or `time`) and `starts_at` (unix seconds): its start time or the next
+  opening of the hours. They are computed, not stored.
+
 ### 6.3.1 Categories and directories
 
 - Category = file extension first (servers often send `application/octet-stream`), then `Content-Type`
@@ -162,7 +188,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, active_ms, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, start_at, start_now, active_ms, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
 - `history`: download_id, added_at, finished_at, outcome (`completed` | `failed` | `cancelled`), name, category, size, bytes,
   active_ms. One row per download that ended, written by a trigger on `downloads.status`, so whichever code path ends a
@@ -170,7 +196,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -180,7 +206,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id[?delete_file=true]` (removes the entry; with
   `delete_file` also the finished file, only for a completed download and only the plain file name the engine finally
   chose, inside the download's own directory; a file that is already gone is fine, any other failure keeps the entry)
-- `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
+- `PATCH /api/downloads/:id` (`category`, `archived`, `start_now` (6.3.2) and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
   the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
   checks)
 - `POST /api/probe {url}` (looks at a URL without adding anything and answers `{kind, filename, size?, resumable, category,
@@ -267,6 +293,8 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Archived: a status tab of its own ("Archived", in the side panel). "All" and the other status tabs show only what is not
   archived, so archiving really hides an entry; "Clear finished" leaves archived entries alone; a list where everything is
   archived says so and offers to show them.
+- A waiting download (`hold`) shows the badge "Waiting for the hours" or "Scheduled", "Starts 01:00" / "Starts tomorrow 02:30"
+  instead of "Waiting for a free slot", and its main button is "Download now"; a pause button sits next to it.
 - Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel
   (unfinished) or "remove from list, the file stays" (finished). The "more" menu (replacing the old category select) has
   "Copy link" (the clipboard API where the page is a secure context, a selection fallback on plain-HTTP LAN pages),
@@ -280,6 +308,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   switched off it says which default the download uses, switched on the value replaces that default. It saves with `PATCH`
   and takes effect at once. A card with an own speed shows "Limit N MB/s" in its stats line. Settings has the default speed
   of each download and the total limit.
+- Download hours in Settings (6.3.2): a card "Download hours" with a switch; on, it shows "From" and "To" time fields, a summary
+  ("Downloads run from 22:00 until 06:00 the next day"), and the time zone (a text field with the browser's list of zones,
+  default the browser's zone while the hours are off). Equal times and an unknown zone are shown as errors before saving.
 - Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
   floating button and the empty list (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
@@ -292,6 +323,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   one) and, when the server does not support ranges, that the download cannot be resumed once paused; the file name
   field's placeholder becomes the name the server suggests. An older look is cancelled when the address changes. A
   failed look shows its reason but never blocks adding (the add reports a real problem itself).
+  When to start (6.3.2) is one checkbox under the fields: with download hours on it is "Download now" (unchecked: it waits for
+  the hours, which the hint names), without hours it is "Start at a set time" with a time field (the next time the local clock
+  shows it, today or tomorrow, said in words below). It applies to every file of a directory listing too.
   When the address is a directory index (`kind: "listing"`) the file name field gives way to a list (`ListingPicker`): "Select
   all" (of what the filter shows), a filter box, the folders (a click opens one: the address becomes the folder's and
   "Back" returns) and the files with a checkbox, category icon and size, then "N selected" with the total size ("at least"
@@ -502,7 +536,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
 ## 7. Dependencies (Rust)
 
-`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix). Later: `librqbit`.
+`tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `jiff` (time zones for the download hours, with its tz database bundled so no `tzdata` is needed), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix). Later: `librqbit`.
 
 ## 8. Milestones
 

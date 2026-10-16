@@ -1,9 +1,14 @@
 <script lang="ts">
-  import type { Status } from '../api/types';
+  import type { Hold, Status } from '../api/types';
   import { t } from '../i18n';
 
-  /** `waiting`: paused because the disk is full (shown as "Waiting for space"). */
-  let { status, waiting = false }: { status: Status; waiting?: boolean } = $props();
+  /** `waiting`: paused because the disk is full (shown as "Waiting for space"). `hold`: queued
+   *  on purpose until the download hours open or a start time comes. */
+  let {
+    status,
+    waiting = false,
+    hold = null,
+  }: { status: Status; waiting?: boolean; hold?: Hold | null | undefined } = $props();
 
   const STYLE: Record<Status, string> = {
     queued: 'bg-surface-2 text-muted',
@@ -17,12 +22,18 @@
 
 <span
   data-status={status}
-  data-waiting={waiting ? 'space' : undefined}
+  data-waiting={waiting ? 'space' : (hold ?? undefined)}
   class={[
     'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap',
     STYLE[status],
   ]}
 >
   <span class={['size-1.5 rounded-full bg-current', status === 'downloading' && 'animate-pulse']}></span>
-  {waiting ? t('status.waitingSpace') : t(`status.${status}`)}
+  {#if waiting}
+    {t('status.waitingSpace')}
+  {:else if hold}
+    {t(hold === 'time' ? 'status.scheduled' : 'status.waitingHours')}
+  {:else}
+    {t(`status.${status}`)}
+  {/if}
 </span>

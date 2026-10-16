@@ -100,7 +100,7 @@ Svelte 5 with runes, Vite, Tailwind CSS 4, no component framework. The app is ab
 
 ## Dependencies
 
-Each one earns its place: `tokio` + `axum` (one async stack), `reqwest` with `rustls` (no OpenSSL), `rusqlite` bundled (lighter than `sqlx`, no system SQLite), `rust-embed` + `mime_guess` (the embedded web app), `argon2` (the password hash; pure Rust, the salt comes from `getrandom`), `rustix` (free disk space through `statvfs` without `unsafe`), `clap`, `serde`, `thiserror`/`anyhow`, `tracing`, `async-trait`, `utoipa` (derive only). On the frontend: `tailwindcss` (build time only) and `@fontsource-variable/inter` (the font files).
+Each one earns its place: `tokio` + `axum` (one async stack), `reqwest` with `rustls` (no OpenSSL), `rusqlite` bundled (lighter than `sqlx`, no system SQLite), `rust-embed` + `mime_guess` (the embedded web app), `argon2` (the password hash; pure Rust, the salt comes from `getrandom`), `rustix` (free disk space through `statvfs` without `unsafe`), `jiff` (time zones for the download hours, tz database bundled), `clap`, `serde`, `thiserror`/`anyhow`, `tracing`, `async-trait`, `utoipa` (derive only). On the frontend: `tailwindcss` (build time only) and `@fontsource-variable/inter` (the font files).
 
 ## Releasing
 
