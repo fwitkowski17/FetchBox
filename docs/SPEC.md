@@ -689,7 +689,9 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
   Removal keeps the database, the downloads and the user; `apt purge` also removes the settings file.
 - **Tests**: `packaging/smoke-test.sh <package> <version> [--run]` installs a package in a container without systemd, checks the
   files, the user and the permissions, with `--run` starts the program as `fetchbox` and requires `GET /api/health` to answer, then
-  removes (and purges) it and checks that the data stays. CI runs it on every pull request with a stub program (`packaging` job: also
+  removes (and purges) it and checks that the data stays. The tools `--run` needs (`curl`, `runuser`) are looked for every time and
+  installed when the image lacks them (the Fedora image has no `runuser`), so the CI, which cannot run its stub, still proves that they can
+  be had. CI runs it on every pull request with a stub program (`packaging` job: also
   `shellcheck` of all scripts); the release workflow runs it with the real binary on Debian 12 and Fedora, on x86_64 and on ARM
   runners, before anything is published. A failing test stops the release.
 - **Installers**: `deploy/install.sh` (any Linux with systemd: downloads the tarball, checks its checksum, creates the user and the
