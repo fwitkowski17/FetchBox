@@ -1,6 +1,7 @@
 # FetchBox
 
 [![CI](https://github.com/fwitkowski17/WebDownloadManager/actions/workflows/ci.yml/badge.svg)](https://github.com/fwitkowski17/WebDownloadManager/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/fwitkowski17/WebDownloadManager?include_prereleases&sort=semver)](https://github.com/fwitkowski17/WebDownloadManager/releases)
 
 A small, self-hosted download manager for a homelab, controlled from a web interface on a desktop or a phone. One Rust binary serves the API and the embedded web app, keeps a queue, and carries on when your browser is closed. No database server, no Node.js at runtime.
 
@@ -238,19 +239,6 @@ Your data stays and unfinished downloads continue after the restart.
 
 > [!NOTE]
 > The app does not update itself (inside a container that is neither possible nor safe). The update commands of the installers (`update` in the Proxmox container, `install.sh update` without `--version`) install only stable versions; to try a pre-release, install it from its release page (`install.sh update --version 0.7.0-rc.1` also works).
-
-
-<details>
-<summary>Coming from the old name <code>dlmanager</code>?</summary>
-
-An existing installation keeps working:
-
-- the database `dlmanager.db` in the data directory is renamed to `fetchbox.db` on the first start, and the account and downloads stay;
-- `DLM_PASSWORD` is still read (with a warning) when `FETCHBOX_PASSWORD` is not set, and the theme, language, accent and list filters in the browser are carried over;
-- everybody has to sign in once more (the session cookie has a new name);
-- in Docker the service and container are now called `fetchbox`: run `docker compose up -d --build --remove-orphans` to replace the old `dlmanager` container; `./data` and `./downloads` are reused.
-
-</details>
 
 ## 🌍 Languages
 
