@@ -1,0 +1,48 @@
+name: Tag a new version
+
+# When a change to Cargo.toml reaches main and the version in it has no tag yet, tag it and start the
+# release workflow. So a release is: scripts/bump-version.sh 0.7.0, a pull request, merge.
+# The tag is made with the workflow token, which does not start other workflows by itself, hence
+# the explicit dispatch of release.yml on the new tag.
+
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.toml]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: tag-version
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag the version and start the release
+        run: |
+          set -euo pipefail
+          version="$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml | head -n1)"
+          [ -n "$version" ] || { echo "::error::No version in Cargo.toml"; exit 1; }
+          tag="v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "${tag} exists already: nothing to do"
+            exit 0
+          fi
+          # The web app and the lock file must say the same, or the release would be a lie.
+          web="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' web/package.json | head -n1)"
+          if [ "$web" != "$version" ]; then
+            echo "::error::web/package.json has ${web}, Cargo.toml has ${version}: run scripts/bump-version.sh"
+            exit 1
+          fi
+          git tag "$tag"
+          git push origin "refs/tags/${tag}"
+          gh workflow run release.yml --ref "$tag"
+          echo "Tagged ${tag} and started the release."

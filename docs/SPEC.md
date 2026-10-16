@@ -603,7 +603,10 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   generated notes; a tag with a dash is a pre-release (the update check announces it only to those who switched on pre-releases;
   the installers' own update commands take only stable releases). That release is what the update check finds and what the installers
   (`deploy/install.sh`, `deploy/proxmox`) install and update from; nothing is compiled on the user's machine. Raising the version
-  means changing `Cargo.toml` (and `web/package.json`) first.
+  means changing `Cargo.toml` (and `web/package.json`) first: `scripts/bump-version.sh <version>` changes every file that carries it. When
+  such a change reaches `main`, `.github/workflows/tag.yml` tags the version if it has no tag yet and starts `release.yml` on the tag
+  (a tag pushed with the workflow token starts no workflow by itself, so the dispatch is explicit; `release.yml` also runs on a tag
+  pushed by hand and can be run by hand on a tag's ref).
 
 ### 6.10 Console log
 

@@ -52,10 +52,10 @@ Only the directory you name is made available to the container.
 
 ## Releasing
 
-The release is made by the workflow `.github/workflows/release.yml`; it needs nothing but a tag:
+The release is made by the workflow `.github/workflows/release.yml`; it needs nothing but a tag, and the tag comes by itself:
 
-1. Put the new version in `Cargo.toml` (`[workspace.package] version`) and `web/package.json`, merge it.
-2. `git tag v0.6.1 && git push origin v0.6.1` (the tag is `v` + the version; the workflow fails when they differ, because the app compares the tag with its own version to announce updates).
+1. `scripts/bump-version.sh 0.7.0` puts the new version everywhere (`Cargo.toml`, `Cargo.lock`, `web/package.json` and its lock, `docs/openapi.json`); commit it and merge the pull request.
+2. The merge changes `Cargo.toml` on `main`, and `.github/workflows/tag.yml` tags the version (`v` + the version; the release workflow fails when they differ, because the app compares the tag with its own version to announce updates) and starts the release workflow on that tag. Pushing the tag by hand (`git tag v0.7.0 && git push origin v0.7.0`) does the same.
 3. The workflow builds the web interface, then the binary for **x86_64** and **aarch64** Linux (in a Debian 12 container, which sets the oldest system they run on), wraps each in a **DEB** and an **RPM** (`packaging/`, built with nfpm), installs every package in a clean Debian 12 or Fedora container and starts it (a failing test stops the release), and publishes a GitHub Release with `fetchbox-linux-<arch>.tar.gz`, `fetchbox_<version>_<amd64|arm64>.deb`, `fetchbox-<version>-1.<x86_64|aarch64>.rpm` and a `.sha256` file for each, with release notes generated from the merged pull requests. A tag with a dash (`v0.7.0-rc.1`) makes a pre-release, which neither the installer nor the app's update check picks up.
 
 You may also create the release by hand on GitHub first (with the tag): the workflow then only attaches the files.
