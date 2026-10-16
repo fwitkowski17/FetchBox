@@ -26,7 +26,7 @@ The defaults are 1 CPU core, 512 MB RAM and 8 GB disk, Debian 13, unprivileged (
 
 ### Why Debian, not Alpine
 
-FetchBox is a normal glibc program (the release binaries are built on Debian 12, like the Docker image, and run on Debian 12 and newer and on Ubuntu 22.04 and newer), systemd keeps it running, and the framework's defaults are Debian. Alpine uses musl and OpenRC: it would need a separate static (musl) build in the release and another service definition, to save about 100 MB; nothing here is tested on it. If you want it, it is a separate piece of work.
+FetchBox is a normal glibc program (the release binaries are built on Debian 12, so that they also run on Debian 12 and 13, Ubuntu 22.04 and newer and Raspberry Pi OS; the container itself is Debian 13), systemd keeps it running, and the framework's defaults are Debian. Alpine uses musl and OpenRC: it would need a separate static (musl) build in the release and another service definition, to save about 100 MB; nothing here is tested on it. If you want it, it is a separate piece of work.
 
 ### What ends up in the container
 
@@ -56,7 +56,7 @@ The release is made by the workflow `.github/workflows/release.yml`; it needs no
 
 1. Put the new version in `Cargo.toml` (`[workspace.package] version`) and `web/package.json`, merge it.
 2. `git tag v0.6.1 && git push origin v0.6.1` (the tag is `v` + the version; the workflow fails when they differ, because the app compares the tag with its own version to announce updates).
-3. The workflow builds the web interface, then the binary for **x86_64** and **aarch64** Linux (in a Debian 12 container), and publishes a GitHub Release with `fetchbox-linux-x86_64.tar.gz`, `fetchbox-linux-aarch64.tar.gz` and a `.sha256` file for each, with release notes generated from the merged pull requests. A tag with a dash (`v0.7.0-rc.1`) makes a pre-release, which neither the installer nor the app's update check picks up.
+3. The workflow builds the web interface, then the binary for **x86_64** and **aarch64** Linux (in a Debian 12 container, which sets the oldest system they run on), and publishes a GitHub Release with `fetchbox-linux-x86_64.tar.gz`, `fetchbox-linux-aarch64.tar.gz` and a `.sha256` file for each, with release notes generated from the merged pull requests. A tag with a dash (`v0.7.0-rc.1`) makes a pre-release, which neither the installer nor the app's update check picks up.
 
 You may also create the release by hand on GitHub first (with the tag): the workflow then only attaches the files.
 

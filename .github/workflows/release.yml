@@ -62,9 +62,12 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    # Built on Debian 12 (glibc 2.36), like the Docker image: the result runs on Debian 12 and
-    # newer, Ubuntu 22.04 and newer, and so in the Proxmox containers. A binary built on the
-    # runner's own, newer glibc would not start on those.
+    # Built on Debian 12 (glibc 2.36) on purpose, although the Docker image and the Proxmox
+    # container are on Debian 13: a binary needs at least the glibc it was linked against, so the
+    # older builder gives a binary that runs on Debian 12 and 13, Ubuntu 22.04 and newer and
+    # Raspberry Pi OS. Nothing from the builder ends up in the binary or is patched later (the libc
+    # is the one of the machine it runs on), so "oldstable" costs nothing here. Move to
+    # `rust:1-trixie` when Debian 12 no longer needs to be supported: the floor becomes glibc 2.41.
     container: rust:1-bookworm
     steps:
       - uses: actions/checkout@v4
