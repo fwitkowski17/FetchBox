@@ -102,7 +102,12 @@ impl Category {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
+    /// `http://` and `https://`.
     Http,
+    /// `ftp://` and `ftps://` (FTP over TLS).
+    Ftp,
+    /// `sftp://` (the SSH file transfer protocol).
+    Sftp,
     Magnet,
     TorrentFile,
 }
@@ -112,6 +117,8 @@ impl SourceKind {
     pub fn as_str(self) -> &'static str {
         match self {
             SourceKind::Http => "http",
+            SourceKind::Ftp => "ftp",
+            SourceKind::Sftp => "sftp",
             SourceKind::Magnet => "magnet",
             SourceKind::TorrentFile => "torrent_file",
         }
@@ -121,10 +128,45 @@ impl SourceKind {
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "http" => SourceKind::Http,
+            "ftp" => SourceKind::Ftp,
+            "sftp" => SourceKind::Sftp,
             "magnet" => SourceKind::Magnet,
             "torrent_file" => SourceKind::TorrentFile,
             _ => return None,
         })
+    }
+
+    /// The kind an address belongs to, judged by its scheme (`None` for a scheme FetchBox cannot
+    /// download from).
+    pub fn for_url(url: &str) -> Option<Self> {
+        let (scheme, _) = url.trim_start().split_once(':')?;
+        Some(match scheme.to_ascii_lowercase().as_str() {
+            "http" | "https" => SourceKind::Http,
+            "ftp" | "ftps" => SourceKind::Ftp,
+            "sftp" => SourceKind::Sftp,
+            _ => return None,
+        })
+    }
+}
+
+/// A user name and password for a source that asks for a login (SPEC 6.12). Kept on the server so
+/// that a paused or restarted download can go on; the password is never sent back by the API and
+/// never written to the log.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Credentials {
+    pub username: String,
+    /// May be empty (a login without a password).
+    #[serde(default)]
+    pub password: String,
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("username", &self.username)
+            .field("password", &"***")
+            .finish()
     }
 }
 
@@ -145,6 +187,10 @@ pub struct Download {
     pub resumable: bool,
     pub etag: Option<String>,
     pub error: Option<String>,
+    /// The user name the download logs in with, if it has a login. The password is kept on the
+    /// server and never shown.
+    #[serde(default)]
+    pub username: Option<String>,
     /// Subdirectory of the download directory the file goes to; empty = the directory itself.
     #[serde(default)]
     pub subdir: String,
@@ -408,6 +454,10 @@ pub struct AddRequest {
     /// Verify the finished file against this checksum (SPEC 6.2.2).
     #[serde(default)]
     pub checksum: Option<ChecksumInput>,
+    /// Log in to the source with this user name and password (SPEC 6.12). They win over a login
+    /// written into the address (`ftp://user:password@host/file`), which is moved here anyway.
+    #[serde(default)]
+    pub credentials: Option<Credentials>,
 }
 
 /// What a release changed, as its author wrote it on GitHub (Markdown).
@@ -453,6 +503,9 @@ pub struct VersionInfo {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ProbeRequest {
     pub url: String,
+    /// The login to look at the address with (see `AddRequest::credentials`).
+    #[serde(default)]
+    pub credentials: Option<Credentials>,
 }
 
 /// What a URL turned out to be.
@@ -498,6 +551,82 @@ pub struct UrlInfo {
     pub entries: Vec<ListingEntry>,
     /// The page had more items than are returned.
     pub truncated: bool,
+}
+
+/// An SSH server the user has accepted the host key of (SPEC 6.12). SFTP has no certificate
+/// authorities: the key a server presents is only believed when it is the one that was accepted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct KnownHost {
+    #[cfg_attr(feature = "openapi", schema(value_type = i64))]
+    pub id: Id,
+    /// Host name or address, lowercase, as written in the download address.
+    pub host: String,
+    pub port: u16,
+    /// Kind of the key (`ssh-ed25519`, `ssh-rsa`, ...).
+    pub key_type: String,
+    /// `SHA256:` and the unpadded base64 of the key's hash, as `ssh-keygen -l` prints it.
+    pub fingerprint: String,
+    /// When it was accepted (unix seconds).
+    pub added_at: i64,
+}
+
+/// Request to accept the host key of an SSH server: send back what a refused add showed.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TrustHost {
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub key_type: String,
+    pub fingerprint: String,
+}
+
+/// What is wrong with the host key of an SSH server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum HostKeyProblemKind {
+    /// The server has not been seen before: the user decides whether to trust the key.
+    Untrusted,
+    /// The server presents another key than the accepted one: a reinstalled server, or someone
+    /// in between. Nothing is downloaded until the user has removed the old key.
+    Changed,
+}
+
+/// A refused connection to an SSH server because of its host key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct HostKeyProblem {
+    pub kind: HostKeyProblemKind,
+    pub host: String,
+    pub port: u16,
+    pub key_type: String,
+    /// The fingerprint the server just presented.
+    pub fingerprint: String,
+    /// The accepted fingerprint, for `changed`.
+    pub trusted_fingerprint: Option<String>,
+}
+
+impl std::fmt::Display for HostKeyProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            HostKeyProblemKind::Untrusted => write!(
+                f,
+                "the SSH server {}:{} is not trusted yet (its {} key is {})",
+                self.host, self.port, self.key_type, self.fingerprint
+            ),
+            HostKeyProblemKind::Changed => write!(
+                f,
+                "the host key of {}:{} has changed (now {}, accepted {}); \
+                 remove the old key in Settings if the server was reinstalled",
+                self.host,
+                self.port,
+                self.fingerprint,
+                self.trusted_fingerprint.as_deref().unwrap_or("?")
+            ),
+        }
+    }
 }
 
 /// Why an add request collided with something.
@@ -600,6 +729,8 @@ pub struct Job {
     /// The user added it although it did not fit: skip the free-space check at start. If the disk
     /// really fills up, the download fails with the write error.
     pub ignore_space: bool,
+    /// The login of the source, if it needs one.
+    pub credentials: Option<Credentials>,
 }
 
 /// Opaque reference to a started job.
@@ -645,6 +776,8 @@ mod tests {
         }
         for k in [
             SourceKind::Http,
+            SourceKind::Ftp,
+            SourceKind::Sftp,
             SourceKind::Magnet,
             SourceKind::TorrentFile,
         ] {
@@ -671,5 +804,36 @@ mod tests {
             ..Settings::default()
         };
         assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn the_scheme_decides_the_kind_of_source() {
+        for (url, kind) in [
+            ("http://h/a", Some(SourceKind::Http)),
+            ("HTTPS://h/a", Some(SourceKind::Http)),
+            ("  ftp://h/a", Some(SourceKind::Ftp)),
+            ("ftps://h/a", Some(SourceKind::Ftp)),
+            ("sftp://h/a", Some(SourceKind::Sftp)),
+            ("file:///etc/passwd", None),
+            ("javascript:alert(1)", None),
+            ("no scheme", None),
+        ] {
+            assert_eq!(SourceKind::for_url(url), kind, "{url}");
+        }
+    }
+
+    #[test]
+    fn a_password_never_shows_in_debug_output() {
+        let c = Credentials {
+            username: "filip".into(),
+            password: "hunter2".into(),
+        };
+        let shown = format!("{c:?}");
+        assert!(shown.contains("filip") && !shown.contains("hunter2"), "{shown}");
+        let req: AddRequest = serde_json::from_str(
+            r#"{"url":"ftp://h/a","credentials":{"username":"u","password":"hunter2"}}"#,
+        )
+        .expect("request");
+        assert!(!format!("{req:?}").contains("hunter2"));
     }
 }

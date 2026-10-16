@@ -27,6 +27,9 @@ pub enum Error {
         /// Bytes of `free` that other unfinished downloads still have to write.
         reserved: u64,
     },
+    /// The host key of an SSH server is not trusted yet, or is not the one that was accepted.
+    #[error("{0}")]
+    HostKey(Box<crate::model::HostKeyProblem>),
     /// Unexpected internal failure (database, ...).
     #[error("internal error: {0}")]
     Internal(String),

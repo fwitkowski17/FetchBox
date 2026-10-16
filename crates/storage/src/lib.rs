@@ -1,6 +1,7 @@
 //! SQLite storage: connection setup, migrations, repositories.
 
 pub mod downloads;
+pub mod known_hosts;
 pub mod segments;
 pub mod settings;
 pub mod stats;
@@ -40,6 +41,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0008_stats.sql"),
     include_str!("../migrations/0009_schedule.sql"),
     include_str!("../migrations/0010_checksum.sql"),
+    include_str!("../migrations/0011_sources.sql"),
 ];
 
 /// Open (creating if needed) the database at `path` and run pending migrations.
@@ -112,11 +114,11 @@ mod tests {
         }
     }
 
-    /// The database as it was before the checksum migration, with a row to carry over.
-    fn database_at_version_9() -> Connection {
+    /// The database as it was after `version` migrations.
+    fn database_at_version(version: usize) -> Connection {
         let mut conn = Connection::open_in_memory().expect("open");
         conn.pragma_update(None, "foreign_keys", "ON").expect("fk");
-        for (i, sql) in MIGRATIONS.iter().enumerate().take(9) {
+        for (i, sql) in MIGRATIONS.iter().enumerate().take(version) {
             let tx = conn.transaction().expect("tx");
             tx.execute_batch(sql).expect("migration");
             tx.pragma_update(None, "user_version", i + 1).expect("v");
@@ -127,7 +129,7 @@ mod tests {
 
     #[test]
     fn the_checksum_migration_keeps_rows_segments_history_and_the_id_counter() {
-        let mut conn = database_at_version_9();
+        let mut conn = database_at_version(9);
         for name in ["a", "b", "c"] {
             conn.execute(
                 "INSERT INTO downloads (url, filename, category, status, size, downloaded, subdir, archived, speed_limit)
@@ -210,6 +212,65 @@ mod tests {
             .pragma_query_value(None, "foreign_keys", |r| r.get(0))
             .expect("pragma");
         assert!(fk_on, "foreign keys are back on after the migrations");
+    }
+
+    #[test]
+    fn the_sources_migration_keeps_downloads_and_allows_new_kinds() {
+        let mut conn = database_at_version(10);
+        conn.execute(
+            "INSERT INTO downloads (url, filename, status, size, downloaded, checksum_algo, checksum_expected)
+             VALUES ('http://x/a', 'a', 'paused', 100, 10, 'md5', 'd41d8cd98f00b204e9800998ecf8427e')",
+            [],
+        )
+        .expect("insert");
+        conn.execute("INSERT INTO segments VALUES (1, 0, 0, 99, 10)", [])
+            .expect("segment");
+        conn.execute("UPDATE downloads SET status = 'failed' WHERE id = 1", [])
+            .expect("failed");
+
+        migrate(&mut conn).expect("migrate");
+
+        let (url, status, algo, size, username): (String, String, String, i64, Option<String>) = conn
+            .query_row(
+                "SELECT url, status, checksum_algo, size, username FROM downloads WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .expect("row");
+        assert_eq!(
+            (url.as_str(), status.as_str(), algo.as_str(), size, username),
+            ("http://x/a", "failed", "md5", 100, None)
+        );
+        let kept: i64 = conn
+            .query_row("SELECT COUNT(*) FROM segments", [], |r| r.get(0))
+            .expect("segments");
+        assert_eq!(kept, 1, "segments survive the rebuild");
+        let history: i64 = conn
+            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
+            .expect("history");
+        assert_eq!(history, 1, "history is kept, and its trigger still fires");
+        for kind in ["ftp", "sftp"] {
+            conn.execute(
+                "INSERT INTO downloads (url, filename, source_kind, username, password)
+                 VALUES ('u', 'f', ?1, 'me', 'pw')",
+                [kind],
+            )
+            .unwrap_or_else(|e| panic!("{kind} is allowed: {e}"));
+        }
+        assert!(conn
+            .execute(
+                "INSERT INTO downloads (url, filename, source_kind) VALUES ('u', 'f', 'gopher')",
+                [],
+            )
+            .is_err());
+        conn.execute("UPDATE downloads SET status = 'cancelled' WHERE id = 2", [])
+            .expect("cancel");
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM history WHERE download_id = 2", [], |r| {
+                r.get(0)
+            })
+            .expect("history");
+        assert_eq!(rows, 1);
     }
 
     #[test]

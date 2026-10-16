@@ -244,6 +244,7 @@ mod tests {
                 start_at: None,
                 start_now: false,
                 checksum: None,
+                credentials: None,
             },
         )
         .expect("insert")
