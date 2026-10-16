@@ -126,6 +126,36 @@
           })}
         </p>
       {/if}
+      <fieldset class="field m-0 border-0 p-0" data-part="on-end">
+        <legend class="mb-1 font-semibold">{t('settings.schedule.onEnd')}</legend>
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            name="schedule-on-end"
+            value="pause"
+            class="mt-1 size-5 shrink-0 accent-[var(--accent)]"
+            bind:group={draft.scheduleOnEnd}
+          />
+          <span class="grid gap-0.5">
+            <span class="font-medium">{t('settings.schedule.onEnd.pause')}</span>
+            <span class="hint">{t('settings.schedule.onEnd.pauseHint')}</span>
+          </span>
+        </label>
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            name="schedule-on-end"
+            value="finish"
+            class="mt-1 size-5 shrink-0 accent-[var(--accent)]"
+            bind:group={draft.scheduleOnEnd}
+          />
+          <span class="grid gap-0.5">
+            <span class="font-medium">{t('settings.schedule.onEnd.finish')}</span>
+            <span class="hint">{t('settings.schedule.onEnd.finishHint')}</span>
+          </span>
+        </label>
+      </fieldset>
+
       <div class="field">
         <label for="schedule-zone">{t('settings.schedule.zone')}</label>
         <input

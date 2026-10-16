@@ -25,6 +25,7 @@ const base: Settings = {
   schedule_from: 0,
   schedule_to: 360,
   schedule_timezone: 'Europe/Warsaw',
+  schedule_on_end: 'pause',
 };
 
 describe('settings form', () => {
@@ -72,6 +73,16 @@ describe('settings form', () => {
       'Europe/Warsaw',
     ]);
     expect(fromDraft(d)).toEqual(night);
+  });
+
+  it('keeps the choice of what running downloads do when the hours end', () => {
+    expect(toDraft(base).scheduleOnEnd).toBe('pause');
+    const finish: Settings = { ...base, schedule_on_end: 'finish' };
+    expect(toDraft(finish).scheduleOnEnd).toBe('finish');
+    expect(fromDraft(toDraft(finish))).toEqual(finish);
+    expect(isDirty(toDraft(base), finish)).toBe(true);
+    const { schedule_on_end: _omit, ...older } = base;
+    expect(toDraft(older).scheduleOnEnd).toBe('pause');
   });
 
   it('offers this browser\'s zone while the hours are off and the server still has the default', () => {

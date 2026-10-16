@@ -359,6 +359,11 @@ const pl: Messages = {
   'settings.schedule.toggle': 'Pobieraj tylko w wybranych godzinach',
   'settings.schedule.hint':
     'Poza tymi godzinami pobierania czekają w kolejce, a trwające zatrzymują się i wznawiają, gdy godziny się zaczną. Przydatne przy nocnym pakiecie danych albo gdy łącze w dzień ma być wolne. Pojedyncze pobieranie możesz od razu uruchomić przyciskiem „Pobierz teraz”.',
+  'settings.schedule.onEnd': 'Po zakończeniu godzin',
+  'settings.schedule.onEnd.pause': 'Wstrzymaj trwające pobierania',
+  'settings.schedule.onEnd.pauseHint': 'Zatrzymują się, zachowują to, co pobrały, i kontynuują, gdy godziny znów się zaczną. Poza godzinami nic się nie pobiera.',
+  'settings.schedule.onEnd.finish': 'Dokończ trwające pobierania',
+  'settings.schedule.onEnd.finishHint': 'Na kolejne godziny czekają tylko pobierania, które jeszcze się nie zaczęły. Użyj, gdy pobranie nie może zostać przerwane w połowie.',
   'settings.schedule.from': 'Od',
   'settings.schedule.to': 'Do',
   'settings.schedule.zone': 'Strefa czasowa',

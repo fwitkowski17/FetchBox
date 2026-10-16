@@ -343,6 +343,11 @@ export const en = {
   'settings.schedule.toggle': 'Download only at set hours',
   'settings.schedule.hint':
     'Outside these hours downloads wait in the queue, and running ones stop and go on when the hours open. Handy for a night data package, or when the connection must stay free during the day. A single download can skip the wait with “Download now”.',
+  'settings.schedule.onEnd': 'When the hours end',
+  'settings.schedule.onEnd.pause': 'Pause running downloads',
+  'settings.schedule.onEnd.pauseHint': 'They stop, keep what they have and go on when the hours open again. Nothing is downloaded outside the hours.',
+  'settings.schedule.onEnd.finish': 'Let running downloads finish',
+  'settings.schedule.onEnd.finishHint': 'Only downloads that have not started yet wait for the next hours. Use it when a download must not be cut in two.',
   'settings.schedule.from': 'From',
   'settings.schedule.to': 'To',
   'settings.schedule.zone': 'Time zone',

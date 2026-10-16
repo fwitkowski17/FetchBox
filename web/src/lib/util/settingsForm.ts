@@ -28,6 +28,8 @@ export interface Draft {
   scheduleTo: string;
   /** IANA time zone the hours are in. */
   scheduleTimezone: string;
+  /** What running downloads do when the hours end. */
+  scheduleOnEnd: 'pause' | 'finish';
 }
 
 export function speedToDraft(bytesPerSecond: number): SpeedDraft {
@@ -59,6 +61,7 @@ export function toDraft(s: Settings): Draft {
     // The server's default is UTC. While the hours are off, offer the zone of this browser
     // instead, which is what a person who switches them on means.
     scheduleTimezone: scheduleZone(s),
+    scheduleOnEnd: s.schedule_on_end ?? 'pause',
   };
 }
 
@@ -74,6 +77,7 @@ export function fromDraft(d: Draft): Settings {
     schedule_from: timeToMinutes(d.scheduleFrom) ?? 0,
     schedule_to: timeToMinutes(d.scheduleTo) ?? 360,
     schedule_timezone: d.scheduleTimezone.trim(),
+    schedule_on_end: d.scheduleOnEnd,
   };
 }
 
@@ -119,7 +123,8 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     (a.schedule_enabled ?? false) === (b.schedule_enabled ?? false) &&
     (a.schedule_from ?? 0) === (b.schedule_from ?? 0) &&
     (a.schedule_to ?? 360) === (b.schedule_to ?? 360) &&
-    (a.schedule_timezone ?? 'UTC') === (b.schedule_timezone ?? 'UTC')
+    (a.schedule_timezone ?? 'UTC') === (b.schedule_timezone ?? 'UTC') &&
+    (a.schedule_on_end ?? 'pause') === (b.schedule_on_end ?? 'pause')
   );
 }
 

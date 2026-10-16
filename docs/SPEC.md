@@ -161,8 +161,11 @@ For mobile connections with a night package, or a line that must stay free by da
   fills in the zone of the browser. Zones come from the database bundled in the binary (`jiff`), so a container without
   `tzdata` behaves the same and daylight saving moves the hours with the local clock. An unknown zone is refused (`400`).
 - **Outside the hours** a download that is added or resumed stays `queued` without taking a slot (the manager keeps it
-  `held`, outside the scheduler); a running one is stopped through the engine's pause, keeps its offsets and goes back to
-  `queued` (held), not to `paused`. When the hours open it is admitted again and continues from where it was. A check runs
+  `held`, outside the scheduler). What happens to the downloads that are *running* when the hours end is a setting,
+  `schedule_on_end`: `pause` (the default, since a data package may end with the hours) stops them through the engine's
+  pause, keeps their offsets and puts them back in the queue (held, not `paused`), and they continue from where they were
+  when the hours open; `finish` lets them run to the end, and only downloads that have not started wait. The choice acts at
+  once when it is saved, and a restart outside the hours puts what was running back in the queue in either mode. A check runs
   every 15 s and at once when the settings are saved, so switching the hours off or moving them acts immediately. The state
   survives a restart (a `queued` download is judged again at start-up).
 - **"Download now"** (`start_now`, stored per download): the hours do not apply to that download; it is not held, and not
@@ -196,7 +199,7 @@ For mobile connections with a night package, or a line that must stay free by da
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -310,7 +313,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   of each download and the total limit.
 - Download hours in Settings (6.3.2): a card "Download hours" with a switch; on, it shows "From" and "To" time fields, a summary
   ("Downloads run from 22:00 until 06:00 the next day"), and the time zone (a text field with the browser's list of zones,
-  default the browser's zone while the hours are off). Equal times and an unknown zone are shown as errors before saving.
+  default the browser's zone while the hours are off), and a choice "When the hours end": "Pause running downloads" or
+  "Let running downloads finish" (each with a line saying what it does). Equal times and an unknown zone are shown as errors
+  before saving.
 - Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
   floating button and the empty list (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
