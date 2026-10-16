@@ -829,7 +829,10 @@ mod tests {
             password: "hunter2".into(),
         };
         let shown = format!("{c:?}");
-        assert!(shown.contains("filip") && !shown.contains("hunter2"), "{shown}");
+        assert!(
+            shown.contains("filip") && !shown.contains("hunter2"),
+            "{shown}"
+        );
         let req: AddRequest = serde_json::from_str(
             r#"{"url":"ftp://h/a","credentials":{"username":"u","password":"hunter2"}}"#,
         )

@@ -22,6 +22,21 @@ pub enum EngineError {
     },
     #[error("connection closed before the full body arrived")]
     Truncated,
+    /// A reply of an FTP server that is not a success.
+    #[error("ftp error {code}: {message}")]
+    Ftp { code: u16, message: String },
+    /// A connection to an FTP or SSH server failed or broke (not the disk, not HTTP).
+    #[error("{0}")]
+    Network(String),
+    /// The server refused the login.
+    #[error("login refused: {0}")]
+    Auth(String),
+    /// The SSH server's host key is not trusted, or is not the one that was accepted.
+    #[error("{0}")]
+    HostKey(Box<fetchbox_core::HostKeyProblem>),
+    /// The file or folder asked for is not there, or may not be read.
+    #[error("{0}")]
+    NotFound(String),
 }
 
 /// `reqwest` hides the real reason (refused, DNS, blocked address) in the error source.
@@ -40,8 +55,10 @@ impl EngineError {
     /// Worth another attempt (network hiccup, overloaded server).
     pub fn is_retryable(&self) -> bool {
         match self {
-            EngineError::Http(_) | EngineError::Truncated => true,
+            EngineError::Http(_) | EngineError::Truncated | EngineError::Network(_) => true,
             EngineError::Status(s) => *s >= 500 || *s == 429,
+            // 4xx replies of an FTP server mean "try again later" (421: too many connections).
+            EngineError::Ftp { code, .. } => (400..500).contains(code),
             _ => false,
         }
     }
@@ -51,6 +68,7 @@ impl From<EngineError> for fetchbox_core::Error {
     fn from(e: EngineError) -> Self {
         match e {
             EngineError::InvalidUrl(m) => fetchbox_core::Error::InvalidInput(m),
+            EngineError::HostKey(problem) => fetchbox_core::Error::HostKey(problem),
             EngineError::NoSpace {
                 needed,
                 free,

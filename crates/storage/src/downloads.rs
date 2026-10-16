@@ -454,7 +454,10 @@ mod tests {
         // The password is not part of what is read into the model (and so never serialized).
         assert!(!format!("{d:?}").contains("s3cret"));
         let login = credentials(&conn, id).expect("credentials").expect("some");
-        assert_eq!((login.username.as_str(), login.password.as_str()), ("filip", "s3cret"));
+        assert_eq!(
+            (login.username.as_str(), login.password.as_str()),
+            ("filip", "s3cret")
+        );
 
         let plain = insert(&conn, &new("http://x/f.bin")).expect("insert");
         assert!(credentials(&conn, plain).expect("credentials").is_none());

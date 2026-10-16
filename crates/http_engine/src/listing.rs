@@ -7,7 +7,7 @@
 //! host, a sort link or the parent folder is not one).
 
 use fetchbox_core::category::detect as detect_category;
-use fetchbox_core::{Category, ListingEntry};
+use fetchbox_core::{Category, Credentials, ListingEntry};
 use reqwest::header::CONTENT_TYPE;
 use reqwest::{Client, Url};
 
@@ -28,9 +28,86 @@ pub struct Listing {
     pub truncated: bool,
 }
 
+/// An item of a folder listing before it has an address (FTP and SFTP list names, not links).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RawEntry {
+    pub name: String,
+    pub size: Option<u64>,
+    pub is_dir: bool,
+}
+
+/// Turn the names of a folder into a listing: unusable names are dropped, folders come first, each
+/// group by name, and each item gets the address of `folder` plus its name.
+pub(crate) fn from_raw(folder: &Url, raw: Vec<RawEntry>) -> Listing {
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for e in raw {
+        let usable = !e.name.is_empty()
+            && e.name != "."
+            && e.name != ".."
+            && !e.name.contains(['/', '\\'])
+            && !e.name.chars().any(char::is_control);
+        if !usable {
+            continue;
+        }
+        let entry = ListingEntry {
+            url: child_url(folder, &e.name, e.is_dir),
+            category: if e.is_dir {
+                Category::Other
+            } else {
+                detect_category(&e.name, None)
+            },
+            name: e.name,
+            size: e.size,
+            is_dir: e.is_dir,
+        };
+        if entry.is_dir {
+            dirs.push(entry);
+        } else {
+            files.push(entry);
+        }
+    }
+    let by_name = |a: &ListingEntry, b: &ListingEntry| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.name.cmp(&b.name))
+    };
+    dirs.sort_by(by_name);
+    files.sort_by(by_name);
+    let mut entries = dirs;
+    entries.append(&mut files);
+    let truncated = entries.len() > MAX_ENTRIES;
+    entries.truncate(MAX_ENTRIES);
+    Listing { entries, truncated }
+}
+
+/// The address of `name` in the folder at `folder` (a folder's ends with a slash).
+fn child_url(folder: &Url, name: &str, is_dir: bool) -> String {
+    let mut url = folder.clone();
+    url.set_query(None);
+    url.set_fragment(None);
+    if let Ok(mut segments) = url.path_segments_mut() {
+        // `pop_if_empty` drops the empty segment a folder's trailing slash leaves.
+        segments.pop_if_empty().push(name);
+        if is_dir {
+            segments.push("");
+        }
+    }
+    url.to_string()
+}
+
 /// Fetch `url`; `Ok(None)` when it is not an index page.
-pub async fn fetch(client: &Client, url: &Url) -> Result<Option<Listing>, EngineError> {
-    let mut resp = client.get(url.clone()).send().await?;
+pub async fn fetch(
+    client: &Client,
+    url: &Url,
+    login: Option<&Credentials>,
+) -> Result<Option<Listing>, EngineError> {
+    let mut req = client.get(url.clone());
+    if let Some(c) = login {
+        req = req.basic_auth(&c.username, Some(&c.password));
+    }
+    let mut resp = req.send().await?;
     if !resp.status().is_success() {
         return Err(EngineError::Status(resp.status().as_u16()));
     }

@@ -230,8 +230,8 @@ mod tests {
 
         migrate(&mut conn).expect("migrate");
 
-        let (url, status, algo, size, username): (String, String, String, i64, Option<String>) = conn
-            .query_row(
+        let (url, status, algo, size, username): (String, String, String, i64, Option<String>) =
+            conn.query_row(
                 "SELECT url, status, checksum_algo, size, username FROM downloads WHERE id = 1",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
@@ -266,9 +266,11 @@ mod tests {
         conn.execute("UPDATE downloads SET status = 'cancelled' WHERE id = 2", [])
             .expect("cancel");
         let rows: i64 = conn
-            .query_row("SELECT COUNT(*) FROM history WHERE download_id = 2", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM history WHERE download_id = 2",
+                [],
+                |r| r.get(0),
+            )
             .expect("history");
         assert_eq!(rows, 1);
     }

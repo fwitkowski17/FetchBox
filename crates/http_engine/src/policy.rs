@@ -47,6 +47,12 @@ impl UrlPolicy {
         }
     }
 
+    /// Whether a connection to this address is allowed (for the protocols that resolve names
+    /// themselves; HTTP goes through [`FilteringResolver`]).
+    pub fn allows(&self, ip: IpAddr) -> bool {
+        !self.block_private || !is_private_ip(ip)
+    }
+
     /// Redirect policy that applies this policy to every hop.
     pub(crate) fn redirect_policy(self) -> Policy {
         Policy::custom(move |attempt| {

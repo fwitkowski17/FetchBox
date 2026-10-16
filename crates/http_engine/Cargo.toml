@@ -9,10 +9,16 @@ publish.workspace = true
 fetchbox-core.workspace = true
 reqwest.workspace = true
 futures-util.workspace = true
-tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio = { workspace = true, features = ["fs", "io-util", "net", "time"] }
 thiserror.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
+bytes.workspace = true
+russh.workspace = true
+russh-sftp.workspace = true
+tokio-rustls.workspace = true
+rustls.workspace = true
+webpki-roots.workspace = true
 sha2.workspace = true
 sha1.workspace = true
 md-5.workspace = true
@@ -23,3 +29,7 @@ rustix.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "io-util", "net"] }
 tempfile = "3"
+# A throwaway certificate for the TLS tests of the FTP client (test builds only).
+# Makes the host key of the test SSH server (already built as a dependency of russh).
+rand = "0.10"
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }

@@ -1,6 +1,7 @@
 //! Learn what the server offers before downloading: size, range support, `ETag`, name.
 
 use fetchbox_core::filename::sanitize;
+use fetchbox_core::Credentials;
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_RANGE, CONTENT_TYPE, ETAG, RANGE};
 use reqwest::{Client, StatusCode, Url};
 
@@ -36,12 +37,16 @@ pub fn validate_url(raw: &str) -> Result<Url, EngineError> {
 
 /// Probe with a one-byte ranged GET. `206` means ranges work; `200` means they do not.
 /// (Some servers reject `HEAD`, a tiny ranged GET works everywhere.)
-pub async fn probe(client: &Client, url: &Url) -> Result<RemoteInfo, EngineError> {
-    let resp = client
-        .get(url.clone())
-        .header(RANGE, "bytes=0-0")
-        .send()
-        .await?;
+pub async fn probe(
+    client: &Client,
+    url: &Url,
+    login: Option<&Credentials>,
+) -> Result<RemoteInfo, EngineError> {
+    let mut req = client.get(url.clone()).header(RANGE, "bytes=0-0");
+    if let Some(c) = login {
+        req = req.basic_auth(&c.username, Some(&c.password));
+    }
+    let resp = req.send().await?;
     let status = resp.status();
     let headers = resp.headers();
 
@@ -88,12 +93,19 @@ fn suggested_filename(headers: &HeaderMap, url: &Url) -> String {
         .get(CONTENT_DISPOSITION)
         .and_then(|v| v.to_str().ok())
         .and_then(content_disposition_filename);
-    let name = from_header.unwrap_or_else(|| {
-        url.path_segments()
-            .and_then(|mut s| s.next_back())
-            .map(percent_decode)
-            .unwrap_or_default()
-    });
+    match from_header {
+        Some(name) => sanitize(&name),
+        None => filename_from_url(url),
+    }
+}
+
+/// The last part of the path of `url`, decoded and made safe to use as a file name.
+pub(crate) fn filename_from_url(url: &Url) -> String {
+    let name = url
+        .path_segments()
+        .and_then(|mut s| s.next_back())
+        .map(percent_decode)
+        .unwrap_or_default();
     sanitize(&name)
 }
 

@@ -49,6 +49,21 @@ sha2 = "0.10"
 sha1 = "0.10"
 md-5 = "0.10"
 
+# SFTP (SPEC 6.12): an SSH client and the SFTP protocol on top of it, pure Rust, so the final image
+# still needs no system library. The `ring` backend (already built for rustls) keeps C code such as
+# aws-lc out; `rsa` is for servers whose only host key is an RSA one. Most of the ~100 crates it
+# adds are the RustCrypto building blocks of SSH (ciphers, key exchange, signatures).
+russh = { version = "0.64", default-features = false, features = ["ring", "flate2", "rsa"] }
+russh-sftp = "3"
+
+# FTP over TLS (FTPS): the FTP client itself is a few hundred lines of our own (a dependency such as
+# suppaftp would add about twenty crates for what is a simple text protocol). TLS and the root
+# certificates are the ones reqwest already uses, so these three add no new crates to the build.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+webpki-roots = "1"
+bytes = "1"
+
 # Free disk space (statvfs) without `unsafe` or libc. Already built as a dependency of
 # `tempfile`, so it adds nothing new to the build; Unix only (Linux, macOS).
 rustix = { version = "1", default-features = false, features = ["std", "fs"] }
