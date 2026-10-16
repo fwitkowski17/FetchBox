@@ -127,10 +127,17 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
 
 - Write path: a segment reads the next chunk from the socket only after the previous one has been written, so a disk that is
   slower than the line slows the transfer through TCP and memory stays bounded (a chunk plus tokio's file buffer, at most about
-  2 MiB, per connection). Data goes to the OS page cache; nothing calls `fsync`/`sync_data`, neither before the segment offsets are
-  persisted nor before the final rename. A killed process loses nothing (the cache is the kernel's), a power cut or kernel crash
-  can leave a segment's stored offset ahead of what reached the disk (a gap of zeros in the resumed file). The progress and speed
-  shown are what was accepted for writing, which can exceed the disk's sustained rate while the cache fills.
+  2 MiB, per connection). A segment counts a chunk only after the write has completed (`flush` waits for tokio's blocking write),
+  so a counter never runs ahead of what the OS has accepted and a killed process loses nothing it counted. Data is in the OS page
+  cache until the engine forces it out: every `CHECKPOINT` (2 s, started at the first tick, one at a time, on the blocking pool so
+  the transfer goes on) it snapshots the offsets, `fdatasync`s the `.part` file and only then makes the snapshot the *durable*
+  offsets. `Event::Progress` carries the live `downloaded` (for the screen) and the durable `segments`; the manager stores the
+  durable total and offsets, so what is stored for resuming is always on the disk. `pause` stops the tasks, syncs and reports the
+  synced snapshot in `Paused` (a resume or start is refused while it syncs: `pausing`); a failed download syncs before its last
+  `Progress`; a failed sync keeps the earlier durable offsets (or fails the download during a checkpoint). The finished file is
+  synced before the final rename and the directory after it (best effort). A plain stream cannot be resumed and is not synced
+  during the transfer. The progress and speed shown are what was received, which can exceed the disk's sustained rate while the
+  cache fills. Not yet measured on slow (SMR) disks.
 
 ### 6.2.1 Directory index pages
 

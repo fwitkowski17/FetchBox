@@ -9,6 +9,7 @@ pub mod listing;
 pub mod policy;
 pub mod probe;
 pub mod segments;
+pub mod sync;
 pub mod worker;
 
 #[cfg(test)]
@@ -33,8 +34,12 @@ pub use policy::UrlPolicy;
 pub use probe::{probe, validate_url, RemoteInfo};
 use worker::SegmentSpec;
 
-/// How often progress is reported (and offsets should be persisted).
+/// How often progress is reported.
 const TICK: Duration = Duration::from_secs(1);
+
+/// How often the written data is forced to the disk (and the offsets that name it become safe to
+/// persist). Seconds apart, so that a hard disk is not made to seek for every report.
+const CHECKPOINT: Duration = Duration::from_secs(2);
 
 /// What the engine tells the outside world.
 #[derive(Debug, Clone)]
@@ -47,7 +52,8 @@ pub enum Event {
         etag: Option<String>,
         segments: Vec<SegmentState>,
     },
-    /// Periodic offsets snapshot; persist it to be able to resume after a restart.
+    /// Periodic report. `downloaded` is what has been received so far; `segments` are the offsets
+    /// that are safe on the disk (the last checkpoint), the ones to persist to be able to resume.
     Progress {
         id: Id,
         downloaded: u64,
@@ -95,6 +101,9 @@ fn effective_rate(own: u64, default: u64) -> u64 {
 struct Entry {
     job: Job,
     task: Option<JoinHandle<()>>,
+    /// The task is stopped and its data is being synced; `Paused` follows. Until then the
+    /// download can be neither resumed nor started.
+    pausing: bool,
     shared: Arc<Shared>,
     limiter: DownloadLimiter,
 }
@@ -104,6 +113,36 @@ struct Entry {
 struct Shared {
     remote: OnceLock<Remote>,
     speed: AtomicU64,
+    /// Offsets of the last checkpoint: what has been synced to the disk. Empty for a plain
+    /// stream (which cannot be resumed).
+    durable: Mutex<Vec<SegmentState>>,
+}
+
+impl Shared {
+    fn durable(&self) -> MutexGuard<'_, Vec<SegmentState>> {
+        self.durable.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Force everything counted so far to the disk, then remember it as the safe resume point.
+    /// What is counted was written (the workers count after the write), so the snapshot taken
+    /// before the sync is on the disk once the sync returns.
+    async fn checkpoint(&self, part: &Path) -> std::io::Result<Vec<SegmentState>> {
+        let Some(remote) = self.remote.get() else {
+            return Ok(Vec::new());
+        };
+        if !remote.resumable {
+            return Ok(Vec::new());
+        }
+        let snapshot = remote.snapshot();
+        sync::sync_file(part).await?;
+        let mut durable = self.durable();
+        // A slower, older checkpoint must not move the safe point back.
+        let total = |segs: &[SegmentState]| segs.iter().map(|s| s.downloaded).sum::<u64>();
+        if total(&snapshot) >= total(&durable) {
+            *durable = snapshot.clone();
+        }
+        Ok(snapshot)
+    }
 }
 
 struct Remote {
@@ -252,6 +291,11 @@ impl HttpDownloader {
                 Ok((path, size)) => Event::Completed { id, path, size },
                 Err(e) => {
                     tracing::warn!(id, error = %e, "download failed");
+                    // What was received is kept for a retry, but only once it is on the disk.
+                    let part = part_path(&target_dir(&inner.dir, &job.subdir), id, &job.filename);
+                    if let Err(sync_err) = shared.checkpoint(&part).await {
+                        tracing::warn!(id, error = %sync_err, "cannot sync the partial file; keeping the earlier offsets");
+                    }
                     inner.emit_progress(id, &shared);
                     Event::Failed {
                         id,
@@ -297,7 +341,8 @@ impl Inner {
             self.send(Event::Progress {
                 id,
                 downloaded: r.downloaded(),
-                segments: r.snapshot(),
+                // Only what has reached the disk may be stored as the point to resume from.
+                segments: shared.durable().clone(),
             });
         }
     }
@@ -439,6 +484,8 @@ async fn download(
     let Some(remote) = shared.remote.get() else {
         return Err(EngineError::Protocol("remote state not set".into()));
     };
+    // What a resumed download starts from was stored as safe by the previous run.
+    *shared.durable() = remote.snapshot();
 
     inner.send(Event::Started {
         id: job.id,
@@ -471,12 +518,25 @@ async fn download(
     }
 
     let mut ticker = tokio::time::interval(TICK);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await; // the first tick fires immediately
     let mut last = (Instant::now(), remote.downloaded());
+    // The checkpoint in flight (a sync can take seconds on a busy disk) and when the last began.
+    let mut checkpoint: Option<JoinHandle<std::io::Result<Vec<SegmentState>>>> = None;
+    let mut checkpointed: Option<Instant> = None;
     while !set.is_empty() {
         tokio::select! {
             Some(joined) = set.join_next() => {
                 joined.map_err(|e| EngineError::Protocol(format!("worker panicked: {e}")))??;
+            }
+            synced = async {
+                match checkpoint.as_mut() {
+                    Some(handle) => handle.await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                checkpoint = None;
+                synced.map_err(|e| EngineError::Protocol(format!("sync task failed: {e}")))??;
             }
             _ = ticker.tick() => {
                 let (now, total) = (Instant::now(), remote.downloaded());
@@ -484,6 +544,13 @@ async fn download(
                 let speed = (total.saturating_sub(last.1) as f64 / secs) as u64;
                 shared.speed.store(speed, Ordering::Relaxed);
                 last = (now, total);
+                if checkpoint.is_none()
+                    && checkpointed.is_none_or(|at| now.duration_since(at) >= CHECKPOINT)
+                {
+                    checkpointed = Some(now);
+                    let (shared, part) = (Arc::clone(shared), part.clone());
+                    checkpoint = Some(tokio::spawn(async move { shared.checkpoint(&part).await }));
+                }
                 inner.emit_progress(job.id, shared);
             }
         }
@@ -497,7 +564,11 @@ async fn download(
             )));
         }
     }
+    // The whole file is on the disk before it gets its final name: after a power cut a file
+    // under its real name is complete.
+    sync::sync_file(&part).await?;
     let final_path = finalize(&dir, &job.filename, &part, job.overwrite).await?;
+    sync::sync_dir(&dir).await;
     shared.speed.store(0, Ordering::Relaxed);
     Ok((final_path, total))
 }
@@ -540,7 +611,10 @@ impl Downloader for HttpDownloader {
         let mut entries = self.inner.entries();
         // A paused entry is replaced: the caller's job (built from persisted offsets) wins,
         // which makes resume-after-pause and resume-after-restart the same code path.
-        if entries.get(&job.id).is_some_and(|e| e.task.is_some()) {
+        if entries
+            .get(&job.id)
+            .is_some_and(|e| e.task.is_some() || e.pausing)
+        {
             return Err(fetchbox_core::Error::InvalidState(format!(
                 "download {} is already active",
                 job.id
@@ -562,6 +636,7 @@ impl Downloader for HttpDownloader {
             Entry {
                 job: job.clone(),
                 task: Some(task),
+                pausing: false,
                 shared,
                 limiter,
             },
@@ -570,32 +645,56 @@ impl Downloader for HttpDownloader {
     }
 
     async fn pause(&self, id: Id) -> fetchbox_core::Result<()> {
+        let (shared, part, fallback) = {
+            let mut entries = self.inner.entries();
+            let entry = entries
+                .get_mut(&id)
+                .ok_or(fetchbox_core::Error::NotFound(id))?;
+            let task = entry.task.take().ok_or_else(|| {
+                fetchbox_core::Error::InvalidState("download is already paused".into())
+            })?;
+            // Offsets only advance after a write completes, so aborting mid-write is safe:
+            // resume rewrites at most the bytes of one chunk.
+            task.abort();
+            entry.pausing = true;
+            entry.shared.speed.store(0, Ordering::Relaxed);
+            (
+                Arc::clone(&entry.shared),
+                self.part_path(id, &entry.job.subdir, &entry.job.filename),
+                entry.job.segments.clone(),
+            )
+        };
+        // The offsets of a paused download are stored as the point to continue from, so what they
+        // name has to be on the disk first (the lock is not held: this can take a while).
+        let etag = shared.remote.get().and_then(|r| r.etag.clone());
+        let (downloaded, segments) = match shared.checkpoint(&part).await {
+            Ok(snapshot) if !snapshot.is_empty() => {
+                (snapshot.iter().map(|s| s.downloaded).sum(), snapshot)
+            }
+            // A plain stream (not resumable) or no probe yet: nothing to continue from.
+            Ok(_) => (shared.remote.get().map_or(0, Remote::downloaded), fallback),
+            Err(e) => {
+                tracing::warn!(id, error = %e, "cannot sync the partial file; pausing at the last safe offsets");
+                let safe = shared.durable().clone();
+                let segments = if safe.is_empty() { fallback } else { safe };
+                (segments.iter().map(|s| s.downloaded).sum(), segments)
+            }
+        };
         let mut entries = self.inner.entries();
-        let entry = entries
-            .get_mut(&id)
-            .ok_or(fetchbox_core::Error::NotFound(id))?;
-        let task = entry.task.take().ok_or_else(|| {
-            fetchbox_core::Error::InvalidState("download is already paused".into())
-        })?;
-        // Offsets only advance after a write completes, so aborting mid-write is safe:
-        // resume rewrites at most the bytes of one chunk.
-        task.abort();
-        if let Some(r) = entry.shared.remote.get() {
-            entry.job.segments = r.snapshot();
-            entry.job.etag = r.etag.clone();
-            self.inner.send(Event::Paused {
-                id,
-                downloaded: r.downloaded(),
-                segments: entry.job.segments.clone(),
-            });
-        } else {
-            self.inner.send(Event::Paused {
-                id,
-                downloaded: 0,
-                segments: entry.job.segments.clone(),
-            });
+        // Cancelled while syncing: nothing is left to pause.
+        let Some(entry) = entries.get_mut(&id) else {
+            return Ok(());
+        };
+        entry.pausing = false;
+        if shared.remote.get().is_some() {
+            entry.job.segments = segments.clone();
+            entry.job.etag = etag;
         }
-        entry.shared.speed.store(0, Ordering::Relaxed);
+        self.inner.send(Event::Paused {
+            id,
+            downloaded,
+            segments,
+        });
         Ok(())
     }
 
@@ -604,7 +703,7 @@ impl Downloader for HttpDownloader {
         let entry = entries
             .get_mut(&id)
             .ok_or(fetchbox_core::Error::NotFound(id))?;
-        if entry.task.is_some() {
+        if entry.task.is_some() || entry.pausing {
             return Err(fetchbox_core::Error::InvalidState(
                 "download is not paused".into(),
             ));
@@ -751,6 +850,69 @@ mod tests {
             Event::Completed { .. } | Event::Failed { .. } => Some(ev),
             _ => None,
         }
+    }
+
+    /// Every offset that is reported to the outside (and so stored for resuming) names bytes that
+    /// are really in the file: a segment's counter must not run ahead of its writes.
+    fn assert_offsets_in_file(part: &Path, body: &[u8], segments: &[fetchbox_core::SegmentState]) {
+        let on_disk = std::fs::read(part).expect("read the part file");
+        for seg in segments {
+            let from = usize::try_from(seg.start).expect("start");
+            let to = from + usize::try_from(seg.downloaded).expect("downloaded");
+            assert_eq!(
+                on_disk[from..to],
+                body[from..to],
+                "segment {} reports {} bytes that are not in the file",
+                seg.idx,
+                seg.downloaded
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn reported_offsets_are_in_the_file_also_after_a_pause() {
+        // 12 MiB at 32 KiB / 60 ms per connection: about six seconds, enough for a checkpoint.
+        let server = TestServer::spawn(12 * 1024 * 1024, true, Duration::from_millis(60)).await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let (dl, mut rx) =
+            HttpDownloader::new(dir.path(), RateLimiter::new(), UrlPolicy::default()).expect("new");
+        dl.start(&job(9, &server, 4)).await.expect("start");
+        let part = dl.part_path(9, "", "file.bin");
+
+        // The first progress that carries synced offsets.
+        let mut checked = 0;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        while checked == 0 {
+            let ev = tokio::time::timeout_at(deadline, rx.recv())
+                .await
+                .expect("no checkpoint in time")
+                .expect("closed");
+            if let Event::Progress { segments, .. } = ev {
+                if segments.iter().any(|s| s.downloaded > 0) {
+                    assert_offsets_in_file(&part, server.body(), &segments);
+                    checked += 1;
+                }
+            }
+        }
+
+        dl.pause(9).await.expect("pause");
+        let (downloaded, segments) = loop {
+            match rx.recv().await.expect("closed") {
+                Event::Paused {
+                    downloaded,
+                    segments,
+                    ..
+                } => break (downloaded, segments),
+                Event::Completed { .. } => panic!("finished before the pause; slow the server"),
+                _ => {}
+            }
+        };
+        assert_eq!(
+            downloaded,
+            segments.iter().map(|s| s.downloaded).sum::<u64>()
+        );
+        assert_offsets_in_file(&part, server.body(), &segments);
+        dl.cancel(9).await.expect("cancel");
     }
 
     #[tokio::test]
