@@ -28,6 +28,9 @@
     'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left font-medium text-text no-underline transition-colors hover:bg-surface-2 aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:text-accent aria-[current=page]:bg-accent-soft aria-[current=page]:font-semibold aria-[current=page]:text-accent';
   const COUNT = 'ml-auto text-sm font-normal tabular-nums opacity-60';
   const HEADING = 'mb-1 px-3 text-[0.7rem] font-bold tracking-widest text-muted uppercase';
+  // The list itself is reached through the status filters ("All"), so only the other pages are links;
+  // they sit above the disk ring, next to the other controls.
+  const pageRoutes = routes.filter((r) => r.id !== 'downloads');
   const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', stats: 'chart', settings: 'sliders' };
   const THEME_ICONS: Record<ThemePref, IconName> = {
     system: 'monitor',
@@ -36,6 +39,8 @@
     black: 'contrast',
   };
 
+  /** The filters belong to the list: on the other pages none of them is marked as current. */
+  const onList = $derived($route === 'downloads');
   const filter = $derived({ group: prefs.group, category: prefs.category, query: prefs.query });
   const groupCounts = $derived(countGroups(downloads.items, filter));
   const categoryCounts = $derived(countCategories(downloads.items, filter));
@@ -85,29 +90,12 @@
     </button>
   </div>
 
-  <nav aria-label={t('nav.main')}>
-    <ul class="grid gap-0.5">
-      {#each routes as r (r.id)}
-        <li>
-          <a
-            class={ITEM}
-            href={'#' + r.path}
-            aria-current={$route === r.id ? 'page' : undefined}
-            onclick={onclose}
-          >
-            <Icon name={NAV_ICONS[r.id]} size={20} />{t(`nav.${r.id}`)}
-          </a>
-        </li>
-      {/each}
-    </ul>
-  </nav>
-
   <section aria-labelledby="filters-status">
     <h2 id="filters-status" class={HEADING}>{t('filters.status')}</h2>
     <ul class="grid gap-0.5">
       {#each GROUPS as g (g.id)}
         <li>
-          <button class={ITEM} aria-pressed={prefs.group === g.id} onclick={() => pickGroup(g.id)}>
+          <button class={ITEM} aria-pressed={onList && prefs.group === g.id} onclick={() => pickGroup(g.id)}>
             <span class={GROUP_COLOR[g.id]}><Icon name={GROUP_ICON[g.id]} size={18} /></span>
             {t(`group.${g.id}`)}<span class={COUNT}>{groupCounts[g.id]}</span>
           </button>
@@ -120,13 +108,13 @@
     <h2 id="filters-categories" class={HEADING}>{t('filters.categories')}</h2>
     <ul class="grid gap-0.5">
       <li>
-        <button class={ITEM} aria-pressed={prefs.category === 'all'} onclick={() => pickCategory('all')}>
+        <button class={ITEM} aria-pressed={onList && prefs.category === 'all'} onclick={() => pickCategory('all')}>
           {t('downloads.filter.allCategories')}<span class={COUNT}>{categoryCounts.all}</span>
         </button>
       </li>
       {#each CATEGORIES as c (c)}
         <li>
-          <button class={ITEM} aria-pressed={prefs.category === c} onclick={() => pickCategory(c)}>
+          <button class={ITEM} aria-pressed={onList && prefs.category === c} onclick={() => pickCategory(c)}>
             <CategoryIcon category={c} size={18} />{t(`category.${c}`)}<span class={COUNT}>{categoryCounts[c]}</span>
           </button>
         </li>
@@ -141,6 +129,22 @@
         ↓ {i18n.speed(summary.speed)}
       </p>
     {/if}
+    <nav aria-label={t('nav.main')}>
+      <ul class="grid gap-0.5">
+        {#each pageRoutes as r (r.id)}
+          <li>
+            <a
+              class={ITEM}
+              href={'#' + r.path}
+              aria-current={$route === r.id ? 'page' : undefined}
+              onclick={onclose}
+            >
+              <Icon name={NAV_ICONS[r.id]} size={20} />{t(`nav.${r.id}`)}
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </nav>
     <button
       class={ITEM}
       onclick={() => theme.cycle()}

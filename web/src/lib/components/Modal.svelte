@@ -63,11 +63,14 @@
     if (dismissible && e.target === dialog) onclose();
   }}
 >
-  <div class="grid gap-4 p-5">
+  <div class="grid grid-cols-[minmax(0,1fr)] gap-4 p-5">
     <h2 id={titleId} class="text-lg font-semibold tracking-tight">{title}</h2>
-    <div class="grid gap-3">{@render children()}</div>
+    <div class="grid grid-cols-[minmax(0,1fr)] gap-3">{@render children()}</div>
     {#if footer}
-      <div class="flex flex-wrap justify-end gap-2 max-sm:flex-col-reverse max-sm:*:w-full">
+      <!-- Stays in view when a long dialog scrolls, so its buttons are never below the fold. -->
+      <div
+        class="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap justify-end gap-2 bg-surface px-5 pt-3 pb-5 max-sm:flex-col-reverse max-sm:*:w-full"
+      >
         {@render footer()}
       </div>
     {/if}
