@@ -125,6 +125,13 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   with a warning instead of blocking downloads. Only downloads that probe at the very same moment as the engine check
   can race; the loser fails on the write error like any full disk.
 
+- Write path: a segment reads the next chunk from the socket only after the previous one has been written, so a disk that is
+  slower than the line slows the transfer through TCP and memory stays bounded (a chunk plus tokio's file buffer, at most about
+  2 MiB, per connection). Data goes to the OS page cache; nothing calls `fsync`/`sync_data`, neither before the segment offsets are
+  persisted nor before the final rename. A killed process loses nothing (the cache is the kernel's), a power cut or kernel crash
+  can leave a segment's stored offset ahead of what reached the disk (a gap of zeros in the resumed file). The progress and speed
+  shown are what was accepted for writing, which can exceed the disk's sustained rate while the cache fills.
+
 ### 6.2.1 Directory index pages
 
 - A URL that answers with an HTML page is read once more (at most 2 MiB, through the same client, so the private-address

@@ -31,7 +31,7 @@ FetchBox is small, and a download manager is mostly waiting for the network and 
 | 🧮 **RAM** | 256 MB free (the program itself needs about 64 MB when idle) | 512 MB to 1 GB, more when the list holds many thousands of entries |
 | 🐧 **System** | a 64-bit Linux with glibc 2.36 or newer and systemd (or Docker) | **Debian 13 or 12** (what the release is built and tested on), or Ubuntu 22.04 / 24.04 LTS, Raspberry Pi OS 64-bit, Fedora |
 | 🗄️ **Disk for the program** | 100 MB (the binary, and a database that stays small even after thousands of downloads) | the system disk; on a Raspberry Pi an SSD or a good SD card |
-| 📥 **Disk for downloads** | free space for the files that are in progress at the same time (the finished ones stay) | **a separate disk, partition or network share** |
+| 📥 **Disk for downloads** | free space for the files that are in progress at the same time (the finished ones stay) | **a separate disk, partition or network share**: an SSD, or a CMR hard disk. ⚠️ Not a memory card, and not an SMR disk if your line is fast (see [below](#-disk-speed-and-memory-cards)) |
 | 🌐 **Browser** | any current Chrome, Edge, Firefox or Safari | the same, over HTTPS (installing the web app and the paste button need a secure context) |
 
 A few notes behind those numbers:
@@ -40,6 +40,16 @@ A few notes behind those numbers:
 - **File system**: ext4, XFS or Btrfs are the best fit. A file is created at its full size before the first byte arrives, which costs nothing where files can be sparse (ext4, XFS, Btrfs, APFS); on exFAT, FAT or some network shares the whole size may be allocated up front, and FAT32 cannot hold files over 4 GB at all.
 - **CPU**: the work is network and disk. One core is enough for a few downloads at 100 Mbit/s; a gigabit line with HTTPS and many connections per file is where a second and third core help. The limits you set in Settings keep it below whatever the machine can do.
 - **Operating systems** older than Debian 12 or Ubuntu 22.04, 32-bit systems (including 32-bit Raspberry Pi OS) and musl systems such as Alpine are not supported by the release binaries.
+
+### 💽 Disk speed and memory cards
+
+> ⚠️ **Downloading to a memory card (SD, microSD) is NOT recommended, above all when the system is on that card.** A download manager writes all day, a card has little endurance and slow writes, and when it wears out, fills up or is cut off in the middle of a write, it takes the operating system with it. On a Raspberry Pi keep the system on the card if you must, but put the downloads on an SSD or a hard disk on USB. The same goes for USB sticks.
+
+**What happens when the line is faster than the disk.** FetchBox reads from the network only as fast as it can hand the data to the disk, so nothing piles up in memory (a few MB per connection) and the download does not fail: the server is simply slowed down through the connection. The data first goes into the operating system's write cache, so the first seconds, or the first gigabytes on a machine with a lot of free RAM, can run at line speed and look faster than the disk really is; once the cache is full the speed falls to what the disk sustains. The speed shown in the app is the speed at which data is accepted for writing. This is based on how the program writes (it reads the next piece only after the previous one has been written), not on measurements on slow disks; if you see something else, please open an issue.
+
+- **SMR hard disks** (shingled, common in cheap 2.5" and some "desktop" drives) take short bursts quickly into a small cache area and then rewrite whole bands of tracks in the background. A long download of many gigabytes can drop to a fraction of the advertised speed, and writes to several places of the file at once make it worse. If your line is faster than about 100 MB/s, or you download huge files, prefer an SSD or a CMR drive (the data sheet says which; "SMR" is often not stated, the model number tells).
+- **On any hard disk, fewer connections per download is gentler**: several connections write to different places of the same file, so the head has to jump between them. Try 1 to 2 in **Settings** (connections per download) and keep the number of simultaneous downloads low. A speed limit under what the disk sustains gives a steady transfer instead of bursts and stalls.
+- **A power cut or a kernel crash.** FetchBox does not force the data to the disk after every write; the system does it in the background (usually within about 30 seconds, longer on a slow disk). A crash or a kill of the program itself is safe, but after a power cut the last seconds of a download that was running can be missing from the file even though the app counted them, and a resumed download may then contain a gap. On a machine without a UPS, check files you care about (a checksum from the source) after an unexpected power loss.
 
 ## 📦 Install
 
