@@ -25,8 +25,9 @@ Planned: BitTorrent (magnet links and `.torrent` files). Status: usable, version
 | Method | Good for | |
 | --- | --- | --- |
 | [Docker Compose](#docker-compose) | any machine with Docker | builds the image from this repository |
-| [Proxmox LXC](#proxmox-lxc) | a Proxmox VE host | one command, optional host folder for the downloads |
-| [Linux host (systemd)](#linux-host-systemd) | any Linux box with systemd | one command: installs the binary as a service |
+| [Proxmox LXC](#proxmox-lxc) | a Proxmox VE host | one command, optional host folder for the downloads (installs the DEB) |
+| [DEB / RPM package](#deb--rpm-package) | Debian, Ubuntu, Raspberry Pi OS, Fedora | a package with a systemd service, x86_64 and ARM |
+| [Linux host (systemd)](#linux-host-systemd) | any other Linux box with systemd | one command: installs the binary as a service |
 | [Release binary](#release-binary) | any Linux box | one file, run it yourself |
 | [From source](#from-source) | development | Rust and Node.js |
 
@@ -55,6 +56,32 @@ bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 ```
 
 It creates a small Debian 13 container, installs the prebuilt binary from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
+
+### DEB / RPM package
+
+Every [release](https://github.com/fwitkowski17/WebDownloadManager/releases) has a `.deb` (`amd64`, `arm64`) and an `.rpm` (`x86_64`, `aarch64`). Installing one adds the program, a systemd service that starts at boot, the `fetchbox` user and the settings file, and starts it:
+
+```bash
+# Debian, Ubuntu, Raspberry Pi OS
+url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/WebDownloadManager/releases/latest | grep -o "\"browser_download_url\": *\"[^\"]*_$(dpkg --print-architecture)\.deb\"" | cut -d'"' -f4)"
+curl -fsSLO "$url" && sudo apt install "./$(basename "$url")"
+
+# Fedora and other RPM systems (glibc 2.36 or newer; RHEL 9 is too old)
+url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/WebDownloadManager/releases/latest | grep -o "\"browser_download_url\": *\"[^\"]*\.$(uname -m)\.rpm\"" | cut -d'"' -f4)"
+curl -fsSLO "$url" && sudo dnf install "./$(basename "$url")"
+```
+
+(Or download the file from the Releases page and give it to `apt install` / `dnf install`. Each file has a `.sha256` next to it.) The installation prints the address, `http://<host>:8080`, and the one-time **setup code** for creating the account (later: `journalctl -u fetchbox | grep 'setup code'`).
+
+| What | Where |
+| --- | --- |
+| program | `/usr/bin/fetchbox` |
+| service | `systemctl status fetchbox`, logs: `journalctl -u fetchbox -f` |
+| settings | `/etc/fetchbox/fetchbox.env` (`FETCHBOX_PASSWORD`, `FETCHBOX_PORT`, `FETCHBOX_DOWNLOAD_DIR`...), then `systemctl restart fetchbox`; an upgrade keeps your edits |
+| database | `/var/lib/fetchbox` |
+| downloads | `/var/lib/fetchbox/downloads`, or the folder you set as `FETCHBOX_DOWNLOAD_DIR` (it must be writable for the user `fetchbox`) |
+
+To update, install the newer file the same way (the service is restarted). `apt` and `dnf` do not know about GitHub releases, so `apt upgrade` does not update FetchBox. Removing the package (`apt remove fetchbox`, `dnf remove fetchbox`) stops the service but keeps the database, the downloads and the user; delete `/var/lib/fetchbox` (and `apt purge` removes the settings) to wipe it. The packages are tested on Debian 12 and Fedora on both CPUs by the release workflow.
 
 ### Linux host (systemd)
 
@@ -90,7 +117,7 @@ Download `fetchbox-linux-x86_64.tar.gz` (or `-aarch64`) from the [Releases](http
 ./fetchbox --data-dir ./data --download-dir ./downloads --port 8080
 ```
 
-The web app is inside the binary. It needs Debian 12 or newer, Ubuntu 22.04 or newer, or another Linux with a glibc that old. To keep it running, use the installer above (it writes the systemd unit for you).
+The web app is inside the binary. It needs Debian 12 or newer, Ubuntu 22.04 or newer, or another Linux with a glibc that old. To keep it running, use the package or the installer above (they write the systemd unit for you).
 
 ### From source
 
@@ -106,12 +133,12 @@ Everything day to day (connections, limits, category folders, theme, language, u
 
 | Option | Meaning |
 | --- | --- |
-| `--data-dir <dir>` | where the database lives (default `./data`) |
-| `--download-dir <dir>` | where files are saved (default `./downloads`) |
-| `--port <port>` | TCP port (default `8080`) |
+| `--data-dir <dir>` / `FETCHBOX_DATA_DIR` | where the database lives (default `./data`) |
+| `--download-dir <dir>` / `FETCHBOX_DOWNLOAD_DIR` | where files are saved (default `./downloads`) |
+| `--port <port>` / `FETCHBOX_PORT` | TCP port (default `8080`) |
 | `--password-file <file>` | read the password from a file, e.g. a Docker secret |
 | `--no-auth` | no password at all: only on a fully trusted network |
-| `--block-private-urls` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
+| `--block-private-urls` / `FETCHBOX_BLOCK_PRIVATE_URLS` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
 | `FETCHBOX_PASSWORD` | a fixed password (8+ characters) instead of one created in the browser |
 | `FETCHBOX_UPDATE_URL` | use another releases endpoint for the update check (a mirror, a fork) |
 | `--log-activity` / `FETCHBOX_LOG_ACTIVITY` | log every added, paused, finished and removed download (with its average speed), settings changes, the download hours and sign-ins; without it the console shows start-up information, warnings and errors |
@@ -154,6 +181,8 @@ FetchBox looks at the GitHub releases now and then (only a request for the list 
 
 - **Docker Compose**: `git pull && docker compose up -d --build fetchbox`
 - **Proxmox LXC**: run `update` in the container's console
+- **DEB / RPM package**: install the newer file (`apt install ./fetchbox_<version>_<arch>.deb`, `dnf install ./fetchbox-<version>-1.<arch>.rpm`)
+- **Linux host script**: `sudo ./install.sh update`
 - **Release binary**: replace the file and restart it
 - **From source**: `git pull && ./scripts/build.sh`
 

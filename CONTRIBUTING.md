@@ -54,6 +54,7 @@ crates/
   server/          the binary `fetchbox`: wires everything, the download manager, update check, embedded frontend, CLI
 web/               Svelte 5 + Vite + TypeScript frontend, embedded into the binary at build time
 deploy/install.sh  installer for a Linux host with systemd (run `shellcheck` on it)
+packaging/         DEB and RPM: nfpm description, systemd unit, maintainer scripts, smoke test
 deploy/proxmox/    the Proxmox LXC installer
 docs/              SPEC.md and the generated openapi.json
 scripts/           build.sh, gen-api.sh
@@ -111,7 +112,7 @@ Maintainers: put the new version in `Cargo.toml` (`[workspace.package] version`)
 git tag v0.7.0 && git push origin v0.7.0
 ```
 
-`.github/workflows/release.yml` checks that the tag equals the version, builds the web app and the binary for x86_64 and aarch64 Linux and publishes a GitHub Release with the archives, checksums and generated notes. A tag with a dash (`v0.7.0-rc.1`) makes a pre-release, which the update check ignores. The Proxmox installer and the update notice in the app read that release; the notes are what users see in the update dialog, so read them before they go out. See [deploy/proxmox/README.md](deploy/proxmox/README.md#releasing) for the details.
+`.github/workflows/release.yml` checks that the tag equals the version, builds the web app and the binary for x86_64 and aarch64 Linux, wraps them in DEB and RPM packages (`packaging/`), installs each package in a clean Debian 12 or Fedora container as a test and publishes a GitHub Release with the archives, packages, checksums and generated notes. A tag with a dash (`v0.7.0-rc.1`) makes a pre-release, which the update check ignores. The Proxmox installer and the update notice in the app read that release; the notes are what users see in the update dialog, so read them before they go out. See [deploy/proxmox/README.md](deploy/proxmox/README.md#releasing) for the details.
 
 ## Licence
 

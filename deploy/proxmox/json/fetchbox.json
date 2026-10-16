@@ -10,7 +10,7 @@
   "documentation": "https://github.com/fwitkowski17/WebDownloadManager/blob/main/deploy/proxmox/README.md",
   "website": "https://github.com/fwitkowski17/WebDownloadManager",
   "logo": null,
-  "config_path": "/opt/fetchbox/fetchbox.env",
+  "config_path": "/etc/fetchbox/fetchbox.env",
   "description": "Self-hosted download manager with a web interface for desktop and phone: segmented downloads with pause and resume, a queue, speed limits, file categories and statistics. One small binary, no database server.",
   "install_methods": [
     {

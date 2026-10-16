@@ -1,8 +1,9 @@
 name: Release
 
 # Push a tag `v<version>` (the version in Cargo.toml, e.g. v0.6.1) and this builds the web UI and the
-# binary for x86_64 and aarch64 Linux, then publishes a GitHub Release with the archives attached.
-# The Proxmox installer (deploy/proxmox) and the update check in the app both read that release.
+# binary for x86_64 and aarch64 Linux, wraps each in a DEB and an RPM (packaging/), installs every
+# package in a clean container as a test, then publishes a GitHub Release with the archives and
+# packages attached. The installers (deploy/) and the update check in the app read that release.
 
 on:
   push:
@@ -88,8 +89,65 @@ jobs:
           name: binary-${{ matrix.arch }}
           path: out/*
 
-  release:
+  packages:
+    name: Packages (${{ matrix.arch }})
     needs: binary
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            deb_arch: amd64
+          - arch: aarch64
+            deb_arch: arm64
+    # nfpm only assembles files, so both CPUs are packaged on the same x86_64 runner.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nfpm
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-${{ matrix.arch }}
+          path: binary
+      - name: Build the DEB and the RPM
+        run: |
+          set -euo pipefail
+          tar -xzf "binary/fetchbox-linux-${{ matrix.arch }}.tar.gz" -C binary fetchbox
+          packaging/build.sh "${GITHUB_REF_NAME#v}" "${{ matrix.deb_arch }}" binary/fetchbox out
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: out/*
+
+  # Installs each package on a clean system of its own CPU, starts the program and removes the
+  # package again: this is also what proves that the binary runs on the oldest system we claim.
+  package-test:
+    name: Test ${{ matrix.format }} (${{ matrix.arch }})
+    needs: packages
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-latest, format: deb, image: "debian:12", file: "fetchbox_*_amd64.deb" }
+          - { arch: x86_64, runner: ubuntu-latest, format: rpm, image: "fedora:latest", file: "fetchbox-*.x86_64.rpm" }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, format: deb, image: "debian:12", file: "fetchbox_*_arm64.deb" }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, format: rpm, image: "fedora:latest", file: "fetchbox-*.aarch64.rpm" }
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: out
+      - name: Install, run and remove the package
+        run: |
+          set -eu
+          pkg="$(ls out/${{ matrix.file }})"
+          packaging/smoke-test.sh "$pkg" "${GITHUB_REF_NAME#v}" --run
+
+  release:
+    needs: [binary, packages, package-test]
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -97,7 +155,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: binary-*
+          pattern: "{binary,packages}-*"
           merge-multiple: true
           path: out
       - name: Publish the release

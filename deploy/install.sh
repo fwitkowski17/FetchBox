@@ -126,6 +126,12 @@ EOT
   [[ "$(uname -s)" == Linux ]] || die "Linux only"
   command -v systemctl >/dev/null || die "systemd is required (systemctl not found)"
 
+  # A DEB or RPM of FetchBox owns /usr/bin/fetchbox and its own unit: two installs would fight.
+  if { command -v dpkg-query >/dev/null && dpkg-query -W fetchbox >/dev/null 2>&1; } ||
+    { command -v rpm >/dev/null && rpm -q fetchbox >/dev/null 2>&1; }; then
+    die "FetchBox is installed from a package: manage it with apt or dnf (see the README), not with this script"
+  fi
+
   # ---- helpers ---------------------------------------------------------------------------------
   fetch() { # fetch URL FILE
     if command -v curl >/dev/null; then

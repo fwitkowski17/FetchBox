@@ -63,6 +63,8 @@ FetchBox/
 │   ├── package.json
 │   └── vite.config.ts
 ├── scripts/build.sh
+├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
+├── packaging/                 # DEB/RPM: nfpm.yaml, unit, env file, maintainer scripts, build.sh, smoke-test.sh
 ├── Dockerfile                 # multi-stage; final image distroless/scratch
 ├── docker-compose.yml         # volumes: /data (SQLite), /downloads
 └── docs/SPEC.md
@@ -534,10 +536,12 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - A release is made by pushing the tag `v<version>` (for example `v0.6.1`): `.github/workflows/release.yml` checks that the tag
   equals the workspace version, builds the web UI and the binary for x86_64 and aarch64 Linux (in a Debian 12 container on purpose: the glibc
   it is linked against is the oldest it runs on, so it runs on Debian 12+ and Ubuntu 22.04+; the Docker image and the Proxmox
-  container are Debian 13) and publishes a GitHub Release with `fetchbox-linux-<arch>.tar.gz` (just the binary,
-  the web UI is inside it) and a `.sha256` file for each, with generated notes; a tag with a dash is a pre-release. That
-  release is what the update check finds and what the Proxmox installer (`deploy/proxmox`) installs and updates from; nothing
-  is compiled on the user's machine. Raising the version means changing `Cargo.toml` (and `web/package.json`) first.
+  container are Debian 13), wraps each binary in a DEB and an RPM (6.11), installs every package in a clean container as a test
+  and publishes a GitHub Release with `fetchbox-linux-<arch>.tar.gz` (just the binary, the web UI is inside it),
+  `fetchbox_<version>_<amd64|arm64>.deb` and `fetchbox-<version>-1.<x86_64|aarch64>.rpm`, and a `.sha256` file for each, with
+  generated notes; a tag with a dash is a pre-release. That release is what the update check finds and what the installers
+  (`deploy/install.sh`, `deploy/proxmox`) install and update from; nothing is compiled on the user's machine. Raising the version
+  means changing `Cargo.toml` (and `web/package.json`) first.
 
 ### 6.10 Console log
 
@@ -557,6 +561,40 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
 - Sign-in and sign-out; a newer version found by the update check.
 - Never logged: passwords, tokens, setup codes, session ids, and the path and query of a URL (only its host, because an address
   may carry a token). Progress ticks and the 15 s hours check log nothing unless something changes.
+
+### 6.11 Packages and installers
+
+- **Packages** (`packaging/`): one nfpm description (`nfpm.yaml`) makes the DEB and the RPM of an architecture from the release
+  binary (`packaging/build.sh <version> <amd64|arm64> <binary> <outdir>`; nothing of the binary is executed, so both CPUs are
+  packaged on one runner). Contents: `/usr/bin/fetchbox`, `/usr/lib/systemd/system/fetchbox.service`, `/etc/fetchbox/fetchbox.env`
+  (a config file: an upgrade keeps the administrator's edits; mode 0600 because it may hold the password) and the licence. They
+  depend on glibc 2.36 (the builder's), so Debian 12+, Ubuntu 22.04+ and Fedora install them and RHEL 9 is refused by the package
+  manager. A pre-release `0.7.0-rc.1` is `0.7.0~rc.1` inside the package (sorts below `0.7.0`) while the file names keep the tag's
+  spelling.
+- **Layout and defaults**: the service runs as the system user `fetchbox`; database and working directory `/var/lib/fetchbox`,
+  downloads `/var/lib/fetchbox/downloads`, port 8080. The unit sets these through `FETCHBOX_DATA_DIR`, `FETCHBOX_DOWNLOAD_DIR` and
+  `FETCHBOX_PORT` (the options `--data-dir`, `--download-dir` and `--port` read the same variables; `--block-private-urls` reads
+  `FETCHBOX_BLOCK_PRIVATE_URLS`, `--log-activity` `FETCHBOX_LOG_ACTIVITY`), and `/etc/fetchbox/fetchbox.env`, loaded after them,
+  overrides them, so changing the port or the download folder needs no edit of the unit. A variable must not be empty. The unit
+  hardens the service (`NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `ProtectSystem=full`, kernel protections) but leaves the
+  rest of the file system writable, because the download folder can be anywhere.
+- **Maintainer scripts** (POSIX `sh`, the same file for both formats; they tell a first install from an upgrade by the arguments of
+  `dpkg` and `rpm`): after installing, create the user `fetchbox` if it does not exist (the Proxmox installer makes it first with
+  a fixed uid) and `/var/lib/fetchbox` (0750); with systemd running, a first install enables and starts the service and prints the
+  one-time setup code, an upgrade only restarts a service that is running (one that was stopped stays stopped). Without systemd
+  (an image build, a chroot) only the files are put in place. Before removing, the service is stopped and disabled (not on upgrade).
+  Removal keeps the database, the downloads and the user; `apt purge` also removes the settings file.
+- **Tests**: `packaging/smoke-test.sh <package> <version> [--run]` installs a package in a container without systemd, checks the
+  files, the user and the permissions, with `--run` starts the program as `fetchbox` and requires `GET /api/health` to answer, then
+  removes (and purges) it and checks that the data stays. CI runs it on every pull request with a stub program (`packaging` job: also
+  `shellcheck` of all scripts); the release workflow runs it with the real binary on Debian 12 and Fedora, on x86_64 and on ARM
+  runners, before anything is published. A failing test stops the release.
+- **Installers**: `deploy/install.sh` (any Linux with systemd: downloads the tarball, checks its checksum, creates the user and the
+  unit; `update`, `uninstall [--purge]`) refuses to run when a package of FetchBox is installed, since both own the same program and
+  service. The Proxmox container installer installs the `.deb` (it creates the user with uid 1000 first, adds a drop-in that moves
+  the downloads to `/downloads` and checks the `.sha256`), and its `update` installs the newer `.deb` over the old one; a container
+  from the first versions (program in `/opt/fetchbox`) is moved to the package by `update`, carrying the database and settings over.
+  The repository does not run a package repository: `apt` and `dnf` do not see new releases by themselves.
 
 ## 7. Dependencies (Rust)
 
