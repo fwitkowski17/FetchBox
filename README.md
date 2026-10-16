@@ -4,32 +4,53 @@
 
 A small, self-hosted download manager for a homelab, controlled from a web interface on a desktop or a phone. One Rust binary serves the API and the embedded web app, keeps a queue, and carries on when your browser is closed. No database server, no Node.js at runtime.
 
-## Features
+## ✨ Features
 
-- **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
-- **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
-- **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
-- **Adding**: paste a link (there is a paste button) and see the file's size and name before you start. If the link is a directory index page (Apache, nginx and the like), pick which files to download.
-- **Categories** (Photo, Music, Video, Program, Archive, Other), detected from the name or the server, changeable, with optional folders per category.
-- **Disk aware**: a ring shows the free space, a download that does not fit is refused or held until there is room.
-- **Statistics**: totals, success rate, data downloaded, average and peak speed, per category and for the last 14 days. They survive removing entries from the list.
-- **Lists**: sort, filter, search, select several downloads, archive finished ones.
-- **Phone friendly**: installable web app, light / dark / black (for OLED) themes and eight accent colours, [English and Polish](#languages).
-- **Safe by default**: password protected (set in the browser on first run), optional blocking of private addresses, file names are sanitised and nothing is written outside the download folder.
-- **Update notice**: tells you when a new release is out and what changed, with the steps to update. It can be switched off.
+- ⬇️ **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
+- 🚦 **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
+- 🌙 **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
+- 🔗 **Adding**: paste a link (there is a paste button) and see the file's size and name before you start. If the link is a directory index page (Apache, nginx and the like), pick which files to download.
+- 🗂️ **Categories** (Photo, Music, Video, Program, Archive, Other), detected from the name or the server, changeable, with optional folders per category.
+- 💾 **Disk aware**: a ring shows the free space, a download that does not fit is refused or held until there is room.
+- 📊 **Statistics**: totals, success rate, data downloaded, average and peak speed, per category and for the last 14 days. They survive removing entries from the list.
+- 🔎 **Lists**: sort, filter, search, select several downloads, archive finished ones.
+- 📱 **Phone friendly**: installable web app, light / dark / black (for OLED) themes and eight accent colours, [English and Polish](#-languages).
+- 🔒 **Safe by default**: password protected (set in the browser on first run), optional blocking of private addresses, file names are sanitised and nothing is written outside the download folder.
+- 🔔 **Update notice**: tells you when a new release is out and what changed, with the steps to update. It can be switched off.
+- 🪶 **Light**: one Rust binary of about 10 MB, around 64 MB of RAM when idle, no database server and no Node.js at runtime.
 
-Planned: BitTorrent (magnet links and `.torrent` files). Status: usable, version 0.x.
+Status: usable, version 0.x. What comes next is in the [roadmap](#-roadmap).
 
-## Install
+## 📋 Requirements
+
+FetchBox is small, and a download manager is mostly waiting for the network and the disk, so almost any always-on machine will do: a mini PC, a NAS with Docker, a Raspberry Pi, a VM or a Proxmox container. What it asks for:
+
+| | Minimum | Recommended |
+| --- | --- | --- |
+| 🧠 **CPU** | 1 core, 64-bit: x86_64 or ARM64 (Raspberry Pi 3 and newer with a 64-bit OS) | 2 cores; 4 cores for a gigabit line with many files at once |
+| 🧮 **RAM** | 256 MB free (the program itself needs about 64 MB when idle) | 512 MB to 1 GB, more when the list holds many thousands of entries |
+| 🐧 **System** | a 64-bit Linux with glibc 2.36 or newer and systemd (or Docker) | **Debian 13 or 12** (what the release is built and tested on), or Ubuntu 22.04 / 24.04 LTS, Raspberry Pi OS 64-bit, Fedora |
+| 🗄️ **Disk for the program** | 100 MB (the binary, and a database that stays small even after thousands of downloads) | the system disk; on a Raspberry Pi an SSD or a good SD card |
+| 📥 **Disk for downloads** | free space for the files that are in progress at the same time (the finished ones stay) | **a separate disk, partition or network share** |
+| 🌐 **Browser** | any current Chrome, Edge, Firefox or Safari | the same, over HTTPS (installing the web app and the paste button need a secure context) |
+
+A few notes behind those numbers:
+
+- **A separate disk for downloads** is the one recommendation that matters most. A full download disk then cannot take the system or the database down with it, FetchBox shows exactly the space that is meant for downloads, you can size, replace or back it up on its own, and on a Raspberry Pi it keeps the heavy writing off the SD card. Mount it, make the folder writable for the service's user, and point `FETCHBOX_DOWNLOAD_DIR` or `--download-dir` at it (in a Proxmox container map a host folder, see [Proxmox LXC](#proxmox-lxc)).
+- **File system**: ext4, XFS or Btrfs are the best fit. A file is created at its full size before the first byte arrives, which costs nothing where files can be sparse (ext4, XFS, Btrfs, APFS); on exFAT, FAT or some network shares the whole size may be allocated up front, and FAT32 cannot hold files over 4 GB at all.
+- **CPU**: the work is network and disk. One core is enough for a few downloads at 100 Mbit/s; a gigabit line with HTTPS and many connections per file is where a second and third core help. The limits you set in Settings keep it below whatever the machine can do.
+- **Operating systems** older than Debian 12 or Ubuntu 22.04, 32-bit systems (including 32-bit Raspberry Pi OS) and musl systems such as Alpine are not supported by the release binaries.
+
+## 📦 Install
 
 | Method | Good for | |
 | --- | --- | --- |
-| [Docker Compose](#docker-compose) | any machine with Docker | builds the image from this repository |
-| [Proxmox LXC](#proxmox-lxc) | a Proxmox VE host | one command, optional host folder for the downloads (installs the DEB) |
-| [DEB / RPM package](#deb--rpm-package) | Debian, Ubuntu, Raspberry Pi OS, Fedora | a package with a systemd service, x86_64 and ARM |
-| [Linux host (systemd)](#linux-host-systemd) | any other Linux box with systemd | one command: installs the binary as a service |
-| [Release binary](#release-binary) | any Linux box | one file, run it yourself |
-| [From source](#from-source) | development | Rust and Node.js |
+| 🐳 [Docker Compose](#docker-compose) | any machine with Docker | builds the image from this repository |
+| 🖥️ [Proxmox LXC](#proxmox-lxc) | a Proxmox VE host | one command, optional host folder for the downloads (installs the DEB) |
+| 📦 [DEB / RPM package](#deb--rpm-package) | Debian, Ubuntu, Raspberry Pi OS, Fedora | a package with a systemd service, x86_64 and ARM |
+| 🐧 [Linux host (systemd)](#linux-host-systemd) | any other Linux box with systemd | one command: installs the binary as a service |
+| 🧱 [Release binary](#release-binary) | any Linux box | one file, run it yourself |
+| 🛠️ [From source](#from-source) | development | Rust and Node.js |
 
 ### Docker Compose
 
@@ -40,7 +61,7 @@ docker compose up -d --build
 docker compose logs fetchbox     # the line with the one-time "setup code"
 ```
 
-Open <http://localhost:8080> and create your account with the setup code ([details](#signing-in)). The database goes to `./data` and the downloads to `./downloads`; change the `volumes:` in `docker-compose.yml` to put the downloads elsewhere (for example `/mnt/nas/downloads:/downloads`). The image is Debian 13 based and runs as the unprivileged user 65532 without a shell, so give it the two folders before the first start (otherwise Docker creates them for root and FetchBox cannot write to them):
+Open <http://localhost:8080> and create your account with the setup code ([details](#-signing-in)). The database goes to `./data` and the downloads to `./downloads`; change the `volumes:` in `docker-compose.yml` to put the downloads elsewhere (for example `/mnt/nas/downloads:/downloads`). The image is Debian 13 based and runs as the unprivileged user 65532 without a shell, so give it the two folders before the first start (otherwise Docker creates them for root and FetchBox cannot write to them):
 
 ```bash
 mkdir -p data downloads && sudo chown 65532:65532 data downloads
@@ -55,7 +76,7 @@ export COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/fwitkowski17/WebD
 bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 ```
 
-It creates a small Debian 13 container, installs the prebuilt binary from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
+It creates a small Debian 13 container, installs the `.deb` package from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
 
 ### DEB / RPM package
 
@@ -127,7 +148,7 @@ You need the Rust toolchain (version pinned by `rust-toolchain.toml`) and Node.j
 ./scripts/build.sh     # builds the web app, then target/release/fetchbox
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 Everything day to day (connections, limits, category folders, theme, language, update check) is in **Settings** in the web app and applies at once. The rest is on the command line and in the environment:
 
@@ -146,7 +167,7 @@ Everything day to day (connections, limits, category folders, theme, language, u
 
 Put a reverse proxy with HTTPS in front when it is reachable beyond your LAN, and send `X-Forwarded-Proto: https` so the session cookie gets `Secure`. The live updates use server-sent events: switch response buffering off for `/api/events` (the server already sends `X-Accel-Buffering: no`).
 
-## Signing in
+## 🔑 Signing in
 
 There is one shared password. In order of precedence:
 
@@ -175,7 +196,7 @@ fetchbox --data-dir ./data reset-password
 
 A password from `FETCHBOX_PASSWORD` or `--password-file` is not stored by the server: change it there and restart. For scripts: `POST /api/auth/login {"password": "..."}` sets a session cookie and returns a token usable as `Authorization: Bearer <token>`; after 5 failed attempts logins are locked for up to a minute.
 
-## Updating
+## 🔄 Updating
 
 FetchBox looks at the GitHub releases now and then (only a request for the list of releases is sent; **Settings > About** switches it off) and tells you in the app when there is a newer version, with the changes since yours and these steps:
 
@@ -199,7 +220,7 @@ An existing installation keeps working:
 
 </details>
 
-## Languages
+## 🌍 Languages
 
 The interface is translated without a library, and a new language is one file and one line. The status of each:
 
@@ -210,7 +231,20 @@ The interface is translated without a library, and a new language is one file an
 
 "Complete" is enforced by the build: a language that lacks a key does not compile, and the tests check placeholders and plural forms. Your language is welcome: [how to add one](CONTRIBUTING.md#adding-a-language) takes an evening for the roughly 400 messages; start from the Polish file and keep its meaning. Messages that come from the backend (for example why a download could not be added) are shown as the server sent them and are not translated yet.
 
-## Documentation
+## 🚀 Roadmap
+
+Ideas in rough order, with no promised dates. The ones marked 🧭 are being designed.
+
+- 🧲 **BitTorrent**: magnet links and `.torrent` files through [`librqbit`](https://github.com/ikatson/rqbit), behind the same queue, limits, hours and statistics as the other downloads. The `torrent_engine` crate is already in place as a stub.
+- 📈 **Metrics for Prometheus and VictoriaMetrics**: a `/metrics` endpoint in the Prometheus text format (downloads by state, queue length, current and total speed, bytes fetched, disk space), which both scrape as they are, plus an example Grafana dashboard. Pushing to VictoriaMetrics may follow.
+- 🧩 **Plugins** 🧭: an extension system, with a place for it in the web app (a tab above Settings, or a part of Settings): hooks on events such as added, finished or failed (notifications, moving or renaming files, calling a webhook) and, later, extra sources. It is designed first so that an extension cannot take down the downloads.
+- 📬 **A package repository**: `apt` and `dnf` pick up new releases by themselves, instead of installing a downloaded file.
+- 🏔️ **A static (musl) build** for Alpine and very small containers.
+- 🌐 **More languages**: [one file and one line each](CONTRIBUTING.md#adding-a-language).
+
+Wishes and bug reports go into the [issues](https://github.com/fwitkowski17/WebDownloadManager/issues).
+
+## 📚 Documentation
 
 | | |
 | --- | --- |
@@ -220,7 +254,7 @@ The interface is translated without a library, and a new language is one file an
 | [deploy/install.sh](deploy/install.sh) | the installer for a Linux host with systemd |
 | [deploy/proxmox/README.md](deploy/proxmox/README.md) | the Proxmox LXC installer |
 
-## Contributing
+## 🤝 Contributing
 
 Bug reports, ideas, translations and code are all welcome. Open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues) first for anything bigger than a small fix. The short version of sending a change:
 
@@ -231,6 +265,6 @@ cd web && npm install && npm run dev                                           #
 
 Before a pull request run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` and, in `web/`, `npm run check` and `npm test`; CI runs the same. Everything else (layout of the code, conventions, translations, releases) is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## License
+## 📄 License
 
 MIT, as declared in `Cargo.toml`; see [LICENSE](LICENSE).

@@ -23,7 +23,7 @@ cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads
 cd web && npm install && npm run dev
 ```
 
-On first run the server prints a setup code ([see the README](README.md#signing-in)); `--no-auth` skips the password while you develop.
+On first run the server prints a setup code ([see the README](README.md#-signing-in)); `--no-auth` skips the password while you develop.
 
 ## Before you send a pull request
 
