@@ -31,8 +31,9 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 - More sources behind the same abstraction (the HTTP engine is the only one today; `validate_url` accepts `http` and `https`): FTP and
   SFTP, WebDAV and S3-compatible storage (S3, R2, MinIO; a pre-signed link is already an HTTPS address). Each needs new `source_kind`
   values (a table rebuild for the CHECK, as in migration 0010) and its own URL validation.
-- Authentication for sources: user and password, token or custom headers per download, stored server side and never returned by the API
-  or written to the log (see 6.10); needed by all of the above.
+- Downloading files that require authorization: user and password, token or custom headers per download (the source's
+  credentials, not FetchBox's own sign-in), stored server side and never returned by the API or written to the log (see 6.10);
+  needed by all of the above and by plain HTTP(S) sources behind a login.
 
 ## 4. Architecture
 
