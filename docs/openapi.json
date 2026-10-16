@@ -653,6 +653,77 @@
         ]
       }
     },
+    "/api/downloads/{id}/keep": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "summary": "Keep the file of a download that is being verified, or that failed its verification, whatever\nthe checksum says. The download becomes `completed`, without the mark \"verified\".",
+        "operationId": "keep",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Download id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Download"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not being verified and not failed by its verification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/downloads/{id}/pause": {
       "post": {
         "tags": [
@@ -1190,6 +1261,17 @@
               }
             ]
           },
+          "checksum": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChecksumInput",
+                "description": "Verify the finished file against this checksum (SPEC 6.2.2)."
+              }
+            ]
+          },
           "filename": {
             "type": [
               "string",
@@ -1300,6 +1382,57 @@
           "new_password": {
             "type": "string",
             "description": "At least 8 characters."
+          }
+        }
+      },
+      "ChecksumAlgo": {
+        "type": "string",
+        "description": "A hash algorithm offered for verification. The common ones that sites publish.",
+        "enum": [
+          "md5",
+          "sha1",
+          "sha256",
+          "sha512"
+        ]
+      },
+      "ChecksumInput": {
+        "type": "object",
+        "description": "What the user entered when adding a download: the algorithm and the text they pasted.",
+        "required": [
+          "algo",
+          "value"
+        ],
+        "properties": {
+          "algo": {
+            "$ref": "#/components/schemas/ChecksumAlgo"
+          },
+          "value": {
+            "type": "string",
+            "description": "The checksum as pasted: `d41d8cd9...`, `SHA256: d41d...`, or a line of a checksum file\n(`d41d...  name.iso`). Normalised by the server."
+          }
+        }
+      },
+      "ChecksumState": {
+        "type": "object",
+        "description": "A checksum a download is verified against, and what came out of the verification.",
+        "required": [
+          "algo",
+          "expected"
+        ],
+        "properties": {
+          "actual": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The digest of the downloaded file when it did not match."
+          },
+          "algo": {
+            "$ref": "#/components/schemas/ChecksumAlgo"
+          },
+          "expected": {
+            "type": "string",
+            "description": "The expected digest: lowercase hexadecimal."
           }
         }
       },
@@ -1452,6 +1585,17 @@
           "category": {
             "$ref": "#/components/schemas/Category"
           },
+          "checksum": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChecksumState",
+                "description": "The checksum the finished file is verified against (chosen when the download was added),\nand what the verification found when it did not match."
+              }
+            ]
+          },
           "downloaded": {
             "type": "integer",
             "format": "int64",
@@ -1539,6 +1683,14 @@
           },
           "url": {
             "type": "string"
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "The file was checked against `checksum` and matched."
+          },
+          "verify_failed": {
+            "type": "boolean",
+            "description": "The verification did not succeed: the file does not match, or it could not be read. While\nthe status is `failed` the user decides (download again, keep the file anyway, delete it);\nonce they keep it the status is `completed` and this stays, to be shown as a warning."
           },
           "waiting_space": {
             "type": "boolean",
@@ -2089,6 +2241,7 @@
           "queued",
           "downloading",
           "paused",
+          "verifying",
           "completed",
           "failed",
           "cancelled"

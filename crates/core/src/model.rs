@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::checksum::{ChecksumInput, ChecksumState};
+
 /// Download identifier.
 pub type Id = i64;
 
@@ -13,6 +15,9 @@ pub enum Status {
     Queued,
     Downloading,
     Paused,
+    /// The file is complete and its checksum is being computed (SPEC 6.2.2). Does not hold a
+    /// download slot. Ends as `completed` (verified) or `failed` (does not match).
+    Verifying,
     Completed,
     Failed,
     Cancelled,
@@ -25,6 +30,7 @@ impl Status {
             Status::Queued => "queued",
             Status::Downloading => "downloading",
             Status::Paused => "paused",
+            Status::Verifying => "verifying",
             Status::Completed => "completed",
             Status::Failed => "failed",
             Status::Cancelled => "cancelled",
@@ -37,6 +43,7 @@ impl Status {
             "queued" => Status::Queued,
             "downloading" => Status::Downloading,
             "paused" => Status::Paused,
+            "verifying" => Status::Verifying,
             "completed" => Status::Completed,
             "failed" => Status::Failed,
             "cancelled" => Status::Cancelled,
@@ -167,6 +174,18 @@ pub struct Download {
     /// opening of the download hours. Not persisted.
     #[serde(default)]
     pub starts_at: Option<i64>,
+    /// The checksum the finished file is verified against (chosen when the download was added),
+    /// and what the verification found when it did not match.
+    #[serde(default)]
+    pub checksum: Option<ChecksumState>,
+    /// The file was checked against `checksum` and matched.
+    #[serde(default)]
+    pub verified: bool,
+    /// The verification did not succeed: the file does not match, or it could not be read. While
+    /// the status is `failed` the user decides (download again, keep the file anyway, delete it);
+    /// once they keep it the status is `completed` and this stays, to be shown as a warning.
+    #[serde(default)]
+    pub verify_failed: bool,
 }
 
 /// Why a queued download is waiting instead of running.
@@ -386,6 +405,9 @@ pub struct AddRequest {
     /// "Download now": do not wait for the download hours, which apply to this download otherwise.
     #[serde(default)]
     pub start_now: bool,
+    /// Verify the finished file against this checksum (SPEC 6.2.2).
+    #[serde(default)]
+    pub checksum: Option<ChecksumInput>,
 }
 
 /// What a release changed, as its author wrote it on GitHub (Markdown).
@@ -513,7 +535,7 @@ pub struct Conflict {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
     /// A download was created or its status/metadata changed.
-    Download { download: Download },
+    Download { download: Box<Download> },
     /// Periodic progress of a running download.
     Progress {
         #[cfg_attr(feature = "openapi", schema(value_type = i64))]

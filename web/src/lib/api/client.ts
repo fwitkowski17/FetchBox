@@ -142,6 +142,8 @@ export const api = {
   pause: (id: number) => request<Download>('POST', `/downloads/${id}/pause`),
   resume: (id: number) => request<Download>('POST', `/downloads/${id}/resume`),
   cancel: (id: number) => request<Download>('POST', `/downloads/${id}/cancel`),
+  /** Keep the file whatever the checksum says (while verifying, or after a failed verification). */
+  keep: (id: number) => request<Download>('POST', `/downloads/${id}/keep`),
   remove: (id: number, deleteFile = false) =>
     request<void>('DELETE', `/downloads/${id}${deleteFile ? '?delete_file=true' : ''}`),
   setSpeedLimit: (id: number, speedLimit: number) =>

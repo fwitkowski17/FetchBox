@@ -7,8 +7,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::clock;
@@ -17,6 +17,7 @@ use crate::update::{self, UpdateChecker};
 use async_trait::async_trait;
 use fetchbox_api::service::Service;
 use fetchbox_core::category::detect as detect_category;
+use fetchbox_core::checksum::normalize as normalize_checksum;
 use fetchbox_core::filename::sanitize;
 use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::schedule::Gate;
@@ -26,7 +27,7 @@ use fetchbox_core::{
     Hold, Id, Job, OnConflict, OnHoursEnd, Result, Settings, SourceKind, Stats, StatsRange, Status,
     UrlInfo, UrlKind, VersionInfo,
 };
-use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
+use fetchbox_http_engine::{candidates, verify::hash_file, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
 use fetchbox_storage::{segments, settings, stats, Connection};
 use tokio::sync::{broadcast, mpsc, watch};
@@ -45,6 +46,14 @@ struct Detected {
     name_taken: bool,
     /// An unfinished download will produce this name (it cannot be overwritten).
     name_reserved: bool,
+}
+
+/// A checksum verification that is running (SPEC 6.2.2).
+struct VerifyJob {
+    /// Bytes of the file read so far.
+    hashed: Arc<AtomicU64>,
+    /// Set to stop it: the user keeps the file or removes the download.
+    cancel: Arc<AtomicBool>,
 }
 
 pub struct Manager {
@@ -75,6 +84,10 @@ pub struct Manager {
     /// Whether the download hours were open when `reevaluate` last looked (`None`: they are off or
     /// have not been looked at since the settings changed). Only for the log: a change is news.
     hours_seen: Mutex<Option<bool>>,
+    /// Itself, so that `&self` methods can start tasks that need an `Arc` (set once at start-up).
+    this: OnceLock<Weak<Manager>>,
+    /// Verifications that are running: they hold no download slot.
+    verifying: Mutex<HashMap<Id, Arc<VerifyJob>>>,
 }
 
 impl Manager {
@@ -136,7 +149,10 @@ impl Manager {
             held: Mutex::new(HashSet::new()),
             suspended: Mutex::new(HashSet::new()),
             hours_seen: Mutex::new(None),
+            this: OnceLock::new(),
+            verifying: Mutex::new(HashMap::new()),
         });
+        let _ = me.this.set(Arc::downgrade(&me));
 
         tokio::spawn(Arc::clone(&me).run_events(rx));
 
@@ -145,6 +161,10 @@ impl Manager {
             to_start.extend(me.admit(d.id));
         }
         me.launch(to_start).await;
+        // A verification that a restart interrupted begins again: the file is complete.
+        for d in me.with_db(|c| downloads::list_verifying(c))? {
+            me.start_verification(d.id);
+        }
         tokio::spawn(Arc::clone(&me).run_schedule());
         Ok(me)
     }
@@ -230,6 +250,10 @@ impl Manager {
         Ok(f(&mut conn)?)
     }
 
+    fn verifying(&self) -> MutexGuard<'_, HashMap<Id, Arc<VerifyJob>>> {
+        self.verifying.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn held(&self) -> MutexGuard<'_, HashSet<Id>> {
         self.held.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -276,6 +300,13 @@ impl Manager {
                 d.size = p.total;
             }
             d.speed = p.speed;
+        }
+        if d.status == Status::Verifying {
+            // The bar of a download that is being verified shows how much of the file was read.
+            d.downloaded = self
+                .verifying()
+                .get(&d.id)
+                .map_or(0, |job| job.hashed.load(Ordering::Relaxed));
         }
         if d.status == Status::Queued && self.held().contains(&d.id) {
             let now = clock::now();
@@ -465,7 +496,7 @@ impl Manager {
     fn publish_download(&self, id: Id) {
         match self.with_db(|c| downloads::get(c, id)) {
             Ok(Some(d)) => self.publish(Event::Download {
-                download: self.view(d),
+                download: Box::new(self.view(d)),
             }),
             Ok(None) => {}
             Err(e) => tracing::warn!(id, error = %e, "cannot load download for event"),
@@ -650,6 +681,13 @@ impl Manager {
                 }
                 let name = path.file_name().and_then(|n| n.to_str()).map(str::to_owned);
                 let ms = self.active_stop(id);
+                // A download with a checksum is not done yet: the file is verified first.
+                let verify = matches!(self.get(id), Ok(d) if d.checksum.is_some());
+                let end = if verify {
+                    Status::Verifying
+                } else {
+                    Status::Completed
+                };
                 let r = self.with_db(|c| {
                     stats::add_active_ms(c, id, ms)?;
                     downloads::set_downloaded(c, id, size)?;
@@ -659,7 +697,7 @@ impl Manager {
                         downloads::set_filename(c, id, name)?;
                     }
                     segments::replace(c, id, &[])?;
-                    downloads::transition(c, id, &ACTIVE, Status::Completed, None)?;
+                    downloads::transition(c, id, &ACTIVE, end, None)?;
                     Ok(())
                 });
                 self.log_err("completed", id, r);
@@ -668,8 +706,13 @@ impl Manager {
                     name = %self.name_of(id),
                     size = %logfmt::bytes(size),
                     average = %self.average_of(id, size),
-                    "download completed"
+                    "{}",
+                    if verify { "download received, verifying the checksum" } else { "download completed" }
                 );
+                if verify {
+                    // Reading the file back holds no download slot: the next download may start.
+                    self.start_verification(id);
+                }
                 self.publish_download(id);
                 let next = self.sched().release(id);
                 self.launch(next).await;
@@ -838,6 +881,135 @@ impl Manager {
 }
 
 impl Manager {
+    // ---- checksum verification (SPEC 6.2.2) ------------------------------------------
+
+    /// Begin verifying the file of a download that is `verifying`.
+    fn start_verification(&self, id: Id) {
+        let Some(me) = self.this.get().and_then(Weak::upgrade) else {
+            return;
+        };
+        let job = Arc::new(VerifyJob {
+            hashed: Arc::default(),
+            cancel: Arc::default(),
+        });
+        {
+            let mut running = self.verifying();
+            if running.contains_key(&id) {
+                return;
+            }
+            running.insert(id, Arc::clone(&job));
+        }
+        tokio::spawn(async move { me.verify(id, job).await });
+    }
+
+    /// Stop the verification of a download (the user keeps the file or removes the download).
+    fn stop_verification(&self, id: Id) {
+        if let Some(job) = self.verifying().remove(&id) {
+            job.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Does the file of this download exist as a finished file (so that it can be deleted)?
+    fn has_finished_file(d: &Download) -> bool {
+        matches!(d.status, Status::Completed | Status::Verifying)
+            || (d.status == Status::Failed && d.verify_failed)
+    }
+
+    async fn verify(self: Arc<Self>, id: Id, job: Arc<VerifyJob>) {
+        let Ok(d) = self.get(id) else { return };
+        let (Status::Verifying, Some(sum)) = (d.status, d.checksum.clone()) else {
+            self.forget_verification(id, &job);
+            return;
+        };
+        let path = self.engine.dir_for(&d.subdir).join(&d.filename);
+        // The progress bar: how much of the file has been read.
+        let ticker = {
+            let (me, job, total) = (Arc::clone(&self), Arc::clone(&job), d.size);
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(1));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let mut last = (Instant::now(), 0u64);
+                tick.tick().await;
+                loop {
+                    tick.tick().await;
+                    let (now, hashed) = (Instant::now(), job.hashed.load(Ordering::Relaxed));
+                    let secs = now.duration_since(last.0).as_secs_f64().max(0.001);
+                    let speed = (hashed.saturating_sub(last.1) as f64 / secs) as u64;
+                    last = (now, hashed);
+                    me.publish(Event::Progress {
+                        id,
+                        downloaded: hashed,
+                        total,
+                        speed,
+                    });
+                }
+            })
+        };
+        let result = hash_file(
+            &path,
+            sum.algo,
+            Arc::clone(&job.hashed),
+            Arc::clone(&job.cancel),
+        )
+        .await;
+        ticker.abort();
+        self.forget_verification(id, &job);
+        if job.cancel.load(Ordering::Relaxed) {
+            return; // the user decided; whoever did it has updated the download
+        }
+        let name = d.filename.clone();
+        let verdict = match result {
+            Ok(Some(actual)) if actual == sum.expected => Ok(()),
+            Ok(Some(actual)) => Err((
+                Some(actual.clone()),
+                format!(
+                    "checksum mismatch: expected {} {}, the file has {}",
+                    sum.algo.as_str().to_ascii_uppercase(),
+                    sum.expected,
+                    actual
+                ),
+            )),
+            Ok(None) => return,
+            Err(e) => Err((None, format!("cannot verify the file: {e}"))),
+        };
+        let r = self.with_db(|c| match &verdict {
+            Ok(()) => {
+                if downloads::transition(c, id, &[Status::Verifying], Status::Completed, None)? {
+                    downloads::set_verification(c, id, true, None)?;
+                }
+                Ok(())
+            }
+            Err((actual, message)) => {
+                if downloads::transition(
+                    c,
+                    id,
+                    &[Status::Verifying],
+                    Status::Failed,
+                    Some(message),
+                )? {
+                    downloads::set_verification(c, id, false, actual.as_deref())?;
+                }
+                Ok(())
+            }
+        });
+        self.log_err("verification", id, r);
+        match &verdict {
+            Ok(()) => {
+                tracing::info!(target: "activity", id, %name, algo = sum.algo.as_str(), "checksum verified")
+            }
+            Err((_, message)) => tracing::warn!(id, %name, error = %message, "verification failed"),
+        }
+        self.publish_download(id);
+    }
+
+    /// The verification is over; forget it unless a newer one has taken its place.
+    fn forget_verification(&self, id: Id, job: &Arc<VerifyJob>) {
+        let mut running = self.verifying();
+        if running.get(&id).is_some_and(|j| Arc::ptr_eq(j, job)) {
+            running.remove(&id);
+        }
+    }
+
     /// Bytes that the running downloads still have to write on file system `dev`: the space
     /// reserved for them. "Running" means holding a download slot, whether or not the engine has
     /// reported its start yet, so two downloads added in quick succession see each other.
@@ -951,6 +1123,13 @@ impl Service for Manager {
     }
 
     async fn add(&self, req: AddRequest) -> Result<Download> {
+        // Said before anything is looked up: a checksum that cannot be right is the user's to fix.
+        let checksum = req
+            .checksum
+            .as_ref()
+            .map(|c| normalize_checksum(c.algo, &c.value).map(|v| (c.algo, v)))
+            .transpose()
+            .map_err(Error::InvalidInput)?;
         let info = self.probe_remote(&req.url).await.inspect_err(|e| {
             tracing::warn!(from = %logfmt::host(&req.url), error = %e, "cannot add the download");
         })?;
@@ -1017,6 +1196,7 @@ impl Service for Manager {
                         subdir,
                         start_at: req.start_at,
                         start_now: req.start_now,
+                        checksum,
                     },
                 )?;
                 downloads::set_remote_info(c, id, info.size, info.resumable, info.etag.as_deref())?;
@@ -1093,12 +1273,22 @@ impl Service for Manager {
     }
 
     async fn resume(&self, id: Id) -> Result<Download> {
-        let d = self.get(id)?;
+        let mut d = self.get(id)?;
         if !matches!(d.status, Status::Paused | Status::Failed) {
             return Err(Error::InvalidState(format!(
                 "cannot resume a {} download",
                 d.status.as_str()
             )));
+        }
+        // The file did not pass its verification: there is nothing to continue from. The bad file
+        // goes and the download starts again from the beginning.
+        if d.verify_failed {
+            self.delete_finished_file(&d).await?;
+            self.with_db(|c| {
+                segments::replace(c, id, &[])?;
+                downloads::reset_for_redownload(c, id).map(|_| ())
+            })?;
+            d = self.get(id)?;
         }
         // Resuming into a disk that is still really full would only fail again (or fill it): say so
         // and leave the download as it is. The user's own `ignore_space` choice is respected.
@@ -1133,6 +1323,12 @@ impl Service for Manager {
 
     async fn cancel(&self, id: Id) -> Result<Download> {
         let d = self.get(id)?;
+        if d.status == Status::Verifying {
+            return Err(Error::InvalidState(
+                "the file is complete and being verified: skip the verification, or remove the download"
+                    .into(),
+            ));
+        }
         if d.status.is_terminal() {
             return Err(Error::InvalidState(format!(
                 "cannot cancel a {} download",
@@ -1145,11 +1341,15 @@ impl Service for Manager {
 
     async fn remove(&self, id: Id, delete_file: bool) -> Result<()> {
         let d = self.get(id)?;
-        if !d.status.is_terminal() {
+        if d.status == Status::Verifying {
+            // The file is complete; only the reading of it is stopped.
+            self.stop_verification(id);
+        } else if !d.status.is_terminal() {
             self.do_cancel(&d).await?;
         }
         // The file first: if it cannot be deleted the entry stays, so the user can try again.
-        if delete_file && d.status == Status::Completed {
+        let has_file = Self::has_finished_file(&d);
+        if delete_file && has_file {
             self.delete_finished_file(&d).await?;
         }
         // What the download came to, now that it is over (a cancelled one has stopped counting).
@@ -1161,12 +1361,47 @@ impl Service for Manager {
             size = %d.size.map_or_else(|| "unknown".to_owned(), logfmt::bytes),
             fetched = %logfmt::bytes(fetched),
             average = %self.average_of(id, fetched),
-            file_deleted = delete_file && d.status == Status::Completed,
+            file_deleted = delete_file && has_file,
             "download removed from the list"
         );
         self.with_db(|c| downloads::delete(c, id).map(|_| ()))?;
         self.publish(Event::Removed { id });
         Ok(())
+    }
+
+    async fn keep(&self, id: Id) -> Result<Download> {
+        let d = self.get(id)?;
+        let failed_check = d.status == Status::Failed && d.verify_failed;
+        if d.status != Status::Verifying && !failed_check {
+            return Err(Error::InvalidState(format!(
+                "a {} download has no verification to skip",
+                d.status.as_str()
+            )));
+        }
+        self.stop_verification(id);
+        self.with_db(|c| {
+            // Skipping a verification leaves no verdict. Keeping a file that did not match leaves
+            // it: the download is completed, but remembers (and shows) that its checksum differed.
+            if !failed_check {
+                downloads::clear_verification(c, id)?;
+            }
+            downloads::transition(
+                c,
+                id,
+                &[Status::Verifying, Status::Failed],
+                Status::Completed,
+                None,
+            )
+            .map(|_| ())
+        })?;
+        tracing::info!(target: "activity",
+            id,
+            name = %d.filename,
+            "{}",
+            if failed_check { "file kept although its checksum did not match" } else { "verification skipped, the file is kept" }
+        );
+        self.publish_download(id);
+        self.get(id).map(|d| self.view(d))
     }
 
     async fn set_speed_limit(&self, id: Id, rate: u64) -> Result<Download> {

@@ -147,6 +147,7 @@ const pl: Messages = {
   'status.completed': 'Zakończono',
   'status.failed': 'Błąd',
   'status.cancelled': 'Anulowano',
+  'status.verifying': 'Weryfikacja',
 
   // ---- download card
   'card.progressOf': 'Postęp pobierania pliku {name}',
@@ -159,6 +160,21 @@ const pl: Messages = {
   'card.pause': 'Wstrzymaj',
   'card.resume': 'Wznów',
   'card.retry': 'Ponów',
+  'card.verifying': 'Weryfikacja sumy kontrolnej',
+  'card.verified': 'Suma kontrolna zgodna ({algo})',
+  'card.keptMismatch':
+    'Suma kontrolna się nie zgadzała, plik został mimo to zachowany. Oczekiwana {algo}: {expected}. Plik ma: {actual}.',
+  'card.keptUnverified': 'Nie udało się zweryfikować pliku; został mimo to zachowany.',
+  'card.skipVerify': 'Pomiń weryfikację',
+  'card.keepFile': 'Zachowaj plik',
+  'card.downloadAgain': 'Pobierz ponownie',
+  'card.deleteWithFile': 'Usuń razem z plikiem',
+  'card.verifyFailed': 'Plik nie zgadza się z sumą kontrolną',
+  'card.verifyUnreadable': 'Nie udało się zweryfikować pliku',
+  'card.expected': 'Oczekiwana {algo}',
+  'card.actual': 'Suma pliku',
+  'card.verifyFailed.hint':
+    'Plik może być uszkodzony albo to nie ten, który opublikowała strona. Pobierz go ponownie, zachowaj taki, jaki jest, albo usuń razem z plikiem.',
   'card.cancel.label': 'Anuluj pobieranie pliku {name}',
   'card.cancel.title': 'Anuluj',
   'card.remove.label': 'Usuń {name} z listy',
@@ -177,6 +193,14 @@ const pl: Messages = {
 
   // ---- add download
   'add.title': 'Dodaj pobranie',
+  'add.checksum': 'Sprawdź sumę kontrolną',
+  'add.checksum.type': 'Typ',
+  'add.checksum.value': 'Suma kontrolna',
+  'add.checksum.placeholder': 'Wklej ją ze strony pobierania',
+  'add.checksum.hint': 'Pobrany plik zostanie z nią porównany. Typ jest rozpoznawany po długości.',
+  'add.checksum.empty': 'Wpisz sumę kontrolną.',
+  'add.checksum.chars': 'Suma kontrolna zawiera tylko cyfry 0-9 i litery a-f.',
+  'add.checksum.length': 'Suma {algo} ma {expected} znaków, a ta ma {got}.',
   'add.address': 'Adres',
   'add.address.hint': 'Bezpośredni link do pliku.',
   'add.address.invalid': 'Podaj pełny adres zaczynający się od http:// lub https://.',

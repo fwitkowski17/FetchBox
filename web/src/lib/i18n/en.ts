@@ -151,6 +151,7 @@ export const en = {
   'status.completed': 'Completed',
   'status.failed': 'Failed',
   'status.cancelled': 'Cancelled',
+  'status.verifying': 'Verifying',
 
   // ---- download card
   'card.progressOf': 'Progress of {name}',
@@ -162,6 +163,21 @@ export const en = {
   'card.pause': 'Pause',
   'card.resume': 'Resume',
   'card.retry': 'Retry',
+  'card.verifying': 'Verifying the checksum',
+  'card.verified': 'Checksum verified ({algo})',
+  'card.keptMismatch':
+    'The checksum did not match; the file was kept anyway. Expected {algo}: {expected}. The file has: {actual}.',
+  'card.keptUnverified': 'The file could not be verified; it was kept anyway.',
+  'card.skipVerify': 'Skip verification',
+  'card.keepFile': 'Keep the file',
+  'card.downloadAgain': 'Download again',
+  'card.deleteWithFile': 'Delete with the file',
+  'card.verifyFailed': 'The file does not match its checksum',
+  'card.verifyUnreadable': 'The file could not be verified',
+  'card.expected': 'Expected {algo}',
+  'card.actual': 'The file has',
+  'card.verifyFailed.hint':
+    'It may be damaged, or not the file the site published. Download it again, keep it as it is, or delete it together with the file.',
   'card.cancel.label': 'Cancel {name}',
   'card.cancel.title': 'Cancel',
   'card.remove.label': 'Remove {name} from the list',
@@ -180,6 +196,14 @@ export const en = {
 
   // ---- add download
   'add.title': 'Add download',
+  'add.checksum': 'Verify the checksum',
+  'add.checksum.type': 'Type',
+  'add.checksum.value': 'Checksum',
+  'add.checksum.placeholder': 'Paste it from the download page',
+  'add.checksum.hint': 'The finished file is checked against it. The type is recognised by the length.',
+  'add.checksum.empty': 'Enter the checksum.',
+  'add.checksum.chars': 'A checksum has only the digits 0-9 and the letters a-f.',
+  'add.checksum.length': 'A {algo} checksum has {expected} characters, this one has {got}.',
   'add.address': 'Address',
   'add.address.hint': 'Direct link to a file.',
   'add.address.invalid': 'Enter a full http:// or https:// address.',

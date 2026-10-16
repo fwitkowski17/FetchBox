@@ -14,6 +14,7 @@
     queued: 'bg-muted',
     downloading: 'bg-accent',
     paused: 'bg-warning',
+    verifying: 'bg-accent',
     completed: 'bg-success',
     failed: 'bg-danger',
     cancelled: 'bg-danger',

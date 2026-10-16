@@ -11,6 +11,8 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 - Mobile-friendly UI (mobile-first, installable PWA).
 - File category: Photo, Music, Video, Program, Archive, Other. Auto-detected from extension / `Content-Type`, manually changeable. Optional per-category subdirectory.
 - Pause and resume (resume must continue from the saved offset, not restart).
+- Checksum verification: a download can carry an expected md5, sha1, sha256 or sha512 digest; the finished file is checked against
+  it (see 6.2.2).
 - Settings:
   - connections (segments) per download
   - max simultaneous downloads (extra ones are `Queued`)
@@ -140,6 +142,35 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   during the transfer. The progress and speed shown are what was received, which can exceed the disk's sustained rate while the
   cache fills. Not yet measured on slow (SMR) disks.
 
+### 6.2.2 Checksum verification
+
+- **Adding**: `AddRequest.checksum {algo, value}` (`algo`: `md5` | `sha1` | `sha256` | `sha512`). The value is what the user pasted and
+  is normalised by `fetchbox_core::checksum::normalize`: lowercase hexadecimal of the length of the algorithm (32, 40, 64, 128).
+  Forgiving: surrounding space, a label (`sha256:`, `SHA256 =`, `sha256sum:`), `0x`, separators inside the digest (`d4:1d:...`,
+  groups of eight) and a line of a checksum file (`<digest>  <name>`, the first word) are understood, only the first line counts.
+  Anything that is not a digest of that algorithm is `400` and nothing is added. A listing of several files has no checksum (each
+  file has its own).
+- **Status `verifying`** (between `downloading` and `completed`): when the engine reports a download with a checksum finished,
+  the manager releases its download slot at once (reading a file back is not a transfer; the next download starts), sets
+  `verifying` and hashes the final file on the blocking pool (1 MiB reads, `fetchbox_http_engine::verify`; `sha2`, `sha1` and
+  `md-5`, which use the CPU's SHA instructions where present). While it runs, `progress` events carry the bytes read in
+  `downloaded` (and the rate in `speed`), and the list shows them in place of `downloaded` (the stored value stays the size).
+  `finished_at` is not set yet and the download does not count as completed in the statistics.
+- **Match**: `completed`, `verified: true`. **Mismatch** or a file that cannot be read: `failed`, `verify_failed: true`, the
+  `error` says why and `checksum.actual` holds the digest the file really has (empty when it could not be read). The failure is
+  counted as a failure in the statistics; keeping the file later replaces that row by a completed one.
+- **What the user can do with a failed verification** (the file stays on disk until they decide): *download again*
+  (`POST .../resume`: the file is deleted, offsets and etag are reset and the download starts from the beginning, with the same
+  checksum), *keep* (`POST /api/downloads/:id/keep`: `completed`, `verified: false`; `verify_failed` and `checksum.actual` stay, so the list can show that it was kept although the checksum did not match) or *delete with the
+  file* (`DELETE ...?delete_file=true`, which is allowed for a completed download, one being verified, and one that failed its
+  verification). `keep` also skips a verification that is still running (no verdict is left then; `409` for any other download). `cancel` on a download
+  being verified is refused (`409`): the file is complete; `DELETE` stops the verification (and may take the file).
+- **Restart**: a download left `verifying` by a dead process hashes its file again at the next start.
+- **Data**: `downloads.checksum_algo`, `checksum_expected`, `checksum_actual`, `verified`, `verify_failed`. Adding the status
+  needed a table rebuild (SQLite cannot change a CHECK constraint): migration 0010 copies the table, carries the `AUTOINCREMENT`
+  counter over and recreates the history trigger; the migration runner switches foreign keys off around migrations and checks
+  them afterwards.
+
 ### 6.2.1 Directory index pages
 
 - A URL that answers with an HTML page is read once more (at most 2 MiB, through the same client, so the private-address
@@ -208,7 +239,7 @@ For mobile connections with a night package, or a line that must stay free by da
 
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, start_at, start_now, active_ms, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, start_at, start_now, active_ms, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
 - `history`: download_id, added_at, finished_at, outcome (`completed` | `failed` | `cancelled`), name, category, size, bytes,
   active_ms. One row per download that ended, written by a trigger on `downloads.status`, so whichever code path ends a
@@ -218,11 +249,12 @@ For mobile connections with a night package, or a line that must stay free by da
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
 - `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases)
 
-Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
+Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`, `cancelled`.
 
 ### 6.5 API (draft)
 
 - `GET /api/downloads`, `POST /api/downloads`
+- `POST /api/downloads/:id/keep` (6.2.2)
 - `POST /api/downloads/:id/pause|resume|cancel`, `DELETE /api/downloads/:id[?delete_file=true]` (removes the entry; with
   `delete_file` also the finished file, only for a completed download and only the plain file name the engine finally
   chose, inside the download's own directory; a file that is already gone is fine, any other failure keeps the entry)
@@ -313,6 +345,16 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - Archived: a status tab of its own ("Archived", in the side panel). "All" and the other status tabs show only what is not
   archived, so archiving really hides an entry; "Clear finished" leaves archived entries alone; a list where everything is
   archived says so and offers to show them.
+- Checksum (6.2.2): the add dialog has a checkbox "Verify the checksum" (single files only, not directory listings); ticked, it shows
+  a type select (MD5, SHA-1, SHA-256, SHA-512) and a field for the checksum. Pasting picks the type (the label in the text, or
+  else the length of the digest), choosing another type by hand sticks until the text changes, and what is wrong (not hexadecimal,
+  the wrong length for the type) is said under the field; "Start" waits for a valid checksum. A card in `verifying` has the badge
+  "Verifying", the bar shows how much of the file has been read, and its main button is "Skip verification" (`keep`). A completed
+  and verified download shows a green tick and "Checksum verified (SHA-256)". A failed verification shows the expected digest and
+  the one the file has (monospace, wrapped), a hint, and three choices: "Download again" (main button), "Keep the file" and the
+  trash button, which opens the delete dialog (offering to take the file with it). `verifying` is part of the "Active" tab.
+  A download that was kept although the checksum did not match is `completed` and shows a warning icon beside its "Completed"
+  badge; the tooltip gives the expected and the real digest.
 - A waiting download (`hold`) shows the badge "Waiting for the hours" or "Scheduled", "Starts 01:00" / "Starts tomorrow 02:30"
   instead of "Waiting for a free slot", and its main button is "Download now"; a pause button sits next to it.
 - Card menu: the card's action row is the primary button (pause / resume / retry), a "more" button and, as before, cancel

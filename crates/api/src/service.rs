@@ -25,6 +25,9 @@ pub trait Service: Send + Sync + 'static {
     async fn pause(&self, id: Id) -> Result<Download>;
     async fn resume(&self, id: Id) -> Result<Download>;
     async fn cancel(&self, id: Id) -> Result<Download>;
+    /// Keep the file of a download that is being verified, or that failed its verification,
+    /// whatever the checksum says: it becomes `completed`, not verified.
+    async fn keep(&self, id: Id) -> Result<Download>;
     /// Remove from the list (cancels first when still active). A finished file stays on disk
     /// unless `delete_file` is set.
     async fn remove(&self, id: Id, delete_file: bool) -> Result<()>;

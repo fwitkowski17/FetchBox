@@ -19,6 +19,7 @@ export const GROUPS: readonly { id: Group }[] = [
 export function groupOf(status: Status): Exclude<Group, 'all'> {
   switch (status) {
     case 'downloading':
+    case 'verifying':
     case 'queued':
       return 'active';
     case 'paused':
@@ -126,11 +127,12 @@ export const SORT_OPTIONS: readonly { key: SortKey }[] = [
 /** Most interesting first: what is running, then waiting, then the rest. */
 const STATUS_RANK: Record<Status, number> = {
   downloading: 0,
-  queued: 1,
-  paused: 2,
-  failed: 3,
-  cancelled: 4,
-  completed: 5,
+  verifying: 1,
+  queued: 2,
+  paused: 3,
+  failed: 4,
+  cancelled: 5,
+  completed: 6,
 };
 
 const collators = new Map<string, Intl.Collator>();
