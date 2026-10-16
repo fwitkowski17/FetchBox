@@ -152,6 +152,7 @@ const pl: Messages = {
   // ---- download card
   'card.progressOf': 'Postęp pobierania pliku {name}',
   'card.waiting': 'Czeka na wolne miejsce',
+  'card.login': 'Loguje się jako {user}',
   'card.cancelled': 'Anulowano',
   'card.ofTotal': '{done} z {total}',
   'card.eta': 'Pozostało {time}',
@@ -202,8 +203,8 @@ const pl: Messages = {
   'add.checksum.chars': 'Suma kontrolna zawiera tylko cyfry 0-9 i litery a-f.',
   'add.checksum.length': 'Suma {algo} ma {expected} znaków, a ta ma {got}.',
   'add.address': 'Adres',
-  'add.address.hint': 'Bezpośredni link do pliku.',
-  'add.address.invalid': 'Podaj pełny adres zaczynający się od http:// lub https://.',
+  'add.address.hint': 'Link do pliku albo do folderu, z którego wybierzesz pliki.',
+  'add.address.invalid': 'Podaj pełny adres zaczynający się od http://, https://, ftp://, ftps:// lub sftp://.',
   'add.paste': 'Wklej ze schowka',
   'add.paste.unavailable': 'Przeglądarka nie pozwala tu odczytać schowka. Wklej adres skrótem Ctrl+V.',
   'add.paste.empty': 'W schowku nie ma tekstu.',
@@ -260,6 +261,32 @@ const pl: Messages = {
   'add.submit': 'Rozpocznij pobieranie',
   'add.submitting': 'Dodawanie…',
   'add.failed': 'Nie udało się dodać pobrania.',
+  'add.login': 'Ten adres wymaga logowania',
+  'add.login.user': 'Nazwa użytkownika',
+  'add.login.password': 'Hasło',
+  'add.login.hint.http': 'Wysyłane jako uwierzytelnianie HTTP Basic.',
+  'add.login.hint.ftp': 'Bez nazwy użytkownika FTP loguje się jako „anonymous”.',
+  'add.login.hint.sftp': 'SFTP zawsze wymaga nazwy użytkownika i hasła.',
+  'add.login.stored':
+    'Hasło zostaje na serwerze, w jego bazie danych, żeby wstrzymane pobieranie mogło być kontynuowane. Nigdy nie jest pokazywane ani odsyłane.',
+  'add.login.plain': 'Ten adres nie jest szyfrowany: hasło zostanie wysłane jawnym tekstem. Jeśli serwer to umożliwia, użyj https://, ftps:// lub sftp://.',
+  'add.login.needed': 'Podaj nazwę użytkownika i hasło, aby sprawdzić ten adres.',
+  'add.hostkey.unknown.title': 'Nieznany serwer SSH',
+  'add.hostkey.unknown':
+    '{host} (port {port}) nie był jeszcze używany. Porównaj poniższy odcisk z odciskiem swojego serwera, a potem mu zaufaj. Wcześniej nie jest wysyłane żadne hasło.',
+  'add.hostkey.fingerprint': 'Odcisk klucza ({type})',
+  'add.hostkey.how': 'Na serwerze wypisze go polecenie ssh-keygen -lf /etc/ssh/{file}.',
+  'add.hostkey.trust': 'Ufaj temu serwerowi',
+  'add.hostkey.trusting': 'Zapisywanie…',
+  'add.hostkey.failed': 'Nie udało się zapisać klucza.',
+  'add.hostkey.changed.title': 'Klucz serwera się zmienił',
+  'add.hostkey.changed':
+    'Klucz serwera {host} (port {port}) nie jest tym, który zaakceptowano. Tak bywa po ponownej instalacji serwera, ale może też oznaczać, że ktoś pośredniczy w połączeniu. Nic nie zostało wysłane.',
+  'add.hostkey.accepted': 'Zaakceptowany',
+  'add.hostkey.now': 'Przedstawiony teraz',
+  'add.hostkey.settings': 'Otwórz Ustawienia',
+  'add.hostkey.settingsHint':
+    'Jeśli wiesz, że serwer został zmieniony, usuń stary klucz w sekcji „Zaufane serwery SSH”.',
 
   // ---- not enough space for a new download
   'nospace.title': 'Za mało wolnego miejsca',
@@ -290,7 +317,7 @@ const pl: Messages = {
   'settings.downloads': 'Pobieranie',
   'settings.connections.label': 'Połączenia na jedno pobranie',
   'settings.connections.hint':
-    'Więcej połączeń może przyspieszyć pobieranie, ale tylko na serwerach, które na to pozwalają. Dotyczy nowych pobrań.',
+    'Więcej połączeń może przyspieszyć pobieranie, ale tylko na serwerach, które na to pozwalają. Dotyczy nowych pobrań. FTP i SFTP zawsze używają jednego połączenia.',
   'settings.concurrent.label': 'Równoczesne pobrania',
   'settings.concurrent.hint': 'Pozostałe pobrania czekają w kolejce. Zmiana działa od razu.',
   'settings.speed': 'Limity prędkości',
@@ -381,6 +408,18 @@ const pl: Messages = {
   'settings.password.changed': 'Hasło zostało zmienione.',
   'settings.password.wrong': 'Obecne hasło jest nieprawidłowe.',
   'settings.password.failed': 'Nie udało się zmienić hasła.',
+  'settings.hosts': 'Zaufane serwery SSH',
+  'settings.hosts.hint':
+    'Pobieranie przez SFTP działa tylko z serwerów, których klucz zaakceptowano. Pytanie pojawia się przy dodawaniu pobrania z nowego serwera.',
+  'settings.hosts.empty': 'Na razie żadnego serwera.',
+  'settings.hosts.since': 'Zaakceptowano {date}',
+  'settings.hosts.forget': 'Zapomnij',
+  'settings.hosts.forgetLabel': 'Zapomnij {host}',
+  'settings.hosts.confirm.title': 'Zapomnieć ten serwer?',
+  'settings.hosts.confirm.message':
+    'Pobierania z {host} (port {port}) zatrzymają się, dopóki ponownie nie zaufasz jego kluczowi.',
+  'settings.hosts.forgotten': 'Serwer zapomniany.',
+  'settings.hosts.failed': 'Nie udało się wczytać listy: {error}',
   'settings.error.connections': 'Podaj liczbę całkowitą od 1 do {max}.',
   'settings.error.concurrent': 'Podaj liczbę całkowitą od 1 do {max}.',
   'settings.error.speed': 'Podaj prędkość większą od 0 albo wyłącz limit.',
@@ -607,6 +646,8 @@ const pl: Messages = {
   'error.http': 'Serwer zwrócił błąd ({status}).',
   'error.unexpected': 'Coś poszło nie tak.',
   'error.noSpace': 'Nadal za mało wolnego miejsca na dysku: potrzeba {needed}, wolne {free}.',
+  'error.hostKey.untrusted': 'Serwer SSH {host} (port {port}) nie jest jeszcze zaufany.',
+  'error.hostKey.changed': 'Klucz serwera {host} (port {port}) się zmienił.',
 };
 
 export default pl;

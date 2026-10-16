@@ -156,6 +156,7 @@ export const en = {
   // ---- download card
   'card.progressOf': 'Progress of {name}',
   'card.waiting': 'Waiting for a free slot',
+  'card.login': 'Logs in as {user}',
   'card.cancelled': 'Cancelled',
   'card.ofTotal': '{done} of {total}',
   'card.eta': '{time} left',
@@ -205,8 +206,8 @@ export const en = {
   'add.checksum.chars': 'A checksum has only the digits 0-9 and the letters a-f.',
   'add.checksum.length': 'A {algo} checksum has {expected} characters, this one has {got}.',
   'add.address': 'Address',
-  'add.address.hint': 'Direct link to a file.',
-  'add.address.invalid': 'Enter a full http:// or https:// address.',
+  'add.address.hint': 'Link to a file, or to a folder to choose files from.',
+  'add.address.invalid': 'Enter a full address: http://, https://, ftp://, ftps:// or sftp://.',
   'add.paste': 'Paste from clipboard',
   'add.paste.unavailable': 'The browser does not allow reading the clipboard here. Paste with Ctrl+V instead.',
   'add.paste.empty': 'The clipboard has no text.',
@@ -244,6 +245,32 @@ export const en = {
   'add.submit': 'Start download',
   'add.submitting': 'Adding…',
   'add.failed': 'Could not add the download.',
+  'add.login': 'This address needs a login',
+  'add.login.user': 'User name',
+  'add.login.password': 'Password',
+  'add.login.hint.http': 'Sent as HTTP basic authentication.',
+  'add.login.hint.ftp': 'Without a user name, FTP logs in as “anonymous”.',
+  'add.login.hint.sftp': 'SFTP always needs a user name and a password.',
+  'add.login.stored':
+    'The password stays on the server, in its database, so that a paused download can go on. It is never shown or sent back.',
+  'add.login.plain': 'This address is not encrypted: the password travels in the clear. Use https://, ftps:// or sftp:// when the server offers it.',
+  'add.login.needed': 'Enter the user name and the password to look at this address.',
+  'add.hostkey.unknown.title': 'Unknown SSH server',
+  'add.hostkey.unknown':
+    '{host} (port {port}) has not been seen before. Compare the fingerprint below with the one of your server, then trust it. No password is sent before that.',
+  'add.hostkey.fingerprint': 'Fingerprint ({type})',
+  'add.hostkey.how': 'On the server, ssh-keygen -lf /etc/ssh/{file} prints it.',
+  'add.hostkey.trust': 'Trust this server',
+  'add.hostkey.trusting': 'Saving…',
+  'add.hostkey.failed': 'Could not save the key.',
+  'add.hostkey.changed.title': 'The host key has changed',
+  'add.hostkey.changed':
+    'The key of {host} (port {port}) is not the one you accepted. This happens when the server was reinstalled, but it can also mean that someone sits between you and the server. Nothing was sent.',
+  'add.hostkey.accepted': 'Accepted',
+  'add.hostkey.now': 'Offered now',
+  'add.hostkey.settings': 'Open Settings',
+  'add.hostkey.settingsHint':
+    'If you know the server was changed, remove the old key under “Trusted SSH servers”.',
 
   // ---- not enough space for a new download
   'nospace.title': 'Not enough free space',
@@ -274,7 +301,7 @@ export const en = {
   'settings.downloads': 'Downloads',
   'settings.connections.label': 'Connections per download',
   'settings.connections.hint':
-    'More connections can be faster, but only for servers that allow it. Applies to new downloads.',
+    'More connections can be faster, but only for servers that allow it. Applies to new downloads. FTP and SFTP always use one connection.',
   'settings.concurrent.label': 'Simultaneous downloads',
   'settings.concurrent.hint': 'Extra downloads wait in the queue. Changes take effect immediately.',
   'settings.speed': 'Speed limits',
@@ -365,6 +392,18 @@ export const en = {
   'settings.password.changed': 'Password changed.',
   'settings.password.wrong': 'The current password is wrong.',
   'settings.password.failed': 'Could not change the password.',
+  'settings.hosts': 'Trusted SSH servers',
+  'settings.hosts.hint':
+    'SFTP downloads only go to servers whose key you accepted. You are asked when you add a download from a new server.',
+  'settings.hosts.empty': 'No server yet.',
+  'settings.hosts.since': 'Accepted {date}',
+  'settings.hosts.forget': 'Forget',
+  'settings.hosts.forgetLabel': 'Forget {host}',
+  'settings.hosts.confirm.title': 'Forget this server?',
+  'settings.hosts.confirm.message':
+    'Downloads from {host} (port {port}) stop until you trust its key again.',
+  'settings.hosts.forgotten': 'Server forgotten.',
+  'settings.hosts.failed': 'Could not load the list: {error}',
   'settings.error.connections': 'Use a whole number from 1 to {max}.',
   'settings.error.concurrent': 'Use a whole number from 1 to {max}.',
   'settings.error.speed': 'Enter a speed above 0, or turn the limit off.',
@@ -543,6 +582,8 @@ export const en = {
   'error.http': 'The server answered with an error ({status}).',
   'error.unexpected': 'Something went wrong.',
   'error.noSpace': 'Still not enough free disk space: {needed} needed, {free} free.',
+  'error.hostKey.untrusted': 'The SSH server {host} (port {port}) is not trusted yet.',
+  'error.hostKey.changed': 'The host key of {host} (port {port}) has changed.',
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;

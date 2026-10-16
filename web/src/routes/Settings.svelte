@@ -8,6 +8,7 @@
   import SettingsFields from '../lib/components/SettingsFields.svelte';
   import AppearanceFields from '../lib/components/AppearanceFields.svelte';
   import AboutCard from '../lib/components/AboutCard.svelte';
+  import KnownHostsCard from '../lib/components/KnownHostsCard.svelte';
   import PasswordCard from '../lib/components/PasswordCard.svelte';
   import { auth } from '../lib/stores/auth.svelte';
   import { settings } from '../lib/stores/settings.svelte';
@@ -121,6 +122,7 @@
   </form>
 
   <div class="mt-4 grid gap-4">
+    <KnownHostsCard />
     {#if auth.required}<PasswordCard />{/if}
     <AboutCard bind:draft />
     {#if auth.required}

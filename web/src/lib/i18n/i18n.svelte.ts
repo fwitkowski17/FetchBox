@@ -94,6 +94,12 @@ class I18n {
           free: this.bytes(Math.max(0, e.space.free - e.space.reserved)),
         });
       }
+      if (e.hostKey) {
+        return this.t(
+          e.hostKey.kind === 'changed' ? 'error.hostKey.changed' : 'error.hostKey.untrusted',
+          { host: e.hostKey.host, port: e.hostKey.port },
+        );
+      }
       // The server's own wording is shown as it is (the backend is not translated).
       return e.serverMessage ?? this.t('error.http', { status: e.status });
     }
