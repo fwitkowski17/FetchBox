@@ -15,6 +15,7 @@ const SCHEDULE_ENABLED: &str = "schedule_enabled";
 const SCHEDULE_FROM: &str = "schedule_from";
 const SCHEDULE_TO: &str = "schedule_to";
 const SCHEDULE_TIMEZONE: &str = "schedule_timezone";
+const SCHEDULE_ON_END: &str = "schedule_on_end";
 
 /// Key of the Argon2 hash of the password created in the first-run setup. It lives in the
 /// same table as the settings but is not part of `Settings`, so it never reaches the API.
@@ -62,6 +63,7 @@ pub fn load(conn: &Connection) -> Result<Settings> {
         schedule_from: get_num(conn, SCHEDULE_FROM)?.unwrap_or(d.schedule_from),
         schedule_to: get_num(conn, SCHEDULE_TO)?.unwrap_or(d.schedule_to),
         schedule_timezone: get_num(conn, SCHEDULE_TIMEZONE)?.unwrap_or(d.schedule_timezone),
+        schedule_on_end: get_num(conn, SCHEDULE_ON_END)?.unwrap_or(d.schedule_on_end),
     })
 }
 
@@ -86,6 +88,7 @@ pub fn save(conn: &mut Connection, s: &Settings) -> Result<()> {
         stmt.execute(params![SCHEDULE_FROM, s.schedule_from.to_string()])?;
         stmt.execute(params![SCHEDULE_TO, s.schedule_to.to_string()])?;
         stmt.execute(params![SCHEDULE_TIMEZONE, s.schedule_timezone])?;
+        stmt.execute(params![SCHEDULE_ON_END, s.schedule_on_end.as_str()])?;
     }
     tx.commit()?;
     Ok(())
@@ -125,6 +128,7 @@ mod tests {
             schedule_from: 22 * 60,
             schedule_to: 6 * 60,
             schedule_timezone: "Europe/Warsaw".to_owned(),
+            schedule_on_end: fetchbox_core::OnHoursEnd::Finish,
         };
         save(&mut conn, &s).expect("save");
         assert_eq!(load(&conn).expect("load"), s);

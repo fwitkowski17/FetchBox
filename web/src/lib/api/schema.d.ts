@@ -632,6 +632,11 @@ export interface components {
          * @enum {string}
          */
         OnConflict: "reject" | "rename" | "overwrite";
+        /**
+         * @description What happens to the downloads that are running when the download hours end.
+         * @enum {string}
+         */
+        OnHoursEnd: "pause" | "finish";
         /** @description Request to look at a URL before adding it. */
         ProbeRequest: {
             url: string;
@@ -677,6 +682,8 @@ export interface components {
              * @description Start of the hours, minutes after local midnight (`0` = 00:00).
              */
             schedule_from?: number;
+            /** @description What running downloads do when the download hours end. */
+            schedule_on_end?: components["schemas"]["OnHoursEnd"];
             /**
              * @description IANA time zone the hours are in (`Europe/Warsaw`). The server's own clock is usually UTC,
              *     so the zone is stated, not guessed.

@@ -1790,6 +1790,14 @@
           "overwrite"
         ]
       },
+      "OnHoursEnd": {
+        "type": "string",
+        "description": "What happens to the downloads that are running when the download hours end.",
+        "enum": [
+          "pause",
+          "finish"
+        ]
+      },
       "ProbeRequest": {
         "type": "object",
         "description": "Request to look at a URL before adding it.",
@@ -1864,6 +1872,10 @@
             "format": "int32",
             "description": "Start of the hours, minutes after local midnight (`0` = 00:00).",
             "minimum": 0
+          },
+          "schedule_on_end": {
+            "$ref": "#/components/schemas/OnHoursEnd",
+            "description": "What running downloads do when the download hours end."
           },
           "schedule_timezone": {
             "type": "string",

@@ -44,19 +44,26 @@ pub struct Gate {
     pub start_now: bool,
     /// Not before this moment (unix seconds), set when the download was added.
     pub start_at: Option<i64>,
+    /// When the hours end, running downloads finish instead of stopping.
+    pub finish_running: bool,
 }
 
 impl Gate {
-    /// May a waiting download start at unix time `now`?
+    /// May a waiting download start at unix time `now`? ("Finish" mode does not change this: it
+    /// only lets what already runs go on.)
     pub fn may_start(&self, now: i64) -> bool {
         if self.start_at.is_some_and(|t| now < t) {
             return false;
         }
-        self.may_run()
+        self.hours_allow()
     }
 
     /// May a download that is already running go on? A set start time is behind it by then.
     pub fn may_run(&self) -> bool {
+        self.hours_allow() || self.finish_running
+    }
+
+    fn hours_allow(&self) -> bool {
         !self.window_enabled || self.start_now || self.window_open
     }
 }
@@ -119,6 +126,7 @@ mod tests {
             window_open: open,
             start_now: now_flag,
             start_at: at,
+            finish_running: false,
         }
     }
 
@@ -152,5 +160,13 @@ mod tests {
         assert!(!gate(true, false, false, None).may_run());
         assert!(gate(true, false, true, None).may_run());
         assert!(gate(true, true, false, None).may_run());
+    }
+
+    #[test]
+    fn finishing_lets_a_running_download_go_on_but_not_a_waiting_one_start() {
+        let mut g = gate(true, false, false, None);
+        g.finish_running = true;
+        assert!(g.may_run(), "a running download is let finish");
+        assert!(!g.may_start(0), "a waiting one still waits for the hours");
     }
 }

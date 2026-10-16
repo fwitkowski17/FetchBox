@@ -22,8 +22,8 @@ use fetchbox_core::schedule::Gate;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
-    Hold, Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo,
-    UrlKind, VersionInfo,
+    Hold, Id, Job, OnConflict, OnHoursEnd, Result, Settings, SourceKind, Stats, StatsRange, Status,
+    UrlInfo, UrlKind, VersionInfo,
 };
 use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
@@ -294,6 +294,7 @@ impl Manager {
             window_open: self.window_open(&s, clock::now()),
             start_now,
             start_at,
+            finish_running: s.schedule_on_end == OnHoursEnd::Finish,
         })
     }
 

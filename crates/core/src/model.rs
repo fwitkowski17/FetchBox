@@ -239,6 +239,44 @@ pub struct Settings {
     /// so the zone is stated, not guessed.
     #[serde(default = "default_schedule_timezone")]
     pub schedule_timezone: String,
+    /// What running downloads do when the download hours end.
+    #[serde(default)]
+    pub schedule_on_end: OnHoursEnd,
+}
+
+/// What happens to the downloads that are running when the download hours end.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum OnHoursEnd {
+    /// Stop them (they keep what they have) and go on when the hours open again: nothing is
+    /// downloaded outside the hours. The default, since a data package may end with the hours.
+    #[default]
+    Pause,
+    /// Let them finish; only downloads that have not started wait for the next hours.
+    Finish,
+}
+
+impl OnHoursEnd {
+    /// Stable name, as stored in SQLite.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OnHoursEnd::Pause => "pause",
+            OnHoursEnd::Finish => "finish",
+        }
+    }
+}
+
+impl std::str::FromStr for OnHoursEnd {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
+        match s {
+            "pause" => Ok(OnHoursEnd::Pause),
+            "finish" => Ok(OnHoursEnd::Finish),
+            _ => Err(()),
+        }
+    }
 }
 
 fn default_schedule_to() -> u16 {
@@ -266,6 +304,7 @@ impl Default for Settings {
             schedule_from: 0,
             schedule_to: default_schedule_to(),
             schedule_timezone: default_schedule_timezone(),
+            schedule_on_end: OnHoursEnd::Pause,
         }
     }
 }

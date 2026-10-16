@@ -2838,3 +2838,66 @@ async fn patch_start_now_over_http() {
     .await;
     assert_eq!(status, 409, "a finished download is not waiting");
 }
+
+#[tokio::test]
+async fn finishing_lets_running_downloads_go_on_when_the_hours_close() {
+    let h = Harness::new().await;
+    let finish = |open: bool| Settings {
+        schedule_on_end: fetchbox_core::OnHoursEnd::Finish,
+        ..hours(open)
+    };
+    h.mgr.update_settings(finish(true)).await.expect("settings");
+    let running = h
+        .mgr
+        .add(h.req("claim", "100000", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(running.id, Status::Downloading).await;
+
+    h.mgr.update_settings(finish(false)).await.expect("close");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let now = h.mgr.list().await.expect("list");
+    assert_eq!(
+        now.iter().find(|d| d.id == running.id).map(|d| d.status),
+        Some(Status::Downloading),
+        "the running download is let finish"
+    );
+
+    // A download that starts now still waits for the hours.
+    let late = h
+        .mgr
+        .add(h.req("fast", "late.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(late.hold, Some(fetchbox_core::Hold::Window));
+
+    // Changing the choice to "pause" acts on what is running at once.
+    h.mgr
+        .update_settings(hours(false))
+        .await
+        .expect("pause mode");
+    h.wait_hold(running.id, Some(fetchbox_core::Hold::Window))
+        .await;
+}
+
+#[tokio::test]
+async fn what_happens_when_the_hours_end_is_saved() {
+    let h = Harness::new().await;
+    let saved = h
+        .mgr
+        .update_settings(Settings {
+            schedule_on_end: fetchbox_core::OnHoursEnd::Finish,
+            ..hours(true)
+        })
+        .await
+        .expect("save");
+    assert_eq!(saved.schedule_on_end, fetchbox_core::OnHoursEnd::Finish);
+    assert_eq!(
+        h.mgr.settings().await.expect("get").schedule_on_end,
+        fetchbox_core::OnHoursEnd::Finish
+    );
+    // Old clients that do not send the field keep "pause".
+    let body = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0}"#;
+    let s: Settings = serde_json::from_str(body).expect("settings");
+    assert_eq!(s.schedule_on_end, fetchbox_core::OnHoursEnd::Pause);
+}
