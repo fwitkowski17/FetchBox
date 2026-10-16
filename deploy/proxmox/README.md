@@ -18,7 +18,7 @@ export COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/fwitkowski17/WebD
 bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 ```
 
-(To try a branch, put its name instead of `main`.) At the end the script prints the address (`http://<ip>:8080`) and the **setup code** you need to create the account in the browser. Forgot it? In the container: `journalctl -u fetchbox | grep 'setup code'`. To use a fixed password instead, put `FETCHBOX_PASSWORD=...` into `/etc/fetchbox/fetchbox.env` and `systemctl restart fetchbox`.
+(To try a branch, put its name instead of `main`.) At the end the script prints the address (`http://<ip>:8080`) and the **setup code** you need to create the account in the browser. The code is made anew whenever the service starts (and the container restarts once while a downloads folder is mapped), so the script asks the running service for it at the very end; if you restart the service before creating the account, take the new one. Forgot it? In the container: `journalctl -u fetchbox | grep 'setup code' | tail -n 1`. To use a fixed password instead, put `FETCHBOX_PASSWORD=...` into `/etc/fetchbox/fetchbox.env` and `systemctl restart fetchbox`.
 
 The defaults are 1 CPU core, 512 MB RAM and 8 GB disk, Debian 13, unprivileged (FetchBox itself needs about 64 MB). Override them like in the other scripts (`var_cpu=2 var_ram=1024 bash -c ...`) or in the advanced dialog.
 

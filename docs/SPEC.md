@@ -697,7 +697,9 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
 - **Installers**: `deploy/install.sh` (any Linux with systemd: downloads the tarball, checks its checksum, creates the user and the
   unit; `update`, `uninstall [--purge]`) refuses to run when a package of FetchBox is installed, since both own the same program and
   service. The Proxmox container installer installs the `.deb` (it creates the user with uid 1000 first, adds a drop-in that moves
-  the downloads to `/downloads` and checks the `.sha256`), and its `update` installs the newer `.deb` over the old one; a container
+  the downloads to `/downloads` and checks the `.sha256`) and, at the very end, prints the setup code of the service that is running then
+  (read from the log of its current run, `InvocationID`): the code is made anew at every start and the container is restarted when a
+  downloads folder is mapped, so a code seen during the installation would be stale, and its `update` installs the newer `.deb` over the old one; a container
   from the first versions (program in `/opt/fetchbox`) is moved to the package by `update`, carrying the database and settings over.
   The repository does not run a package repository: `apt` and `dnf` do not see new releases by themselves.
 

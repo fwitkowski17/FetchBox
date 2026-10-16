@@ -184,14 +184,40 @@ function map_downloads() {
   fi
 }
 
+# The setup code is made anew every time the service starts, and the container is restarted while it
+# is set up (map_downloads), so a code seen earlier may be gone. Ask the service that is running now,
+# and read only the log of its current run (a restart in between must not give an older code back).
+# Waits for the container to be up again; prints nothing when it cannot find one.
+function fetchbox_setup_code() {
+  command -v pct >/dev/null 2>&1 && [[ -n "${CTID:-}" ]] || return 0
+  local code="" _
+  for _ in $(seq 1 45); do
+    # shellcheck disable=SC2016 # the variables are meant to expand inside the container, not here
+    code="$(pct exec "$CTID" -- sh -c '
+      systemctl is-active --quiet fetchbox || exit 0
+      id="$(systemctl show -p InvocationID --value fetchbox)"
+      [ -n "$id" ] || exit 0
+      journalctl "_SYSTEMD_INVOCATION_ID=$id" --no-pager 2>/dev/null' 2>/dev/null |
+      grep -o 'setup code [A-Z0-9]\{8\}' | tail -n1 | awk '{print $3}' || true)"
+    [[ -n "$code" ]] && break
+    sleep 1
+  done
+  echo "$code"
+}
+
 start
 check_release
 build_container
 map_downloads
 description
+setup_code="$(fetchbox_setup_code)"
 
 msg_ok "Completed successfully!\n"
 echo -e "${CREATING}${GN}${APP} setup has been successfully initialized!${CL}"
-echo -e "${INFO}${YW}Open it using the following URL and enter the setup code${CL}"
-echo -e "${INFO}${YW}(printed above, or: journalctl -u fetchbox | grep 'setup code'):${CL}"
+if [[ -n "$setup_code" ]]; then
+  echo -e "${INFO}${YW}Open it using the following URL and enter the setup code ${BGN}${setup_code}${CL}"
+else
+  echo -e "${INFO}${YW}Open it using the following URL and enter the setup code, which you get in the container with:${CL}"
+  echo -e "${INFO}${YW}journalctl -u fetchbox | grep 'setup code' | tail -n 1${CL}"
+fi
 echo -e "${GATEWAY}${BGN}http://${IP}:8080${CL}"
