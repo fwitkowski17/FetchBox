@@ -541,10 +541,12 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
 ### 6.10 Console log
 
-The server logs what a user would want to look up later, one line per event, at `info` (`RUST_LOG=debug` adds the rest). Values are
-`key=value` pairs after the message; sizes are binary (`7.8 MiB`), speeds `MiB/s`.
+The server logs what a user would want to look up later, one line per event. Start-up information, warnings and errors are always
+logged; the per-event lines below are `info` lines with the tracing target `activity` and are shown only with `--log-activity`
+(or `FETCHBOX_LOG_ACTIVITY=true`), so a default install stays quiet. `RUST_LOG` sets the level of everything else
+(`RUST_LOG=debug` adds the rest). Values are `key=value` pairs after the message; sizes are binary (`7.8 MiB`), speeds `MiB/s`.
 
-- Start-up: the version, the data and download directories, the listening address, the settings in force (in words) and the
+- Start-up (always): the version, the data and download directories, the listening address, the settings in force (in words) and the
   number of downloads per status.
 - Downloads: added (id, name, category, size, host of the address), started (segments, resumable), paused, resumed (offset),
   completed (size and the average speed over the time spent transferring), failed (reason), cancelled, category and own

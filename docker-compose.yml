@@ -11,6 +11,7 @@ services:
       # prints. A password set here wins and cannot be changed in the UI. Put it in a .env
       # file next to this one, or use a Docker secret + --password-file instead.
       FETCHBOX_PASSWORD: ${FETCHBOX_PASSWORD:-}
+      # FETCHBOX_LOG_ACTIVITY: "true"   # log every download, settings change and sign-in
     # Extra flags go here, e.g. when the manager is reachable from outside your network:
     # command: ["--block-private-urls"]
     volumes:

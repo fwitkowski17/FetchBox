@@ -103,7 +103,7 @@ impl UpdateChecker {
         let c = cache.as_ref().expect("filled above");
         let info = describe(&c.outcome, c.answered_at);
         if !usable && info.update_available {
-            tracing::info!(
+            tracing::info!(target: "activity",
                 current = %info.current,
                 latest = info.latest.as_deref().unwrap_or(""),
                 url = info.release_url.as_deref().unwrap_or(""),

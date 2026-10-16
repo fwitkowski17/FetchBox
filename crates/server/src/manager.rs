@@ -370,14 +370,14 @@ impl Manager {
                 let when = jiff::Timestamp::from_second(at)
                     .map(|t| t.to_string())
                     .unwrap_or_default();
-                tracing::info!(id, %name, start_at = %when, "download waits for its start time");
+                tracing::info!(target: "activity", id, %name, start_at = %when, "download waits for its start time");
             }
             _ => {
                 let s = self.current_settings();
                 let opens = self
                     .next_opening(now)
                     .map_or_else(String::new, |at| clock::describe(at, &s.schedule_timezone));
-                tracing::info!(id, %name, opens = %opens, "download waits for the download hours");
+                tracing::info!(target: "activity", id, %name, opens = %opens, "download waits for the download hours");
             }
         }
     }
@@ -395,11 +395,11 @@ impl Manager {
         }
         *last = seen;
         match seen {
-            Some(true) => tracing::info!(
+            Some(true) => tracing::info!(target: "activity",
                 hours = %format!("{}-{} {}", logfmt::clock(s.schedule_from), logfmt::clock(s.schedule_to), s.schedule_timezone),
                 "download hours are open: waiting downloads may start"
             ),
-            Some(false) => tracing::info!(
+            Some(false) => tracing::info!(target: "activity",
                 opens = %self.next_opening(now).map_or_else(String::new, |at| clock::describe(at, &s.schedule_timezone)),
                 on_end = s.schedule_on_end.as_str(),
                 "download hours are closed: nothing new starts"
@@ -425,7 +425,7 @@ impl Manager {
             let may = self.gate_for(id).map_or(true, |g| g.may_start(now));
             if may {
                 self.held().remove(&id);
-                tracing::info!(id, name = %self.name_of(id), "no longer waiting: it may start");
+                tracing::info!(target: "activity", id, name = %self.name_of(id), "no longer waiting: it may start");
                 start.extend(self.sched().enqueue(id));
                 self.publish_download(id);
             }
@@ -564,7 +564,7 @@ impl Manager {
                     Ok(())
                 });
                 self.log_err("started", id, r);
-                tracing::info!(
+                tracing::info!(target: "activity",
                     id,
                     name = %self.name_of(id),
                     size = %size.map_or_else(|| "unknown".to_owned(), logfmt::bytes),
@@ -624,14 +624,14 @@ impl Manager {
                 self.log_err("paused", id, r);
                 if by_schedule {
                     self.held().insert(id);
-                    tracing::info!(
+                    tracing::info!(target: "activity",
                         id,
                         name = %self.name_of(id),
                         downloaded = %logfmt::bytes(downloaded),
                         "stopped by the download hours; it goes on when they open"
                     );
                 } else {
-                    tracing::info!(id, name = %self.name_of(id), downloaded = %logfmt::bytes(downloaded), "download paused");
+                    tracing::info!(target: "activity", id, name = %self.name_of(id), downloaded = %logfmt::bytes(downloaded), "download paused");
                 }
                 self.publish_download(id);
                 let next = self.sched().release(id);
@@ -656,7 +656,7 @@ impl Manager {
                     Ok(())
                 });
                 self.log_err("completed", id, r);
-                tracing::info!(
+                tracing::info!(target: "activity",
                     id,
                     name = %self.name_of(id),
                     size = %logfmt::bytes(size),
@@ -823,7 +823,7 @@ impl Manager {
             stats::add_active_ms(c, d.id, ms)?;
             downloads::set_status(c, d.id, Status::Cancelled, None).map(|_| ())
         })?;
-        tracing::info!(id = d.id, name = %d.filename, "download cancelled");
+        tracing::info!(target: "activity", id = d.id, name = %d.filename, "download cancelled");
         self.publish_download(d.id);
         self.launch(next).await;
         Ok(())
@@ -977,7 +977,7 @@ impl Service for Manager {
             // `ignore_space`: the user knows better (files may be moved away before it starts).
             let hold = match (info.size, req.ignore_space) {
                 (Some(size), false) => self.check_room(&subdir, size).inspect_err(|e| {
-                    tracing::info!(%name, error = %e, "download refused: it does not fit on the disk");
+                    tracing::info!(target: "activity", %name, error = %e, "download refused: it does not fit on the disk");
                 })?,
                 _ => false,
             };
@@ -1027,7 +1027,7 @@ impl Service for Manager {
             self.publish_download(id);
             return self.get(id).map(|d| self.view(d));
         }
-        tracing::info!(
+        tracing::info!(target: "activity",
             id,
             name = %self.name_of(id),
             category = category.as_str(),
@@ -1050,7 +1050,7 @@ impl Service for Manager {
             )));
         }
         self.with_db(|c| downloads::set_start_now(c, id).map(|_| ()))?;
-        tracing::info!(id, name = %d.filename, "download now: the download hours no longer apply to it");
+        tracing::info!(target: "activity", id, name = %d.filename, "download now: the download hours no longer apply to it");
         let start = if self.held().remove(&id) {
             self.sched().enqueue(id)
         } else {
@@ -1110,7 +1110,7 @@ impl Service for Manager {
             }
         }
         self.with_db(|c| downloads::set_status(c, id, Status::Queued, None).map(|_| ()))?;
-        tracing::info!(
+        tracing::info!(target: "activity",
             id,
             name = %d.filename,
             downloaded = %logfmt::bytes(d.downloaded),
@@ -1146,7 +1146,7 @@ impl Service for Manager {
         }
         // What the download came to, now that it is over (a cancelled one has stopped counting).
         let fetched = self.get(id).map_or(d.downloaded, |now| now.downloaded);
-        tracing::info!(
+        tracing::info!(target: "activity",
             id,
             name = %d.filename,
             was = d.status.as_str(),
@@ -1174,7 +1174,7 @@ impl Service for Manager {
         }
         self.with_db(|c| downloads::set_speed_limit(c, id, rate))?;
         self.engine.set_speed_limit(id, rate); // live, if it is running
-        tracing::info!(id, name = %d.filename, limit = %logfmt::limit(rate), "speed of the download changed");
+        tracing::info!(target: "activity", id, name = %d.filename, limit = %logfmt::limit(rate), "speed of the download changed");
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
     }
@@ -1188,7 +1188,7 @@ impl Service for Manager {
             )));
         }
         self.with_db(|c| downloads::set_archived(c, id, archived))?;
-        tracing::info!(id, name = %d.filename, "{}", if archived { "download archived" } else { "download restored from the archive" });
+        tracing::info!(target: "activity", id, name = %d.filename, "{}", if archived { "download archived" } else { "download restored from the archive" });
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
     }
@@ -1197,7 +1197,7 @@ impl Service for Manager {
         if !self.with_db(|c| downloads::set_category(c, id, category))? {
             return Err(Error::NotFound(id));
         }
-        tracing::info!(id, name = %self.name_of(id), category = category.as_str(), "category of the download changed");
+        tracing::info!(target: "activity", id, name = %self.name_of(id), category = category.as_str(), "category of the download changed");
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
     }
@@ -1237,7 +1237,7 @@ impl Service for Manager {
         if changes.is_empty() {
             tracing::debug!("settings saved, nothing changed");
         } else {
-            tracing::info!(changes = %changes.join("; "), "settings changed");
+            tracing::info!(target: "activity", changes = %changes.join("; "), "settings changed");
             // The hours may have moved or been switched: say how they stand once more.
             *self.hours_seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
