@@ -18,16 +18,20 @@ pub struct NewDownload {
     pub subdir: String,
     /// The user added it although it did not fit; the engine does not check free space for it.
     pub ignore_space: bool,
+    /// Do not start before this moment (unix seconds).
+    pub start_at: Option<i64>,
+    /// Ignore the global download hours for this download.
+    pub start_now: bool,
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space, start_at, start_now)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             new.url,
             new.filename,
@@ -35,7 +39,9 @@ pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
             new.source_kind.as_str(),
             new.overwrite,
             new.subdir,
-            new.ignore_space
+            new.ignore_space,
+            new.start_at,
+            new.start_now
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -102,6 +108,26 @@ pub fn set_archived(conn: &Connection, id: Id, archived: bool) -> Result<bool> {
         params![id, archived],
     )?;
     Ok(n > 0)
+}
+
+/// "Download now": the global download hours no longer apply to this download, and a start time
+/// it was given is dropped. Returns whether the id exists.
+pub fn set_start_now(conn: &Connection, id: Id) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE downloads SET start_now = 1, start_at = NULL WHERE id = ?1",
+        [id],
+    )?;
+    Ok(n > 0)
+}
+
+/// Whether the download ignores the global download hours.
+pub fn start_now_flag(conn: &Connection, id: Id) -> Result<bool> {
+    Ok(conn
+        .query_row("SELECT start_now FROM downloads WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .optional()?
+        .unwrap_or(false))
 }
 
 /// Mark a (paused) download as held back because it does not fit on the disk, or clear the mark.
@@ -272,6 +298,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let waiting_space = row.get(12)?;
     let archived = row.get(13)?;
     let speed_limit: i64 = row.get(14)?;
+    let start_at = row.get(15)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -294,6 +321,9 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             waiting_space,
             archived,
             speed_limit: u64::try_from(speed_limit).unwrap_or(0),
+            start_at,
+            hold: None,
+            starts_at: None,
         })
     })();
     Ok(mapped)
@@ -312,6 +342,8 @@ mod tests {
             source_kind: SourceKind::Http,
             overwrite: false,
             ignore_space: false,
+            start_at: None,
+            start_now: false,
             subdir: String::new(),
         }
     }
@@ -545,5 +577,29 @@ mod tests {
             .is_none());
         let d = list(&conn).expect("list");
         assert_eq!(d[0].subdir, "video");
+    }
+
+    #[test]
+    fn a_start_time_and_download_now_are_stored() {
+        let conn = open_in_memory().expect("db");
+        let mut n = new("http://x/a");
+        n.start_at = Some(1_900_000_000);
+        let id = insert(&conn, &n).expect("insert");
+        assert_eq!(
+            get(&conn, id).expect("get").expect("row").start_at,
+            Some(1_900_000_000)
+        );
+        assert!(!start_now_flag(&conn, id).expect("flag"));
+
+        // "Download now" ends the wait for a start time too.
+        assert!(set_start_now(&conn, id).expect("set"));
+        assert!(start_now_flag(&conn, id).expect("flag"));
+        assert_eq!(get(&conn, id).expect("get").expect("row").start_at, None);
+        assert!(!set_start_now(&conn, id + 1).expect("missing id"));
+
+        let mut now = new("http://x/b");
+        now.start_now = true;
+        let id2 = insert(&conn, &now).expect("insert");
+        assert!(start_now_flag(&conn, id2).expect("flag"));
     }
 }

@@ -231,6 +231,8 @@ mod tests {
                 overwrite: false,
                 subdir: String::new(),
                 ignore_space: false,
+                start_at: None,
+                start_now: false,
             },
         )
         .expect("insert")
@@ -443,13 +445,15 @@ mod tests {
         // A database from before the table: migrate step by step, add rows, then the last one.
         let conn = Connection::open_in_memory().expect("db");
         let migrations = crate::MIGRATIONS;
-        for sql in &migrations[..migrations.len() - 1] {
+        // The statistics came with the eighth migration (index 7); later ones do not matter here.
+        const STATS: usize = 7;
+        for sql in &migrations[..STATS] {
             conn.execute_batch(sql).expect("old migration");
         }
         conn.execute("INSERT INTO downloads (url, filename, category, status, size, downloaded, finished_at) VALUES ('u1', 'a', 'photo', 'completed', 10, 10, 100)", []).expect("a");
         conn.execute("INSERT INTO downloads (url, filename, category, status, downloaded) VALUES ('u2', 'b', 'other', 'failed', 3)", []).expect("b");
         conn.execute("INSERT INTO downloads (url, filename, category, status, downloaded) VALUES ('u3', 'c', 'other', 'downloading', 5)", []).expect("c");
-        conn.execute_batch(migrations[migrations.len() - 1])
+        conn.execute_batch(migrations[STATS])
             .expect("stats migration");
         let rows: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))

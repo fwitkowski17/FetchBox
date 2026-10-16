@@ -6,6 +6,7 @@ pub mod error;
 pub mod filename;
 pub mod limiter;
 pub mod model;
+pub mod schedule;
 pub mod scheduler;
 pub mod stats;
 
@@ -13,8 +14,8 @@ use async_trait::async_trait;
 
 pub use error::{Error, Result};
 pub use model::{
-    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, Handle, Id, Job,
-    ListingEntry, OnConflict, ProbeRequest, Progress, ReleaseNote, SegmentState, Settings,
+    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Event, Handle, Hold, Id,
+    Job, ListingEntry, OnConflict, ProbeRequest, Progress, ReleaseNote, SegmentState, Settings,
     SourceKind, Status, UrlInfo, UrlKind, VersionInfo,
 };
 pub use stats::{CategoryStat, DayStat, LargestFile, Stats, StatsRange};

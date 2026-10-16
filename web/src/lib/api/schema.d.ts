@@ -370,6 +370,14 @@ export interface components {
              */
             ignore_space?: boolean;
             on_conflict?: components["schemas"]["OnConflict"];
+            /**
+             * Format: int64
+             * @description Begin at this moment (unix seconds, at most 31 days ahead) instead of at once. Not together
+             *     with `start_now`; it makes no sense with download hours either (they decide the start).
+             */
+            start_at?: number | null;
+            /** @description "Download now": do not wait for the download hours, which apply to this download otherwise. */
+            start_now?: boolean;
             url: string;
         };
         /** @description What the UI needs to decide whether to show the login screen. */
@@ -494,6 +502,7 @@ export interface components {
             error?: string | null;
             etag?: string | null;
             filename: string;
+            hold?: null | components["schemas"]["Hold"];
             /** Format: int64 */
             id: number;
             resumable: boolean;
@@ -515,6 +524,17 @@ export interface components {
              *     total limit of all downloads (`Settings::speed_global`) caps the sum either way.
              */
             speed_limit?: number;
+            /**
+             * Format: int64
+             * @description Do not start before this moment (unix seconds): chosen when the download was added.
+             */
+            start_at?: number | null;
+            /**
+             * Format: int64
+             * @description When a waiting download is expected to start (unix seconds): its start time, or the next
+             *     opening of the download hours. Not persisted.
+             */
+            starts_at?: number | null;
             status: components["schemas"]["Status"];
             /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
             subdir?: string;
@@ -560,6 +580,11 @@ export interface components {
             /** @description Always `"ok"`. */
             status: string;
         };
+        /**
+         * @description Why a queued download is waiting instead of running.
+         * @enum {string}
+         */
+        Hold: "window" | "time";
         /** @description The biggest file that was downloaded. */
         LargestFile: {
             name: string;
@@ -642,6 +667,27 @@ export interface components {
              * @description Max simultaneously running downloads; extra ones are `Queued`.
              */
             max_concurrent: number;
+            /**
+             * @description Download only during set hours (SPEC 6.3.2): outside them downloads wait, and running ones
+             *     are put back in the queue. A single download can opt out (`start_now`).
+             */
+            schedule_enabled?: boolean;
+            /**
+             * Format: int32
+             * @description Start of the hours, minutes after local midnight (`0` = 00:00).
+             */
+            schedule_from?: number;
+            /**
+             * @description IANA time zone the hours are in (`Europe/Warsaw`). The server's own clock is usually UTC,
+             *     so the zone is stated, not guessed.
+             */
+            schedule_timezone?: string;
+            /**
+             * Format: int32
+             * @description End of the hours (exclusive), minutes after local midnight; earlier than the start means
+             *     the hours run over midnight (`22:00`-`06:00`).
+             */
+            schedule_to?: number;
             /**
              * Format: int64
              * @description Total speed limit of all downloads together, bytes/s.
@@ -770,6 +816,12 @@ export interface components {
              *     failed downloads (`409` otherwise). Applied live to a running download.
              */
             speed_limit?: number | null;
+            /**
+             * @description `true`: "download now". The download hours no longer apply to this download and a start
+             *     time it was given is dropped, so a download that waits starts at once and a running one is
+             *     not stopped when the hours close. Only for queued and running downloads (`409` otherwise).
+             */
+            start_now?: boolean | null;
         };
         /** @description What the remote server says about a URL: what an add request would work with. */
         UrlInfo: {

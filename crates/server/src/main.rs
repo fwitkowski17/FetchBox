@@ -1,6 +1,7 @@
 //! FetchBox server binary: wires storage, API and the embedded frontend.
 
 mod assets;
+mod clock;
 mod manager;
 #[cfg(test)]
 mod tests;

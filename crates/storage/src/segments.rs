@@ -91,6 +91,8 @@ mod tests {
                 source_kind: SourceKind::Http,
                 overwrite: false,
                 ignore_space: false,
+                start_at: None,
+                start_now: false,
                 subdir: String::new(),
             },
         )

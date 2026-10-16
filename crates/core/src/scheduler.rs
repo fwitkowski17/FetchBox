@@ -55,6 +55,11 @@ impl Scheduler {
         self.running.contains(&id)
     }
 
+    /// The downloads that occupy a slot, in no particular order.
+    pub fn running_ids(&self) -> Vec<Id> {
+        self.running.iter().copied().collect()
+    }
+
     /// Number of downloads waiting for a slot.
     pub fn queued_len(&self) -> usize {
         self.queue.len()

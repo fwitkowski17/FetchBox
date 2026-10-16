@@ -157,6 +157,27 @@ pub struct Download {
     /// total limit of all downloads (`Settings::speed_global`) caps the sum either way.
     #[serde(default)]
     pub speed_limit: u64,
+    /// Do not start before this moment (unix seconds): chosen when the download was added.
+    #[serde(default)]
+    pub start_at: Option<i64>,
+    /// Why a queued download is not running (not persisted; set for waiting downloads).
+    #[serde(default)]
+    pub hold: Option<Hold>,
+    /// When a waiting download is expected to start (unix seconds): its start time, or the next
+    /// opening of the download hours. Not persisted.
+    #[serde(default)]
+    pub starts_at: Option<i64>,
+}
+
+/// Why a queued download is waiting instead of running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Hold {
+    /// The download hours are closed (`Settings::schedule_enabled`).
+    Window,
+    /// It was set to begin at a later time (`Download::start_at`).
+    Time,
 }
 
 /// Free space on the file system that holds the download directory.
@@ -203,6 +224,29 @@ pub struct Settings {
     /// sent but the request itself (address of the server, program name and version).
     #[serde(default = "default_check_updates")]
     pub check_updates: bool,
+    /// Download only during set hours (SPEC 6.3.2): outside them downloads wait, and running ones
+    /// are put back in the queue. A single download can opt out (`start_now`).
+    #[serde(default)]
+    pub schedule_enabled: bool,
+    /// Start of the hours, minutes after local midnight (`0` = 00:00).
+    #[serde(default)]
+    pub schedule_from: u16,
+    /// End of the hours (exclusive), minutes after local midnight; earlier than the start means
+    /// the hours run over midnight (`22:00`-`06:00`).
+    #[serde(default = "default_schedule_to")]
+    pub schedule_to: u16,
+    /// IANA time zone the hours are in (`Europe/Warsaw`). The server's own clock is usually UTC,
+    /// so the zone is stated, not guessed.
+    #[serde(default = "default_schedule_timezone")]
+    pub schedule_timezone: String,
+}
+
+fn default_schedule_to() -> u16 {
+    6 * 60
+}
+
+fn default_schedule_timezone() -> String {
+    "UTC".to_owned()
 }
 
 fn default_check_updates() -> bool {
@@ -218,6 +262,10 @@ impl Default for Settings {
             speed_global: 0,
             category_subdirs: false,
             check_updates: true,
+            schedule_enabled: false,
+            schedule_from: 0,
+            schedule_to: default_schedule_to(),
+            schedule_timezone: default_schedule_timezone(),
         }
     }
 }
@@ -226,6 +274,14 @@ impl Default for Settings {
 pub const MAX_CONNECTIONS: u32 = 32;
 
 impl Settings {
+    /// The download hours as a window (whether or not they are switched on).
+    pub fn schedule_window(&self) -> crate::schedule::Window {
+        crate::schedule::Window {
+            from: self.schedule_from,
+            to: self.schedule_to,
+        }
+    }
+
     /// Reject values that would break the scheduler or the engine.
     pub fn validate(&self) -> crate::Result<()> {
         if !(1..=MAX_CONNECTIONS).contains(&self.connections) {
@@ -236,6 +292,11 @@ impl Settings {
         if self.max_concurrent == 0 {
             return Err(crate::Error::InvalidInput(
                 "max_concurrent must be at least 1".into(),
+            ));
+        }
+        if self.schedule_enabled && !self.schedule_window().is_valid() {
+            return Err(crate::Error::InvalidInput(
+                "the download hours need a start and an end that differ (minutes 0..1440)".into(),
             ));
         }
         Ok(())
@@ -274,6 +335,13 @@ pub struct AddRequest {
     /// or deleted before it starts. If it still does not fit when it starts, it fails then.
     #[serde(default)]
     pub ignore_space: bool,
+    /// Begin at this moment (unix seconds, at most 31 days ahead) instead of at once. Not together
+    /// with `start_now`; it makes no sense with download hours either (they decide the start).
+    #[serde(default)]
+    pub start_at: Option<i64>,
+    /// "Download now": do not wait for the download hours, which apply to this download otherwise.
+    #[serde(default)]
+    pub start_now: bool,
 }
 
 /// What a release changed, as its author wrote it on GitHub (Markdown).

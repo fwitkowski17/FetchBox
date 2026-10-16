@@ -5,23 +5,25 @@
 //! this module persists it (once per tick, never from the download hot path) and
 //! turns it into UI events.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use crate::clock;
 use crate::update::{self, UpdateChecker};
 use async_trait::async_trait;
 use fetchbox_api::service::Service;
 use fetchbox_core::category::detect as detect_category;
 use fetchbox_core::filename::sanitize;
 use fetchbox_core::limiter::RateLimiter;
+use fetchbox_core::schedule::Gate;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
-    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo, UrlKind,
-    VersionInfo,
+    Hold, Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo,
+    UrlKind, VersionInfo,
 };
 use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
@@ -30,6 +32,9 @@ use tokio::sync::{broadcast, mpsc, watch};
 
 /// Capacity of the UI event bus; slow subscribers get a lag error and resync.
 const BUS_CAPACITY: usize = 256;
+
+/// How far ahead a download may be set to begin: 31 days.
+const MAX_START_AHEAD_SECS: i64 = 31 * 24 * 3600;
 
 /// Outcome of the collision check for a new download.
 #[derive(Default)]
@@ -60,6 +65,12 @@ pub struct Manager {
     peak_speed: AtomicU64,
     /// Looks for a newer release (see `update`).
     updates: Arc<UpdateChecker>,
+    /// Queued downloads that are not in the scheduler because they must wait (the download hours
+    /// are closed, or a start time has not come): see `admit` and `reevaluate`.
+    held: Mutex<HashSet<Id>>,
+    /// Running downloads that the download hours asked to stop: when the engine reports them
+    /// paused they go back to the queue (held) instead of to `paused`.
+    suspended: Mutex<HashSet<Id>>,
 }
 
 impl Manager {
@@ -107,15 +118,18 @@ impl Manager {
             active: Mutex::new(HashMap::new()),
             peak_speed: AtomicU64::new(peak_speed),
             updates: UpdateChecker::new(update_source)?,
+            held: Mutex::new(HashSet::new()),
+            suspended: Mutex::new(HashSet::new()),
         });
 
         tokio::spawn(Arc::clone(&me).run_events(rx));
 
         let mut to_start = Vec::new();
         for d in queued {
-            to_start.extend(me.sched().enqueue(d.id));
+            to_start.extend(me.admit(d.id));
         }
         me.launch(to_start).await;
+        tokio::spawn(Arc::clone(&me).run_schedule());
         Ok(me)
     }
 
@@ -200,6 +214,14 @@ impl Manager {
         Ok(f(&mut conn)?)
     }
 
+    fn held(&self) -> MutexGuard<'_, HashSet<Id>> {
+        self.held.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn suspended(&self) -> MutexGuard<'_, HashSet<Id>> {
+        self.suspended.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn get(&self, id: Id) -> Result<Download> {
         self.with_db(|c| downloads::get(c, id))?
             .ok_or(Error::NotFound(id))
@@ -217,7 +239,128 @@ impl Manager {
             }
             d.speed = p.speed;
         }
+        if d.status == Status::Queued && self.held().contains(&d.id) {
+            let now = clock::now();
+            match d.start_at {
+                Some(at) if at > now => {
+                    d.hold = Some(Hold::Time);
+                    d.starts_at = Some(at);
+                }
+                _ => {
+                    d.hold = Some(Hold::Window);
+                    d.starts_at = self.next_opening(now);
+                }
+            }
+        }
         d
+    }
+
+    // ---- download hours --------------------------------------------------------------
+
+    /// Is the local time inside the download hours? Without hours (or with a zone nobody can read,
+    /// which `update_settings` refuses) it is always "open".
+    fn window_open(&self, s: &Settings, now: i64) -> bool {
+        if !s.schedule_enabled {
+            return true;
+        }
+        match clock::zone(&s.schedule_timezone).and_then(|tz| clock::minute_of_day(now, &tz)) {
+            Some(minute) => s.schedule_window().contains(minute),
+            None => {
+                tracing::warn!(zone = %s.schedule_timezone, "unknown time zone for the download hours");
+                true
+            }
+        }
+    }
+
+    /// The next moment the download hours open, as unix seconds.
+    fn next_opening(&self, now: i64) -> Option<i64> {
+        let s = self.current_settings();
+        if !s.schedule_enabled {
+            return None;
+        }
+        let tz = clock::zone(&s.schedule_timezone)?;
+        clock::next_at(now, &tz, s.schedule_from)
+    }
+
+    /// What decides whether download `id` may start or go on, right now.
+    fn gate_for(&self, id: Id) -> Result<Gate> {
+        let s = self.current_settings();
+        let (start_at, start_now) = self.with_db(|c| {
+            let start_at = downloads::get(c, id)?.and_then(|d| d.start_at);
+            Ok((start_at, downloads::start_now_flag(c, id)?))
+        })?;
+        Ok(Gate {
+            window_enabled: s.schedule_enabled,
+            window_open: self.window_open(&s, clock::now()),
+            start_now,
+            start_at,
+        })
+    }
+
+    /// A download is ready to run: put it in the scheduler, or, when the download hours or its
+    /// start time say wait, keep it on the side (`held`) until `reevaluate` lets it go. Returns
+    /// the downloads that should be started now.
+    fn admit(&self, id: Id) -> Vec<Id> {
+        let wait = match self.gate_for(id) {
+            Ok(gate) => !gate.may_start(clock::now()),
+            Err(e) => {
+                tracing::warn!(id, error = %e, "cannot read the schedule of a download; starting it");
+                false
+            }
+        };
+        if wait {
+            self.held().insert(id);
+            Vec::new()
+        } else {
+            self.sched().enqueue(id)
+        }
+    }
+
+    /// Look at the clock again: let the waiting downloads whose time has come go, and stop the
+    /// running ones the download hours no longer allow (they return to the queue, keeping what
+    /// they have). Called every few seconds, and at once when the settings change.
+    pub(crate) async fn reevaluate(&self) {
+        let now = clock::now();
+        let waiting: Vec<Id> = self.held().iter().copied().collect();
+        let mut start = Vec::new();
+        for id in waiting {
+            let queued = matches!(self.get(id), Ok(d) if d.status == Status::Queued);
+            if !queued {
+                self.held().remove(&id);
+                continue;
+            }
+            let may = self.gate_for(id).map_or(true, |g| g.may_start(now));
+            if may {
+                self.held().remove(&id);
+                start.extend(self.sched().enqueue(id));
+                self.publish_download(id);
+            }
+        }
+        let running = self.sched().running_ids();
+        for id in running {
+            let stop = self.gate_for(id).is_ok_and(|g| !g.may_run());
+            let downloading = matches!(self.get(id), Ok(d) if d.status == Status::Downloading);
+            if stop && downloading {
+                self.suspended().insert(id);
+                if self.engine.pause(id).await.is_err() {
+                    self.suspended().remove(&id);
+                }
+            }
+        }
+        self.launch(start).await;
+    }
+
+    /// Every few seconds: see `reevaluate`. Ends when the server shuts down.
+    async fn run_schedule(self: Arc<Self>) {
+        let mut closing = self.closing.subscribe();
+        let mut tick = tokio::time::interval(Duration::from_secs(15));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                _ = tick.tick() => self.reevaluate().await,
+                _ = closing.changed() => break,
+            }
+        }
     }
 
     fn publish(&self, event: Event) {
@@ -362,14 +505,24 @@ impl Manager {
                 }
                 let pairs: Vec<(u32, u64)> = segs.iter().map(|s| (s.idx, s.downloaded)).collect();
                 let ms = self.active_stop(id);
+                // Stopped by the download hours: back to the queue, waiting for them to open.
+                let by_schedule = self.suspended().remove(&id);
+                let to = if by_schedule {
+                    Status::Queued
+                } else {
+                    Status::Paused
+                };
                 let r = self.with_db(|c| {
                     downloads::set_downloaded(c, id, downloaded)?;
                     stats::add_active_ms(c, id, ms)?;
                     segments::update_offsets(c, id, &pairs)?;
-                    downloads::transition(c, id, &ACTIVE, Status::Paused, None)?;
+                    downloads::transition(c, id, &ACTIVE, to, None)?;
                     Ok(())
                 });
                 self.log_err("paused", id, r);
+                if by_schedule {
+                    self.held().insert(id);
+                }
                 self.publish_download(id);
                 let next = self.sched().release(id);
                 self.launch(next).await;
@@ -538,6 +691,8 @@ impl Manager {
     /// Stop a download that is queued, running or paused and mark it cancelled.
     async fn do_cancel(&self, d: &Download) -> Result<()> {
         // Release first: afterwards no new engine start can pick this id up.
+        self.held().remove(&d.id);
+        self.suspended().remove(&d.id);
         let next = self.sched().release(d.id);
         match self.engine.cancel(d.id).await {
             Ok(()) | Err(Error::NotFound(_)) => {}
@@ -681,6 +836,17 @@ impl Service for Manager {
             String::new()
         };
         let url = req.url.trim().to_owned();
+        if let Some(at) = req.start_at {
+            let now = clock::now();
+            if req.start_now || at > now + MAX_START_AHEAD_SECS {
+                return Err(Error::InvalidInput(
+                    "start_at must be at most 31 days ahead and not together with start_now".into(),
+                ));
+            }
+            if at < now - 60 {
+                return Err(Error::InvalidInput("start_at is in the past".into()));
+            }
+        }
 
         let (id, hold) = {
             let _guard = self.add_lock.lock().await;
@@ -717,6 +883,8 @@ impl Service for Manager {
                         overwrite,
                         ignore_space: req.ignore_space,
                         subdir,
+                        start_at: req.start_at,
+                        start_now: req.start_now,
                     },
                 )?;
                 downloads::set_remote_info(c, id, info.size, info.resumable, info.etag.as_deref())?;
@@ -735,7 +903,26 @@ impl Service for Manager {
             self.publish_download(id);
             return self.get(id).map(|d| self.view(d));
         }
-        let start = self.sched().enqueue(id);
+        let start = self.admit(id);
+        self.publish_download(id);
+        self.launch(start).await;
+        self.get(id).map(|d| self.view(d))
+    }
+
+    async fn start_now(&self, id: Id) -> Result<Download> {
+        let d = self.get(id)?;
+        if !matches!(d.status, Status::Queued | Status::Downloading) {
+            return Err(Error::InvalidState(format!(
+                "a {} download is not waiting to start",
+                d.status.as_str()
+            )));
+        }
+        self.with_db(|c| downloads::set_start_now(c, id).map(|_| ()))?;
+        let start = if self.held().remove(&id) {
+            self.sched().enqueue(id)
+        } else {
+            Vec::new()
+        };
         self.publish_download(id);
         self.launch(start).await;
         self.get(id).map(|d| self.view(d))
@@ -749,10 +936,13 @@ impl Service for Manager {
                 d.status.as_str()
             )));
         }
+        // The user's pause is a pause, even when the download hours were about to stop it.
+        self.suspended().remove(&id);
         if self.sched().is_running(id) {
             // The engine answers with a `Paused` event that persists offsets and frees the slot.
             self.engine.pause(id).await?;
         } else {
+            self.held().remove(&id);
             let next = self.sched().release(id);
             self.with_db(|c| downloads::set_status(c, id, Status::Paused, None).map(|_| ()))?;
             self.publish_download(id);
@@ -787,7 +977,7 @@ impl Service for Manager {
             }
         }
         self.with_db(|c| downloads::set_status(c, id, Status::Queued, None).map(|_| ()))?;
-        let start = self.sched().enqueue(id);
+        let start = self.admit(id);
         self.publish_download(id);
         self.launch(start).await;
         self.get(id).map(|d| self.view(d))
@@ -879,6 +1069,12 @@ impl Service for Manager {
 
     async fn update_settings(&self, new: Settings) -> Result<Settings> {
         new.validate()?;
+        if clock::zone(&new.schedule_timezone).is_none() {
+            return Err(Error::InvalidInput(format!(
+                "unknown time zone {:?} (use a name like Europe/Warsaw)",
+                new.schedule_timezone
+            )));
+        }
         self.with_db(|c| settings::save(c, &new))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
         // Live: limits touch running downloads, the slot limit only gates new ones.
@@ -889,6 +1085,8 @@ impl Service for Manager {
             settings: new.clone(),
         });
         self.launch(start).await;
+        // New download hours (or none) may let waiting downloads go, or stop running ones.
+        self.reevaluate().await;
         Ok(new)
     }
 

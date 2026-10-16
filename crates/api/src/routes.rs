@@ -73,6 +73,10 @@ pub struct UpdateDownload {
     /// total limit of all downloads still caps the sum. Only for queued, running, paused and
     /// failed downloads (`409` otherwise). Applied live to a running download.
     pub speed_limit: Option<u64>,
+    /// `true`: "download now". The download hours no longer apply to this download and a start
+    /// time it was given is dropped, so a download that waits starts at once and a running one is
+    /// not stopped when the hours close. Only for queued and running downloads (`409` otherwise).
+    pub start_now: Option<bool>,
 }
 
 /// Liveness probe (public).
@@ -254,12 +258,19 @@ pub(crate) async fn update(
     Path(id): Path<Id>,
     Json(body): Json<UpdateDownload>,
 ) -> ApiResult<Json<Download>> {
-    if body.category.is_none() && body.archived.is_none() && body.speed_limit.is_none() {
+    if body.category.is_none()
+        && body.archived.is_none()
+        && body.speed_limit.is_none()
+        && body.start_now.is_none()
+    {
         return Err(Error::InvalidInput("nothing to update".into()).into());
     }
     let mut updated = None;
     if let Some(rate) = body.speed_limit {
         updated = Some(svc.set_speed_limit(id, rate).await?);
+    }
+    if body.start_now == Some(true) {
+        updated = Some(svc.start_now(id).await?);
     }
     if let Some(category) = body.category {
         updated = Some(svc.set_category(id, category).await?);

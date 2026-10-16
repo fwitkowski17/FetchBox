@@ -1204,6 +1204,18 @@
           "on_conflict": {
             "$ref": "#/components/schemas/OnConflict"
           },
+          "start_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Begin at this moment (unix seconds, at most 31 days ahead) instead of at once. Not together\nwith `start_now`; it makes no sense with download hours either (they decide the start)."
+          },
+          "start_now": {
+            "type": "boolean",
+            "description": "\"Download now\": do not wait for the download hours, which apply to this download otherwise."
+          },
           "url": {
             "type": "string"
           }
@@ -1460,6 +1472,17 @@
           "filename": {
             "type": "string"
           },
+          "hold": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Hold",
+                "description": "Why a queued download is not running (not persisted; set for waiting downloads)."
+              }
+            ]
+          },
           "id": {
             "type": "integer",
             "format": "int64"
@@ -1490,6 +1513,22 @@
             "format": "int64",
             "description": "Speed limit of this download alone, bytes/s. Set, it replaces the default per-download\nlimit of the settings (so it may be higher or lower); `0` means \"use the default\". The\ntotal limit of all downloads (`Settings::speed_global`) caps the sum either way.",
             "minimum": 0
+          },
+          "start_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Do not start before this moment (unix seconds): chosen when the download was added."
+          },
+          "starts_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When a waiting download is expected to start (unix seconds): its start time, or the next\nopening of the download hours. Not persisted."
           },
           "status": {
             "$ref": "#/components/schemas/Status"
@@ -1634,6 +1673,14 @@
             "description": "Always `\"ok\"`."
           }
         }
+      },
+      "Hold": {
+        "type": "string",
+        "description": "Why a queued download is waiting instead of running.",
+        "enum": [
+          "window",
+          "time"
+        ]
       },
       "LargestFile": {
         "type": "object",
@@ -1806,6 +1853,26 @@
             "type": "integer",
             "format": "int32",
             "description": "Max simultaneously running downloads; extra ones are `Queued`.",
+            "minimum": 0
+          },
+          "schedule_enabled": {
+            "type": "boolean",
+            "description": "Download only during set hours (SPEC 6.3.2): outside them downloads wait, and running ones\nare put back in the queue. A single download can opt out (`start_now`)."
+          },
+          "schedule_from": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Start of the hours, minutes after local midnight (`0` = 00:00).",
+            "minimum": 0
+          },
+          "schedule_timezone": {
+            "type": "string",
+            "description": "IANA time zone the hours are in (`Europe/Warsaw`). The server's own clock is usually UTC,\nso the zone is stated, not guessed."
+          },
+          "schedule_to": {
+            "type": "integer",
+            "format": "int32",
+            "description": "End of the hours (exclusive), minutes after local midnight; earlier than the start means\nthe hours run over midnight (`22:00`-`06:00`).",
             "minimum": 0
           },
           "speed_global": {
@@ -2036,6 +2103,13 @@
             "format": "int64",
             "description": "Speed of this download alone, bytes per second. It replaces the default speed of each\ndownload (it may be faster or slower); `0` removes it, so the default applies again. The\ntotal limit of all downloads still caps the sum. Only for queued, running, paused and\nfailed downloads (`409` otherwise). Applied live to a running download.",
             "minimum": 0
+          },
+          "start_now": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true`: \"download now\". The download hours no longer apply to this download and a start\ntime it was given is dropped, so a download that waits starts at once and a running one is\nnot stopped when the hours close. Only for queued and running downloads (`409` otherwise)."
           }
         }
       },

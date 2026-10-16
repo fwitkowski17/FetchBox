@@ -112,6 +112,8 @@ impl Harness {
             category: None,
             on_conflict,
             ignore_space: false,
+            start_at: None,
+            start_now: false,
         }
     }
 
@@ -179,6 +181,8 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         category: None,
         on_conflict: OnConflict::Reject,
         ignore_space: false,
+        start_at: None,
+        start_now: false,
     };
     assert!(matches!(h.mgr.add(bad).await, Err(Error::InvalidInput(_))));
     let dead = AddRequest {
@@ -187,6 +191,8 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         category: None,
         on_conflict: OnConflict::Reject,
         ignore_space: false,
+        start_at: None,
+        start_now: false,
     };
     assert!(matches!(h.mgr.add(dead).await, Err(Error::Engine(_))));
 }
@@ -2063,6 +2069,8 @@ fn killed_process_resumes_from_saved_offsets() {
             category: None,
             on_conflict: OnConflict::Reject,
             ignore_space: false,
+            start_at: None,
+            start_now: false,
         };
         let id = mgr.add(req).await.expect("add").id;
         let probe = fetchbox_storage::open(&db_path).expect("second connection");
@@ -2533,4 +2541,300 @@ fn update_checks_are_on_unless_switched_off() {
     let off = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0,"check_updates":false}"#;
     let s: Settings = serde_json::from_str(off).expect("settings");
     assert!(!s.check_updates);
+}
+
+// ---- download hours (SPEC 6.3.2) ----------------------------------------------------
+
+/// Settings whose download hours (in UTC) contain the present minute (`open`) or lie 2-3 hours
+/// ahead of it, so far from now that a test cannot cross their edges.
+fn hours(open: bool) -> Settings {
+    let utc = crate::clock::zone("UTC").expect("utc");
+    let now = crate::clock::minute_of_day(crate::clock::now(), &utc).expect("minute");
+    let day = 24 * 60;
+    let (from, to) = if open {
+        ((now + day - 60) % day, (now + 60) % day)
+    } else {
+        ((now + 120) % day, (now + 180) % day)
+    };
+    Settings {
+        schedule_enabled: true,
+        schedule_from: from,
+        schedule_to: to,
+        schedule_timezone: "UTC".into(),
+        ..Settings::default()
+    }
+}
+
+impl Harness {
+    async fn wait_hold(&self, id: Id, hold: Option<fetchbox_core::Hold>) -> Download {
+        for _ in 0..200 {
+            let d = self
+                .mgr
+                .list()
+                .await
+                .expect("list")
+                .into_iter()
+                .find(|d| d.id == id);
+            if let Some(d) = d {
+                if d.status == Status::Queued && d.hold == hold {
+                    return d;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("timed out waiting for hold {hold:?}");
+    }
+}
+
+#[tokio::test]
+async fn downloads_wait_outside_the_download_hours_and_start_when_they_open() {
+    let h = Harness::new().await;
+    h.mgr.update_settings(hours(false)).await.expect("settings");
+
+    let d = h
+        .mgr
+        .add(h.req("fast", "night.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(d.status, Status::Queued);
+    assert_eq!(d.hold, Some(fetchbox_core::Hold::Window));
+    let opens = d.starts_at.expect("the opening time is shown");
+    assert!(opens > crate::clock::now(), "{opens}");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let still = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(
+        still.status,
+        Status::Queued,
+        "nothing starts outside the hours"
+    );
+    assert!(!h.path("night.bin").exists());
+
+    // Saving hours that contain the present minute lets it go at once.
+    h.mgr.update_settings(hours(true)).await.expect("settings");
+    let done = h.wait_status(d.id, Status::Completed).await;
+    assert_eq!(done.hold, None);
+    assert_eq!(file(&h.path("night.bin")), body());
+}
+
+#[tokio::test]
+async fn switching_the_hours_off_releases_the_waiting_downloads() {
+    let h = Harness::new().await;
+    h.mgr.update_settings(hours(false)).await.expect("settings");
+    let d = h
+        .mgr
+        .add(h.req("fast", "a.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_hold(d.id, Some(fetchbox_core::Hold::Window)).await;
+    h.mgr
+        .update_settings(Settings::default())
+        .await
+        .expect("settings");
+    h.wait_status(d.id, Status::Completed).await;
+}
+
+#[tokio::test]
+async fn download_now_ignores_the_hours() {
+    let h = Harness::new().await;
+    h.mgr.update_settings(hours(false)).await.expect("settings");
+
+    // Chosen when adding...
+    let mut req = h.req("fast", "now.bin", OnConflict::Reject);
+    req.start_now = true;
+    let d = h.mgr.add(req).await.expect("add");
+    h.wait_status(d.id, Status::Completed).await;
+
+    // ...or afterwards, from the waiting download.
+    let waiting = h
+        .mgr
+        .add(h.req("fast", "later.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(waiting.hold, Some(fetchbox_core::Hold::Window));
+    h.mgr.start_now(waiting.id).await.expect("start now");
+    h.wait_status(waiting.id, Status::Completed).await;
+
+    // Not for one that is over.
+    let r = h.mgr.start_now(waiting.id).await;
+    assert!(matches!(r, Err(Error::InvalidState(_))), "{r:?}");
+}
+
+#[tokio::test]
+async fn a_start_time_holds_a_download_until_it_comes() {
+    let h = Harness::new().await;
+    let now = crate::clock::now();
+
+    let mut far = h.req("fast", "far.bin", OnConflict::Reject);
+    far.start_at = Some(now + 3600);
+    let far = h.mgr.add(far).await.expect("add");
+    assert_eq!(far.hold, Some(fetchbox_core::Hold::Time));
+    assert_eq!(far.starts_at, Some(now + 3600));
+    assert_eq!(far.start_at, Some(now + 3600));
+
+    let mut soon = h.req("fast", "soon.bin", OnConflict::Reject);
+    soon.start_at = Some(now + 2);
+    let soon = h.mgr.add(soon).await.expect("add");
+    assert_eq!(soon.status, Status::Queued);
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    h.mgr.reevaluate().await; // the schedule's own tick would do this
+    h.wait_status(soon.id, Status::Completed).await;
+    assert_eq!(
+        h.mgr
+            .list()
+            .await
+            .expect("list")
+            .iter()
+            .find(|d| d.id == far.id)
+            .map(|d| d.status),
+        Some(Status::Queued),
+        "the other one is still waiting"
+    );
+
+    // "Download now" ends the wait.
+    h.mgr.start_now(far.id).await.expect("start now");
+    h.wait_status(far.id, Status::Completed).await;
+}
+
+#[tokio::test]
+async fn a_start_time_must_make_sense() {
+    let h = Harness::new().await;
+    let now = crate::clock::now();
+    for (at, now_flag) in [
+        (Some(now + 32 * 24 * 3600), false),
+        (Some(now - 3600), false),
+        (Some(now + 600), true),
+    ] {
+        let mut req = h.req("fast", "x.bin", OnConflict::Reject);
+        req.start_at = at;
+        req.start_now = now_flag;
+        let r = h.mgr.add(req).await;
+        assert!(
+            matches!(r, Err(Error::InvalidInput(_))),
+            "{at:?} {now_flag}: {r:?}"
+        );
+    }
+    assert!(h.mgr.list().await.expect("list").is_empty());
+}
+
+#[tokio::test]
+async fn hours_that_close_put_a_running_download_back_in_the_queue() {
+    let h = Harness::new().await;
+    h.mgr.update_settings(hours(true)).await.expect("settings");
+    // Claims 100 KB, sends 40 KiB and hangs: it stays "running" for as long as the test needs.
+    let d = h
+        .mgr
+        .add(h.req("claim", "100000", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Downloading).await;
+
+    h.mgr.update_settings(hours(false)).await.expect("close");
+    let waiting = h.wait_hold(d.id, Some(fetchbox_core::Hold::Window)).await;
+    assert_eq!(
+        waiting.status,
+        Status::Queued,
+        "back in the queue, not paused"
+    );
+
+    // The slot is free again: another download "now" runs meanwhile.
+    let mut other = h.req("fast", "other.bin", OnConflict::Reject);
+    other.start_now = true;
+    let other = h.mgr.add(other).await.expect("add");
+    h.wait_status(other.id, Status::Completed).await;
+
+    // When the hours open it goes on.
+    h.mgr.update_settings(hours(true)).await.expect("open");
+    h.wait_status(d.id, Status::Downloading).await;
+}
+
+#[tokio::test]
+async fn a_download_started_now_is_not_stopped_when_the_hours_close() {
+    let h = Harness::new().await;
+    h.mgr.update_settings(hours(true)).await.expect("settings");
+    let d = h
+        .mgr
+        .add(h.req("claim", "100000", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_status(d.id, Status::Downloading).await;
+    h.mgr.start_now(d.id).await.expect("keep it going");
+    h.mgr.update_settings(hours(false)).await.expect("close");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let now = h.mgr.list().await.expect("list").remove(0);
+    assert_eq!(now.status, Status::Downloading);
+}
+
+#[tokio::test]
+async fn pausing_a_waiting_download_pauses_it() {
+    let h = Harness::new().await;
+    h.mgr.update_settings(hours(false)).await.expect("settings");
+    let d = h
+        .mgr
+        .add(h.req("fast", "a.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    h.wait_hold(d.id, Some(fetchbox_core::Hold::Window)).await;
+    let paused = h.mgr.pause(d.id).await.expect("pause");
+    assert_eq!(paused.status, Status::Paused);
+    assert_eq!(paused.hold, None);
+    // Opening the hours does not start a paused download; resuming it inside them does.
+    h.mgr.update_settings(hours(true)).await.expect("open");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(h.mgr.list().await.expect("list")[0].status, Status::Paused);
+    h.mgr.resume(d.id).await.expect("resume");
+    h.wait_status(d.id, Status::Completed).await;
+}
+
+#[tokio::test]
+async fn the_download_hours_are_checked_when_saved() {
+    let h = Harness::new().await;
+    let mut bad_zone = hours(true);
+    bad_zone.schedule_timezone = "Mars/Olympus".into();
+    assert!(matches!(
+        h.mgr.update_settings(bad_zone).await,
+        Err(Error::InvalidInput(_))
+    ));
+    let mut same = hours(true);
+    same.schedule_to = same.schedule_from;
+    assert!(matches!(
+        h.mgr.update_settings(same).await,
+        Err(Error::InvalidInput(_))
+    ));
+    // Equal ends are only a problem while the hours are on.
+    let mut off = Settings::default();
+    off.schedule_to = off.schedule_from;
+    assert!(h.mgr.update_settings(off).await.is_ok());
+    // The hours survive a round trip.
+    let saved = h.mgr.update_settings(hours(true)).await.expect("save");
+    assert_eq!(h.mgr.settings().await.expect("get"), saved);
+}
+
+#[tokio::test]
+async fn patch_start_now_over_http() {
+    let h = Harness::new().await;
+    h.mgr.update_settings(hours(false)).await.expect("settings");
+    let d = h
+        .mgr
+        .add(h.req("fast", "http.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let (status, v) = send(
+        &c,
+        reqwest::Method::PATCH,
+        format!("{api}/downloads/{}", d.id),
+        Some(r#"{"start_now":true}"#),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    h.wait_status(d.id, Status::Completed).await;
+    let (status, _) = send(
+        &c,
+        reqwest::Method::PATCH,
+        format!("{api}/downloads/{}", d.id),
+        Some(r#"{"start_now":true}"#),
+    )
+    .await;
+    assert_eq!(status, 409, "a finished download is not waiting");
 }
