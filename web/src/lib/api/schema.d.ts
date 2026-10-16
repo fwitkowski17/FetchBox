@@ -274,6 +274,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/known-hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The SSH servers whose host key was accepted, oldest first. */
+        get: operations["known_hosts"];
+        put?: never;
+        /**
+         * Accept the host key of an SSH server: send the `host`, `port`, `key_type` and `fingerprint`
+         *     that a refused `sftp://` request showed, after the user compared the fingerprint with the one
+         *     of the server. An earlier key of the same host and port is replaced.
+         */
+        post: operations["trust_host"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/known-hosts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Forget an accepted host key: the server is not trusted any more, and downloads from it stop
+         *     until the user accepts its key again.
+         */
+        delete: operations["forget_host"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/probe": {
         parameters: {
             query?: never;
@@ -287,6 +329,11 @@ export interface paths {
          * Look at a URL without adding it: the file name, size, range support and category the server
          *     and the file name suggest. The same checks as an add apply (private addresses can be refused).
          *     A `POST` so that the address, which may carry a token, stays out of access logs.
+         * @description `http(s)://`, `ftp://`, `ftps://` and `sftp://` addresses work. An address of a folder (an FTP
+         *     or SFTP directory, or an HTTP directory index) answers with its `entries`. A login for the
+         *     source goes in `credentials`; one written into the address is used too and never stored in it.
+         *     An SFTP server must be trusted first: the answer is `409` with its fingerprint (see
+         *     `POST /known-hosts`).
          */
         post: operations["probe"];
         delete?: never;
@@ -382,6 +429,7 @@ export interface components {
         AddRequest: {
             category?: null | components["schemas"]["Category"];
             checksum?: null | components["schemas"]["ChecksumInput"];
+            credentials?: null | components["schemas"]["Credentials"];
             /** @description Override the file name suggested by the server. */
             filename?: string | null;
             /**
@@ -492,6 +540,16 @@ export interface components {
          * @enum {string}
          */
         ConflictKind: "duplicate_url" | "file_exists" | "name_reserved";
+        /**
+         * @description A user name and password for a source that asks for a login (SPEC 6.12). Kept on the server so
+         *     that a paused or restarted download can go on; the password is never sent back by the API and
+         *     never written to the log.
+         */
+        Credentials: {
+            /** @description May be empty (a login without a password). */
+            password?: string;
+            username: string;
+        };
         /** @description One day of the activity chart. */
         DayStat: {
             /**
@@ -583,6 +641,11 @@ export interface components {
             /** @description Subdirectory of the download directory the file goes to; empty = the directory itself. */
             subdir?: string;
             url: string;
+            /**
+             * @description The user name the download logs in with, if it has a login. The password is kept on the
+             *     server and never shown.
+             */
+            username?: string | null;
             /** @description The file was checked against `checksum` and matched. */
             verified?: boolean;
             /**
@@ -637,6 +700,54 @@ export interface components {
          * @enum {string}
          */
         Hold: "window" | "time";
+        /**
+         * @description `409` body of `POST /downloads` and `POST /probe` when the host key of an SSH server (SFTP) is
+         *     not trusted, or is not the accepted one. For an unknown server the UI shows `host_key` (the
+         *     fingerprint to compare) and, when the user agrees, sends it to `POST /known-hosts` and asks again.
+         */
+        HostKeyBody: {
+            /** @description `untrusted_host` or `host_key_changed`. */
+            error: string;
+            host_key: components["schemas"]["HostKeyProblem"];
+        };
+        /** @description A refused connection to an SSH server because of its host key. */
+        HostKeyProblem: {
+            /** @description The fingerprint the server just presented. */
+            fingerprint: string;
+            host: string;
+            key_type: string;
+            kind: components["schemas"]["HostKeyProblemKind"];
+            /** Format: int32 */
+            port: number;
+            /** @description The accepted fingerprint, for `changed`. */
+            trusted_fingerprint?: string | null;
+        };
+        /**
+         * @description What is wrong with the host key of an SSH server.
+         * @enum {string}
+         */
+        HostKeyProblemKind: "untrusted" | "changed";
+        /**
+         * @description An SSH server the user has accepted the host key of (SPEC 6.12). SFTP has no certificate
+         *     authorities: the key a server presents is only believed when it is the one that was accepted.
+         */
+        KnownHost: {
+            /**
+             * Format: int64
+             * @description When it was accepted (unix seconds).
+             */
+            added_at: number;
+            /** @description `SHA256:` and the unpadded base64 of the key's hash, as `ssh-keygen -l` prints it. */
+            fingerprint: string;
+            /** @description Host name or address, lowercase, as written in the download address. */
+            host: string;
+            /** Format: int64 */
+            id: number;
+            /** @description Kind of the key (`ssh-ed25519`, `ssh-rsa`, ...). */
+            key_type: string;
+            /** Format: int32 */
+            port: number;
+        };
         /** @description The biggest file that was downloaded. */
         LargestFile: {
             name: string;
@@ -691,6 +802,7 @@ export interface components {
         OnHoursEnd: "pause" | "finish";
         /** @description Request to look at a URL before adding it. */
         ProbeRequest: {
+            credentials?: null | components["schemas"]["Credentials"];
             url: string;
         };
         /** @description What a release changed, as its author wrote it on GitHub (Markdown). */
@@ -777,7 +889,7 @@ export interface components {
          * @description What kind of source a download comes from.
          * @enum {string}
          */
-        SourceKind: "http" | "magnet" | "torrent_file";
+        SourceKind: "http" | "ftp" | "sftp" | "magnet" | "torrent_file";
         /**
          * @description `507` body of `POST /downloads` when the file does not fit. The UI explains the numbers and
          *     offers to add the download anyway (`ignore_space`).
@@ -866,6 +978,14 @@ export interface components {
          * @enum {string}
          */
         Status: "queued" | "downloading" | "paused" | "verifying" | "completed" | "failed" | "cancelled";
+        /** @description Request to accept the host key of an SSH server: send back what a refused add showed. */
+        TrustHost: {
+            fingerprint: string;
+            host: string;
+            key_type?: string;
+            /** Format: int32 */
+            port: number;
+        };
         /** @description Body of `PATCH /downloads/{id}`. */
         UpdateDownload: {
             /**
@@ -1248,7 +1368,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Collision; the user must choose */
+            /** @description Collision; the user must choose (`conflict`), or the SSH server of an `sftp://` address is not trusted yet (`untrusted_host`) or shows another key than the accepted one (`host_key_changed`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1257,7 +1377,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConflictBody"];
                 };
             };
-            /** @description The remote server could not be reached */
+            /** @description The remote server could not be reached, or refused the login */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -1636,6 +1756,114 @@ export interface operations {
             };
         };
     };
+    known_hosts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnownHost"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    trust_host: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrustHost"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnownHost"];
+                };
+            };
+            /** @description Not a host, a port and a `SHA256:` fingerprint */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    forget_host: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id of the known host */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Forgotten */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     probe: {
         parameters: {
             query?: never;
@@ -1657,7 +1885,7 @@ export interface operations {
                     "application/json": components["schemas"]["UrlInfo"];
                 };
             };
-            /** @description Not a usable http(s) URL */
+            /** @description Not a usable address (http, https, ftp, ftps or sftp) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1675,7 +1903,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description The remote server could not be reached */
+            /** @description The SSH server of an `sftp://` address is not trusted yet (`untrusted_host`) or shows another key than the accepted one (`host_key_changed`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostKeyBody"];
+                };
+            };
+            /** @description The remote server could not be reached, or refused the login */
             502: {
                 headers: {
                     [name: string]: unknown;

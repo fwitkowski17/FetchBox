@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::clock;
+use crate::hostkeys::HostKeyCache;
 use crate::logfmt;
 use crate::update::{self, UpdateChecker};
 use async_trait::async_trait;
@@ -23,13 +24,15 @@ use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::schedule::Gate;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
-    AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
-    Hold, Id, Job, OnConflict, OnHoursEnd, Result, Settings, SourceKind, Stats, StatsRange, Status,
-    UrlInfo, UrlKind, VersionInfo,
+    AddRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace, Download, Downloader,
+    Error, Event, Hold, Id, Job, KnownHost, OnConflict, OnHoursEnd, Result, Settings, SourceKind,
+    Stats, StatsRange, Status, TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
-use fetchbox_http_engine::{candidates, verify::hash_file, HttpDownloader, UrlPolicy};
+use fetchbox_http_engine::{
+    candidates, source, verify::hash_file, EngineError, HttpDownloader, UrlPolicy,
+};
 use fetchbox_storage::downloads::{self, NewDownload};
-use fetchbox_storage::{segments, settings, stats, Connection};
+use fetchbox_storage::{known_hosts, segments, settings, stats, Connection};
 use tokio::sync::{broadcast, mpsc, watch};
 
 /// Capacity of the UI event bus; slow subscribers get a lag error and resync.
@@ -88,6 +91,8 @@ pub struct Manager {
     this: OnceLock<Weak<Manager>>,
     /// Verifications that are running: they hold no download slot.
     verifying: Mutex<HashMap<Id, Arc<VerifyJob>>>,
+    /// The SSH servers whose host key the user accepted (the engine asks this at every connection).
+    host_keys: Arc<HostKeyCache>,
 }
 
 impl Manager {
@@ -114,7 +119,9 @@ impl Manager {
         let current = settings::load(&conn)?;
         let peak_speed = stats::peak_speed(&conn)?;
         let limiter = RateLimiter::with_global(current.speed_global);
-        let (engine, rx) = HttpDownloader::new(&dir, limiter, policy)?;
+        let host_keys = Arc::new(HostKeyCache::load(&known_hosts::list(&conn)?));
+        let (engine, rx) =
+            HttpDownloader::with_host_keys(&dir, limiter, policy, Arc::clone(&host_keys) as _)?;
         engine.set_default_speed(current.speed_per_download);
         let requeued = downloads::requeue_interrupted(&conn)?;
         if requeued > 0 {
@@ -151,6 +158,7 @@ impl Manager {
             hours_seen: Mutex::new(None),
             this: OnceLock::new(),
             verifying: Mutex::new(HashMap::new()),
+            host_keys,
         });
         let _ = me.this.set(Arc::downgrade(&me));
 
@@ -535,12 +543,13 @@ impl Manager {
     /// Build the job from persisted state and hand it to the engine.
     /// `Ok(false)` means the download is no longer waiting (its slot must be released).
     async fn try_start(&self, id: Id) -> Result<bool> {
-        let (d, segs, overwrite, ignore_space) = self.with_db(|c| {
+        let (d, segs, overwrite, ignore_space, credentials) = self.with_db(|c| {
             let d = downloads::get(c, id)?;
             let segs = segments::list(c, id)?;
             let overwrite = downloads::overwrite_flag(c, id)?;
             let ignore_space = downloads::ignore_space_flag(c, id)?;
-            Ok((d, segs, overwrite, ignore_space))
+            let credentials = downloads::credentials(c, id)?;
+            Ok((d, segs, overwrite, ignore_space, credentials))
         })?;
         let Some(d) = d else { return Ok(false) };
         if d.status != Status::Queued {
@@ -558,6 +567,7 @@ impl Manager {
             segments: if d.downloaded > 0 { segs } else { Vec::new() },
             overwrite,
             ignore_space,
+            credentials,
         };
         self.engine.start(&job).await?;
         Ok(true)
@@ -1067,12 +1077,35 @@ impl Manager {
 impl Manager {
     /// Probe a URL through the engine (which applies the private-address policy) and name what
     /// went wrong the way the API reports it.
-    async fn probe_remote(&self, url: &str) -> Result<fetchbox_http_engine::RemoteInfo> {
-        self.engine.probe_url(url).await.map_err(|e| match e {
-            fetchbox_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
-            other => Error::Engine(format!("cannot reach {url}: {other}")),
-        })
+    async fn probe_remote(
+        &self,
+        url: &str,
+        login: Option<&Credentials>,
+    ) -> Result<fetchbox_http_engine::RemoteInfo> {
+        self.engine
+            .probe_url(url, login)
+            .await
+            .map_err(|e| engine_error(url, e))
     }
+}
+
+/// An engine error as the API reports it.
+fn engine_error(url: &str, e: EngineError) -> Error {
+    match e {
+        EngineError::InvalidUrl(m) => Error::InvalidInput(m),
+        EngineError::HostKey(problem) => Error::HostKey(problem),
+        // These say what is wrong by themselves.
+        e @ (EngineError::Auth(_) | EngineError::NotFound(_)) => Error::Engine(e.to_string()),
+        other => Error::Engine(format!("cannot reach {url}: {other}")),
+    }
+}
+
+/// Take a login out of an address: the address to keep, and the login to keep apart from it.
+fn split_login(url: &str, explicit: Option<&Credentials>) -> Result<(String, Option<Credentials>)> {
+    source::split_login(url, explicit).map_err(|e| match e {
+        EngineError::InvalidUrl(m) => Error::InvalidInput(m),
+        other => Error::Engine(other.to_string()),
+    })
 }
 
 fn io_err(e: std::io::Error) -> Error {
@@ -1094,32 +1127,98 @@ impl Service for Manager {
         Ok(self.updates.info(refresh, settings.check_prereleases).await)
     }
 
-    async fn probe(&self, url: &str) -> Result<UrlInfo> {
-        let info = self.probe_remote(url).await?;
-        let is_html = info.content_type.as_deref().is_some_and(|c| {
-            let c = c.to_ascii_lowercase();
-            c.starts_with("text/html") || c.starts_with("application/xhtml")
-        });
-        // A directory index is offered as a list to choose from. Reading it is an extra request, and
-        // a failure of that one only means "treat it as a file": the add reports real problems.
-        let listing = if is_html {
-            self.engine.listing_url(url).await.ok().flatten()
-        } else {
-            None
-        };
-        let (kind, entries, truncated) = match listing {
-            Some(l) => (UrlKind::Listing, l.entries, l.truncated),
-            None => (UrlKind::File, Vec::new(), false),
+    async fn probe(&self, url: &str, credentials: Option<Credentials>) -> Result<UrlInfo> {
+        let (url, login) = split_login(url, credentials.as_ref())?;
+        let found = self
+            .engine
+            .inspect_url(&url, login.as_ref())
+            .await
+            .map_err(|e| engine_error(&url, e))?;
+        let info = found.info;
+        // A directory index (or an FTP or SFTP folder) is offered as a list to choose from.
+        let (kind, category, entries, truncated) = match found.listing {
+            Some(l) => (UrlKind::Listing, Category::Other, l.entries, l.truncated),
+            None => (
+                UrlKind::File,
+                detect_category(&info.filename, info.content_type.as_deref()),
+                Vec::new(),
+                false,
+            ),
         };
         Ok(UrlInfo {
             kind,
-            category: detect_category(&info.filename, info.content_type.as_deref()),
+            category,
             filename: info.filename,
             size: info.size,
             resumable: info.resumable,
             entries,
             truncated,
         })
+    }
+
+    async fn known_hosts(&self) -> Result<Vec<KnownHost>> {
+        self.with_db(|c| known_hosts::list(c))
+    }
+
+    async fn trust_host(&self, req: TrustHost) -> Result<KnownHost> {
+        let host = req
+            .host
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']');
+        let fingerprint = req.fingerprint.trim();
+        let valid_fingerprint = fingerprint.strip_prefix("SHA256:").is_some_and(|rest| {
+            !rest.is_empty()
+                && rest
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))
+        });
+        if host.is_empty() || host.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Err(Error::InvalidInput(
+                "the host is not a host name or address".into(),
+            ));
+        }
+        if req.port == 0 {
+            return Err(Error::InvalidInput("the port must be 1..=65535".into()));
+        }
+        if !valid_fingerprint {
+            return Err(Error::InvalidInput(
+                "the fingerprint must look like SHA256:... (as ssh-keygen -l prints it)".into(),
+            ));
+        }
+        let key_type: String = req
+            .key_type
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(64)
+            .collect();
+        let known =
+            self.with_db(|c| known_hosts::trust(c, host, req.port, &key_type, fingerprint))?;
+        self.host_keys
+            .set(&known.host, known.port, &known.fingerprint);
+        tracing::info!(target: "activity",
+            host = %known.host,
+            port = known.port,
+            fingerprint = %known.fingerprint,
+            "SSH host key accepted"
+        );
+        Ok(known)
+    }
+
+    async fn forget_host(&self, id: Id) -> Result<()> {
+        let removed = self.with_db(|c| {
+            let host = known_hosts::list(c)?.into_iter().find(|h| h.id == id);
+            if host.is_some() {
+                known_hosts::forget(c, id)?;
+            }
+            Ok(host)
+        })?;
+        let Some(host) = removed else {
+            return Err(Error::Missing(format!("no accepted host key with id {id}")));
+        };
+        self.host_keys.forget(&host.host, host.port);
+        tracing::info!(target: "activity", host = %host.host, port = host.port, "SSH host key forgotten");
+        Ok(())
     }
 
     async fn add(&self, req: AddRequest) -> Result<Download> {
@@ -1130,9 +1229,15 @@ impl Service for Manager {
             .map(|c| normalize_checksum(c.algo, &c.value).map(|v| (c.algo, v)))
             .transpose()
             .map_err(Error::InvalidInput)?;
-        let info = self.probe_remote(&req.url).await.inspect_err(|e| {
-            tracing::warn!(from = %logfmt::host(&req.url), error = %e, "cannot add the download");
-        })?;
+        // A login written into the address is kept apart from it: the address is stored and shown,
+        // the password is neither.
+        let (url, login) = split_login(&req.url, req.credentials.as_ref())?;
+        let info = self
+            .probe_remote(&url, login.as_ref())
+            .await
+            .inspect_err(|e| {
+                tracing::warn!(from = %logfmt::host(&url), error = %e, "cannot add the download");
+            })?;
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
         let category = req
             .category
@@ -1143,7 +1248,6 @@ impl Service for Manager {
         } else {
             String::new()
         };
-        let url = req.url.trim().to_owned();
         let from = logfmt::host(&url);
         if let Some(at) = req.start_at {
             let now = clock::now();
@@ -1183,6 +1287,7 @@ impl Service for Manager {
                     (name, found.name_taken)
                 }
             };
+            let source_kind = SourceKind::for_url(&url).unwrap_or(SourceKind::Http);
             let id = self.with_db(|c| {
                 let id = downloads::insert(
                     c,
@@ -1190,13 +1295,14 @@ impl Service for Manager {
                         url,
                         filename: filename.clone(),
                         category,
-                        source_kind: SourceKind::Http,
+                        source_kind,
                         overwrite,
                         ignore_space: req.ignore_space,
                         subdir,
                         start_at: req.start_at,
                         start_now: req.start_now,
                         checksum,
+                        credentials: login,
                     },
                 )?;
                 downloads::set_remote_info(c, id, info.size, info.resumable, info.etag.as_deref())?;

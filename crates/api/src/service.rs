@@ -3,8 +3,8 @@
 
 use async_trait::async_trait;
 use fetchbox_core::{
-    AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings, Stats, StatsRange,
-    UrlInfo, VersionInfo,
+    AddRequest, Category, Credentials, DiskSpace, Download, Event, Id, KnownHost, Result, Settings,
+    Stats, StatsRange, TrustHost, UrlInfo, VersionInfo,
 };
 use tokio::sync::{broadcast, watch};
 
@@ -19,7 +19,14 @@ pub trait Service: Send + Sync + 'static {
     /// of using what was found a while ago (still not more often than every half minute).
     async fn version(&self, refresh: bool) -> Result<VersionInfo>;
     /// Ask the remote server about a URL (name, size, range support) without adding anything.
-    async fn probe(&self, url: &str) -> Result<UrlInfo>;
+    /// `credentials` is the login to look at it with (a login written into the address is used too).
+    async fn probe(&self, url: &str, credentials: Option<Credentials>) -> Result<UrlInfo>;
+    /// The SSH servers whose host key was accepted.
+    async fn known_hosts(&self) -> Result<Vec<KnownHost>>;
+    /// Accept the host key of an SSH server (replacing the one accepted before).
+    async fn trust_host(&self, req: TrustHost) -> Result<KnownHost>;
+    /// Forget an accepted host key: the server is unknown again.
+    async fn forget_host(&self, id: Id) -> Result<()>;
     /// "Download now": the download hours (and a start time) no longer hold this download back.
     async fn start_now(&self, id: Id) -> Result<Download>;
     async fn pause(&self, id: Id) -> Result<Download>;

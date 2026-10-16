@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# The FTP and SFTP servers the tests are built on, also for the tests of the server crate.
+# Off in every real build.
+test-servers = ["dep:rcgen", "dep:rand"]
+
 [dependencies]
 fetchbox-core.workspace = true
 reqwest.workspace = true
@@ -20,6 +25,8 @@ tokio-rustls.workspace = true
 rustls.workspace = true
 webpki-roots.workspace = true
 sha2.workspace = true
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"], optional = true }
+rand = { version = "0.10", optional = true }
 sha1.workspace = true
 md-5.workspace = true
 
@@ -29,7 +36,5 @@ rustix.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "io-util", "net"] }
 tempfile = "3"
-# A throwaway certificate for the TLS tests of the FTP client (test builds only).
-# Makes the host key of the test SSH server (already built as a dependency of russh).
-rand = "0.10"
-rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
+# The test servers (a throwaway certificate for the TLS tests, a host key for SSH).
+fetchbox-http-engine = { workspace = true, features = ["test-servers"] }

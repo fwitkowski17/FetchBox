@@ -116,6 +116,7 @@ impl Harness {
             start_at: None,
             start_now: false,
             checksum: None,
+            credentials: None,
         }
     }
 
@@ -197,6 +198,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         start_at: None,
         start_now: false,
         checksum: None,
+        credentials: None,
     };
     assert!(matches!(h.mgr.add(bad).await, Err(Error::InvalidInput(_))));
     let dead = AddRequest {
@@ -208,6 +210,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         start_at: None,
         start_now: false,
         checksum: None,
+        credentials: None,
     };
     assert!(matches!(h.mgr.add(dead).await, Err(Error::Engine(_))));
 }
@@ -976,7 +979,7 @@ async fn rest_errors_and_settings() {
         &c,
         reqwest::Method::POST,
         format!("{api}/downloads"),
-        Some(r#"{"url":"ftp://x/y"}"#),
+        Some(r#"{"url":"gopher://x/y"}"#),
     )
     .await;
     assert_eq!(status, 400);
@@ -1777,6 +1780,7 @@ async fn a_verification_interrupted_by_a_restart_is_done_again() {
                 start_at: None,
                 start_now: false,
                 checksum: Some((ChecksumAlgo::Sha256, SHA256.to_owned())),
+                credentials: None,
             },
         )
         .expect("insert");
@@ -1819,6 +1823,7 @@ async fn a_missing_file_fails_the_verification_with_a_reason() {
             start_at: None,
             start_now: false,
             checksum: Some((ChecksumAlgo::Md5, MD5.to_owned())),
+            credentials: None,
         },
     )
     .expect("insert");
@@ -2450,6 +2455,7 @@ fn killed_process_resumes_from_saved_offsets() {
             start_at: None,
             start_now: false,
             checksum: None,
+            credentials: None,
         };
         let id = mgr.add(req).await.expect("add").id;
         let probe = fetchbox_storage::open(&db_path).expect("second connection");
@@ -2714,7 +2720,7 @@ async fn the_probe_endpoint_describes_a_url_without_adding_it() {
         &c,
         reqwest::Method::POST,
         format!("{api}/probe"),
-        Some(r#"{"url":"ftp://example.com/a.bin"}"#),
+        Some(r#"{"url":"gopher://example.com/a.bin"}"#),
     )
     .await;
     assert_eq!(status, 400);
@@ -2740,7 +2746,7 @@ async fn the_probe_follows_the_private_url_policy() {
         block_private: true,
     })
     .await;
-    let r = h.mgr.probe(&h.url("fast", "a.bin")).await;
+    let r = h.mgr.probe(&h.url("fast", "a.bin"), None).await;
     assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
 }
 
@@ -2783,7 +2789,11 @@ async fn probing_a_directory_index_lists_what_is_in_it() {
     let h = Harness::new().await;
     let site = spawn_index_server().await;
 
-    let info = h.mgr.probe(&format!("{site}/pub/")).await.expect("probe");
+    let info = h
+        .mgr
+        .probe(&format!("{site}/pub/"), None)
+        .await
+        .expect("probe");
     assert_eq!(info.kind, fetchbox_core::UrlKind::Listing);
     let names: Vec<_> = info
         .entries
@@ -2802,10 +2812,18 @@ async fn probing_a_directory_index_lists_what_is_in_it() {
     assert!(h.mgr.list().await.expect("list").is_empty());
 
     // Any other page is just a file.
-    let page = h.mgr.probe(&format!("{site}/blog")).await.expect("probe");
+    let page = h
+        .mgr
+        .probe(&format!("{site}/blog"), None)
+        .await
+        .expect("probe");
     assert_eq!(page.kind, fetchbox_core::UrlKind::File);
     assert!(page.entries.is_empty());
-    let file = h.mgr.probe(&h.url("fast", "a.bin")).await.expect("probe");
+    let file = h
+        .mgr
+        .probe(&h.url("fast", "a.bin"), None)
+        .await
+        .expect("probe");
     assert_eq!(file.kind, fetchbox_core::UrlKind::File);
 }
 
@@ -2816,7 +2834,7 @@ async fn the_private_url_policy_also_covers_reading_a_listing() {
     })
     .await;
     let site = spawn_index_server().await;
-    let r = h.mgr.probe(&format!("{site}/pub/")).await;
+    let r = h.mgr.probe(&format!("{site}/pub/"), None).await;
     assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
 }
 
@@ -3282,4 +3300,481 @@ async fn what_happens_when_the_hours_end_is_saved() {
     let body = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0}"#;
     let s: Settings = serde_json::from_str(body).expect("settings");
     assert_eq!(s.schedule_on_end, fetchbox_core::OnHoursEnd::Pause);
+}
+
+// ---- FTP, FTPS and SFTP (SPEC 6.12) ---------------------------------------------------
+
+mod remote_sources {
+    use std::collections::HashMap;
+
+    use fetchbox_core::{Credentials, HostKeyProblemKind, SourceKind, TrustHost, UrlKind};
+    use fetchbox_http_engine::testftp::{FtpServer, Options as FtpOptions};
+    use fetchbox_http_engine::testsftp::{Options as SftpOptions, SftpServer};
+
+    use super::*;
+
+    fn users(user: &str, password: &str) -> HashMap<String, String> {
+        HashMap::from([(user.to_owned(), password.to_owned())])
+    }
+
+    fn req(url: String, credentials: Option<Credentials>) -> AddRequest {
+        AddRequest {
+            url,
+            filename: None,
+            category: None,
+            on_conflict: OnConflict::Reject,
+            ignore_space: false,
+            start_at: None,
+            start_now: false,
+            checksum: None,
+            credentials,
+        }
+    }
+
+    fn login(user: &str, password: &str) -> Credentials {
+        Credentials {
+            username: user.into(),
+            password: password.into(),
+        }
+    }
+
+    /// `/secret/<name>` answers only to the login `filip:s3cret` (HTTP basic authentication).
+    async fn spawn_protected() -> SocketAddr {
+        async fn serve(headers: axum::http::HeaderMap) -> axum::response::Response {
+            let granted = headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                == Some("Basic ZmlsaXA6czNjcmV0");
+            if granted {
+                body().into_response()
+            } else {
+                axum::http::StatusCode::UNAUTHORIZED.into_response()
+            }
+        }
+        let app = axum::Router::new().route("/secret/{name}", get(serve));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn an_http_login_is_sent_as_basic_authentication_and_kept_out_of_the_address() {
+        let site = spawn_protected().await;
+        let h = Harness::new().await;
+        // Without it the server says no, and nothing is added.
+        let err = h
+            .mgr
+            .add(req(format!("http://{site}/secret/a.bin"), None))
+            .await
+            .expect_err("refused");
+        assert!(err.to_string().contains("401"), "{err}");
+        assert!(h.mgr.list().await.expect("list").is_empty());
+
+        let d = h
+            .mgr
+            .add(req(
+                format!("http://filip:s3cret@{site}/secret/a.bin"),
+                None,
+            ))
+            .await
+            .expect("add");
+        assert_eq!(d.url, format!("http://{site}/secret/a.bin"));
+        assert_eq!(d.username.as_deref(), Some("filip"));
+        assert_eq!(d.source_kind, SourceKind::Http);
+        h.wait_status(d.id, Status::Completed).await;
+        assert_eq!(file(&h.path("a.bin")), body());
+    }
+
+    #[tokio::test]
+    async fn a_login_in_the_address_is_kept_apart_from_it() {
+        let ftp = FtpServer::spawn(
+            &[("pub/movie.mkv", body())],
+            FtpOptions {
+                users: users("filip", "s3cret"),
+                ..FtpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        let url = format!(
+            "ftp://filip:s3cret@127.0.0.1:{}/pub/movie.mkv",
+            ftp.addr.port()
+        );
+        let d = h.mgr.add(req(url, None)).await.expect("add");
+        // What is stored and shown has no password in it.
+        assert_eq!(d.url, ftp.url("ftp", "pub/movie.mkv"));
+        assert_eq!(d.username.as_deref(), Some("filip"));
+        assert_eq!(d.source_kind, SourceKind::Ftp);
+        assert_eq!(d.category, Category::Video);
+        let done = h.wait_status(d.id, Status::Completed).await;
+        assert_eq!(done.size, Some(BODY_LEN as u64));
+        assert_eq!(file(&h.path("movie.mkv")), body());
+        let everything = serde_json::to_string(&h.mgr.list().await.expect("list")).expect("json");
+        assert!(!everything.contains("s3cret"), "{everything}");
+        // The same file asked for again is the same address, whichever way the login was given.
+        let again = req(
+            ftp.url("ftp", "pub/movie.mkv"),
+            Some(login("filip", "s3cret")),
+        );
+        assert_eq!(
+            conflict_kind(h.mgr.add(again).await),
+            ConflictKind::DuplicateUrl
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_download_is_retried_with_the_stored_login() {
+        // The probe of the add and the probe that starts the download are the first two
+        // connections; the transfer's four attempts are refused.
+        let ftp = FtpServer::spawn(
+            &[("a.bin", body())],
+            FtpOptions {
+                users: users("filip", "s3cret"),
+                refuse: vec![2, 3, 4, 5],
+                ..FtpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        let d = h
+            .mgr
+            .add(req(ftp.url("ftp", "a.bin"), Some(login("filip", "s3cret"))))
+            .await
+            .expect("add");
+        let failed = loop {
+            let d = h.mgr.list().await.expect("list").remove(0);
+            if d.status == Status::Failed {
+                break d;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        assert!(
+            failed.error.as_deref().unwrap_or("").contains("421"),
+            "{failed:?}"
+        );
+        // Retrying builds the job from what is stored: the login has to be in it.
+        h.mgr.resume(d.id).await.expect("resume");
+        h.wait_status(d.id, Status::Completed).await;
+        assert_eq!(file(&h.path("a.bin")), body());
+    }
+
+    #[tokio::test]
+    async fn a_wrong_password_adds_nothing_and_says_so() {
+        let ftp = FtpServer::spawn(
+            &[("a.bin", body())],
+            FtpOptions {
+                users: users("filip", "s3cret"),
+                ..FtpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        let err = h
+            .mgr
+            .add(req(ftp.url("ftp", "a.bin"), Some(login("filip", "wrong"))))
+            .await
+            .expect_err("refused");
+        let Error::Engine(message) = err else {
+            panic!("{err:?}");
+        };
+        assert!(message.contains("login refused"), "{message}");
+        assert!(!message.contains("wrong"), "{message}");
+        assert!(h.mgr.list().await.expect("list").is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_ftp_folder_is_listed_like_an_index_page() {
+        let ftp = FtpServer::spawn(
+            &[
+                ("pub/a.iso", vec![0; 2048]),
+                ("pub/docs/readme.txt", vec![0; 10]),
+            ],
+            FtpOptions::default(),
+        )
+        .await;
+        let h = Harness::new().await;
+        let info = h
+            .mgr
+            .probe(&ftp.url("ftp", "pub/"), None)
+            .await
+            .expect("probe");
+        assert_eq!(info.kind, UrlKind::Listing);
+        let names: Vec<_> = info
+            .entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.is_dir, e.size))
+            .collect();
+        assert_eq!(names, [("docs", true, None), ("a.iso", false, Some(2048))]);
+        assert_eq!(info.entries[1].category, Category::Program);
+        // A file in it is added with its own address.
+        let file = h
+            .mgr
+            .probe(&info.entries[1].url, None)
+            .await
+            .expect("probe file");
+        assert_eq!(file.kind, UrlKind::File);
+        assert_eq!(file.size, Some(2048));
+    }
+
+    #[tokio::test]
+    async fn an_sftp_server_is_trusted_by_the_user_not_on_first_sight() {
+        let sftp = SftpServer::spawn(
+            &[("/srv/a.bin", body())],
+            SftpOptions {
+                users: users("filip", "s3cret"),
+                ..SftpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        let add = || req(sftp.url("srv/a.bin"), Some(login("filip", "s3cret")));
+
+        let Err(Error::HostKey(problem)) = h.mgr.add(add()).await else {
+            panic!("an unknown server must be refused");
+        };
+        assert_eq!(problem.kind, HostKeyProblemKind::Untrusted);
+        assert_eq!(problem.fingerprint, sftp.fingerprint);
+        assert!(h.mgr.list().await.expect("list").is_empty());
+        assert_eq!(
+            sftp.logins(),
+            0,
+            "no password goes to a server nobody vouched for"
+        );
+        // The same goes for looking at it.
+        assert!(matches!(
+            h.mgr
+                .probe(&sftp.url("srv/a.bin"), Some(login("filip", "s3cret")))
+                .await,
+            Err(Error::HostKey(_))
+        ));
+
+        let known = h
+            .mgr
+            .trust_host(TrustHost {
+                host: problem.host.clone(),
+                port: problem.port,
+                key_type: problem.key_type.clone(),
+                fingerprint: problem.fingerprint.clone(),
+            })
+            .await
+            .expect("trust");
+        assert_eq!(
+            h.mgr.known_hosts().await.expect("list"),
+            vec![known.clone()]
+        );
+        let d = h.mgr.add(add()).await.expect("add");
+        assert_eq!(d.source_kind, SourceKind::Sftp);
+        h.wait_status(d.id, Status::Completed).await;
+        assert_eq!(file(&h.path("a.bin")), body());
+
+        // Forgotten, it is unknown again.
+        h.mgr.forget_host(known.id).await.expect("forget");
+        assert!(h.mgr.known_hosts().await.expect("list").is_empty());
+        let again = req(sftp.url("srv/a.bin"), Some(login("filip", "s3cret")));
+        assert!(matches!(
+            h.mgr
+                .add(AddRequest {
+                    on_conflict: OnConflict::Rename,
+                    ..again
+                })
+                .await,
+            Err(Error::HostKey(_))
+        ));
+        assert!(matches!(
+            h.mgr.forget_host(known.id).await,
+            Err(Error::Missing(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_different_key_is_refused_with_both_fingerprints() {
+        let sftp = SftpServer::spawn(
+            &[("/srv/a.bin", body())],
+            SftpOptions {
+                users: users("filip", "s3cret"),
+                ..SftpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        h.mgr
+            .trust_host(TrustHost {
+                host: "127.0.0.1".into(),
+                port: sftp.addr.port(),
+                key_type: "ssh-ed25519".into(),
+                fingerprint: "SHA256:SomeOtherKeyThatTheServerDoesNotHave".into(),
+            })
+            .await
+            .expect("trust");
+        let err = h
+            .mgr
+            .add(req(sftp.url("srv/a.bin"), Some(login("filip", "s3cret"))))
+            .await
+            .expect_err("changed");
+        let Error::HostKey(problem) = err else {
+            panic!("{err:?}");
+        };
+        assert_eq!(problem.kind, HostKeyProblemKind::Changed);
+        assert_eq!(problem.fingerprint, sftp.fingerprint);
+        assert_eq!(
+            problem.trusted_fingerprint.as_deref(),
+            Some("SHA256:SomeOtherKeyThatTheServerDoesNotHave")
+        );
+        assert_eq!(sftp.logins(), 0);
+    }
+
+    #[tokio::test]
+    async fn accepted_host_keys_survive_a_restart() {
+        let sftp = SftpServer::spawn(
+            &[("/srv/a.bin", body())],
+            SftpOptions {
+                users: users("filip", "s3cret"),
+                ..SftpOptions::default()
+            },
+        )
+        .await;
+        let dir = tempfile::tempdir().expect("tmp");
+        let db_path = dir.path().join("fetchbox.db");
+        let downloads = dir.path().join("downloads");
+        std::fs::create_dir_all(&downloads).expect("dir");
+        {
+            let db = fetchbox_storage::open(&db_path).expect("db");
+            let mgr = Manager::start(db, downloads.clone(), Default::default())
+                .await
+                .expect("start");
+            mgr.trust_host(TrustHost {
+                host: "127.0.0.1".into(),
+                port: sftp.addr.port(),
+                key_type: "ssh-ed25519".into(),
+                fingerprint: sftp.fingerprint.clone(),
+            })
+            .await
+            .expect("trust");
+        }
+        let db = fetchbox_storage::open(&db_path).expect("db");
+        let mgr = Manager::start(db, downloads, Default::default())
+            .await
+            .expect("start again");
+        let d = mgr
+            .add(req(sftp.url("srv/a.bin"), Some(login("filip", "s3cret"))))
+            .await
+            .expect("the server is still trusted");
+        assert_eq!(d.source_kind, SourceKind::Sftp);
+    }
+
+    #[tokio::test]
+    async fn trusting_a_host_checks_what_it_is_given() {
+        let h = Harness::new().await;
+        let trust = |host: &str, port: u16, fingerprint: &str| TrustHost {
+            host: host.into(),
+            port,
+            key_type: String::new(),
+            fingerprint: fingerprint.into(),
+        };
+        for bad in [
+            trust("", 22, "SHA256:abc"),
+            trust("host name", 22, "SHA256:abc"),
+            trust("nas.lan", 0, "SHA256:abc"),
+            trust("nas.lan", 22, ""),
+            trust("nas.lan", 22, "MD5:aa:bb"),
+            trust("nas.lan", 22, "SHA256:"),
+            trust("nas.lan", 22, "SHA256:abc def"),
+        ] {
+            assert!(
+                matches!(h.mgr.trust_host(bad).await, Err(Error::InvalidInput(_))),
+                "refused"
+            );
+        }
+        h.mgr
+            .trust_host(trust("NAS.lan", 22, "SHA256:AbC+/="))
+            .await
+            .expect("fine");
+    }
+
+    #[tokio::test]
+    async fn the_api_answers_for_an_untrusted_host_and_manages_trusted_ones() {
+        let sftp = SftpServer::spawn(
+            &[("/srv/a.bin", body())],
+            SftpOptions {
+                users: users("filip", "s3cret"),
+                ..SftpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        let api = spawn_api(&h).await;
+        let c = reqwest::Client::new();
+        let add = serde_json::json!({
+            "url": sftp.url("srv/a.bin"),
+            "credentials": {"username": "filip", "password": "s3cret"},
+        })
+        .to_string();
+
+        let (status, v) = send(
+            &c,
+            reqwest::Method::POST,
+            format!("{api}/downloads"),
+            Some(&add),
+        )
+        .await;
+        assert_eq!(status, 409, "{v}");
+        assert_eq!(v["error"], "untrusted_host");
+        assert_eq!(v["host_key"]["fingerprint"], sftp.fingerprint.as_str());
+        assert_eq!(v["host_key"]["port"], sftp.addr.port());
+
+        // What the answer shows is what the user sends back to trust the server.
+        let trust = serde_json::json!({
+            "host": v["host_key"]["host"],
+            "port": v["host_key"]["port"],
+            "key_type": v["host_key"]["key_type"],
+            "fingerprint": v["host_key"]["fingerprint"],
+        })
+        .to_string();
+        let (status, known) = send(
+            &c,
+            reqwest::Method::POST,
+            format!("{api}/known-hosts"),
+            Some(&trust),
+        )
+        .await;
+        assert_eq!(status, 201, "{known}");
+        let (status, list) =
+            send(&c, reqwest::Method::GET, format!("{api}/known-hosts"), None).await;
+        assert_eq!(status, 200);
+        assert_eq!(list.as_array().map(Vec::len), Some(1));
+
+        let (status, v) = send(
+            &c,
+            reqwest::Method::POST,
+            format!("{api}/downloads"),
+            Some(&add),
+        )
+        .await;
+        assert_eq!(status, 201, "{v}");
+        assert!(!v.to_string().contains("s3cret"), "{v}");
+        assert_eq!(v["username"], "filip");
+
+        let id = known["id"].as_i64().expect("id");
+        let (status, _) = send(
+            &c,
+            reqwest::Method::DELETE,
+            format!("{api}/known-hosts/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, 204);
+        let (status, _) = send(
+            &c,
+            reqwest::Method::DELETE,
+            format!("{api}/known-hosts/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, 404);
+    }
 }

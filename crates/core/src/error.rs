@@ -8,6 +8,9 @@ pub enum Error {
     /// No download with this id.
     #[error("download {0} not found")]
     NotFound(Id),
+    /// Something other than a download is not there (a trusted host, ...).
+    #[error("{0}")]
+    Missing(String),
     /// Operation not allowed in the current status.
     #[error("invalid state: {0}")]
     InvalidState(String),

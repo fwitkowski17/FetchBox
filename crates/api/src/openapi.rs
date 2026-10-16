@@ -8,15 +8,16 @@ use utoipa::{Modify, OpenApi};
 use crate::auth::{
     self, AuthStatus, ChangePasswordRequest, LockedBody, LoginRequest, LoginResponse, SetupRequest,
 };
-use crate::error::{ConflictBody, ErrorBody, SpaceBody};
+use crate::error::{ConflictBody, ErrorBody, HostKeyBody, SpaceBody};
 use crate::routes::{self, Health, UpdateDownload};
 use crate::sse;
 
 use fetchbox_core::{
     AddRequest, Category, CategoryStat, ChecksumAlgo, ChecksumInput, ChecksumState, Conflict,
-    ConflictKind, DayStat, DiskSpace, Download, Event, Hold, LargestFile, ListingEntry, OnConflict,
-    OnHoursEnd, ProbeRequest, ReleaseNote, Settings, SourceKind, Stats, StatsRange, Status,
-    UrlInfo, UrlKind, VersionInfo,
+    ConflictKind, Credentials, DayStat, DiskSpace, Download, Event, Hold, HostKeyProblem,
+    HostKeyProblemKind, KnownHost, LargestFile, ListingEntry, OnConflict, OnHoursEnd, ProbeRequest,
+    ReleaseNote, Settings, SourceKind, Stats, StatsRange, Status, TrustHost, UrlInfo, UrlKind,
+    VersionInfo,
 };
 
 #[derive(OpenApi)]
@@ -33,6 +34,9 @@ token as `Authorization: Bearer`.",
         routes::list,
         routes::add,
         routes::probe,
+        routes::known_hosts,
+        routes::trust_host,
+        routes::forget_host,
         routes::update,
         routes::remove,
         routes::pause,
@@ -57,11 +61,13 @@ token as `Authorization: Bearer`.",
         ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, LoginRequest,
         LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest, Stats, StatsRange,
         LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry, VersionInfo, ReleaseNote, Hold, OnHoursEnd, ChecksumAlgo, ChecksumInput, ChecksumState,
+        Credentials, HostKeyBody, HostKeyProblem, HostKeyProblemKind, KnownHost, TrustHost,
     )),
     modifiers(&Runtime),
     tags(
         (name = "downloads", description = "Download list and per-download commands"),
         (name = "settings", description = "Global settings, applied live"),
+        (name = "sources", description = "Remote servers: the SSH servers that are trusted"),
         (name = "events", description = "Server-sent events"),
         (name = "auth", description = "Single-user login, first-run setup, password change"),
         (name = "system", description = "Health"),
@@ -116,6 +122,9 @@ mod tests {
             ("/api/downloads", "get"),
             ("/api/downloads", "post"),
             ("/api/probe", "post"),
+            ("/api/known-hosts", "get"),
+            ("/api/known-hosts", "post"),
+            ("/api/known-hosts/{id}", "delete"),
             ("/api/downloads/{id}", "patch"),
             ("/api/downloads/{id}", "delete"),
             ("/api/downloads/{id}/pause", "post"),

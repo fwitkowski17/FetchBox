@@ -951,6 +951,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "fetchbox-core",
+ "fetchbox-http-engine",
  "futures-util",
  "md-5",
  "rand",

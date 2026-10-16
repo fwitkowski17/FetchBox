@@ -14,7 +14,7 @@
 
 use std::net::IpAddr;
 use std::sync::Arc;
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-servers")))]
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -138,11 +138,11 @@ pub struct Session {
 }
 
 /// Certificates the tests' own servers use, trusted in addition to the usual roots.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-servers"))]
 static TEST_ROOTS: std::sync::Mutex<Vec<rustls::pki_types::CertificateDer<'static>>> =
     std::sync::Mutex::new(Vec::new());
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-servers"))]
 pub(crate) fn trust_for_tests(cert: rustls::pki_types::CertificateDer<'static>) {
     TEST_ROOTS
         .lock()
@@ -155,7 +155,7 @@ fn build_tls_config() -> Result<rustls::ClientConfig, EngineError> {
     let mut roots = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-servers"))]
     for cert in TEST_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).iter() {
         let _ = roots.add(cert.clone());
     }
@@ -167,7 +167,7 @@ fn build_tls_config() -> Result<rustls::ClientConfig, EngineError> {
         .with_no_client_auth())
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-servers")))]
 fn tls_config() -> Result<Arc<rustls::ClientConfig>, EngineError> {
     static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
     if let Some(c) = CONFIG.get() {
@@ -179,7 +179,7 @@ fn tls_config() -> Result<Arc<rustls::ClientConfig>, EngineError> {
     Ok(Arc::clone(CONFIG.get_or_init(|| Arc::new(config))))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-servers"))]
 fn tls_config() -> Result<Arc<rustls::ClientConfig>, EngineError> {
     // Not shared between tests: each brings its own certificate.
     Ok(Arc::new(build_tls_config()?))

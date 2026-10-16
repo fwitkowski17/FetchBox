@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use fetchbox_core::{Conflict, Error};
+use fetchbox_core::{Conflict, Error, HostKeyProblem, HostKeyProblemKind};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -22,6 +22,16 @@ pub struct ConflictBody {
     /// Always `"conflict"`.
     pub error: String,
     pub conflict: Conflict,
+}
+
+/// `409` body of `POST /downloads` and `POST /probe` when the host key of an SSH server (SFTP) is
+/// not trusted, or is not the accepted one. For an unknown server the UI shows `host_key` (the
+/// fingerprint to compare) and, when the user agrees, sends it to `POST /known-hosts` and asks again.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct HostKeyBody {
+    /// `untrusted_host` or `host_key_changed`.
+    pub error: String,
+    pub host_key: HostKeyProblem,
 }
 
 /// `507` body of `POST /downloads` when the file does not fit. The UI explains the numbers and
@@ -61,6 +71,19 @@ impl IntoResponse for ApiError {
             Error::NotFound(_) => {
                 (StatusCode::NOT_FOUND, Json(err(self.0.to_string()))).into_response()
             }
+            Error::Missing(m) => (StatusCode::NOT_FOUND, Json(err(m.as_str()))).into_response(),
+            Error::HostKey(problem) => (
+                StatusCode::CONFLICT,
+                Json(HostKeyBody {
+                    error: match problem.kind {
+                        HostKeyProblemKind::Untrusted => "untrusted_host",
+                        HostKeyProblemKind::Changed => "host_key_changed",
+                    }
+                    .into(),
+                    host_key: (**problem).clone(),
+                }),
+            )
+                .into_response(),
             Error::InvalidInput(m) => {
                 (StatusCode::BAD_REQUEST, Json(err(m.as_str()))).into_response()
             }

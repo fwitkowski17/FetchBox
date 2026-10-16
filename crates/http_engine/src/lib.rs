@@ -20,10 +20,11 @@ pub mod worker;
 
 #[cfg(test)]
 mod remote_tests;
-#[cfg(test)]
-mod testftp;
-#[cfg(test)]
-mod testsftp;
+/// Test servers for FTP and SFTP (see the `test-servers` feature).
+#[cfg(any(test, feature = "test-servers"))]
+pub mod testftp;
+#[cfg(any(test, feature = "test-servers"))]
+pub mod testsftp;
 #[cfg(test)]
 mod testutil;
 
