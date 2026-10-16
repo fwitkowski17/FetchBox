@@ -148,6 +148,7 @@ export const api = {
     request<Download>('PATCH', `/downloads/${id}`, { speed_limit: speedLimit }),
   setArchived: (id: number, archived: boolean) =>
     request<Download>('PATCH', `/downloads/${id}`, { archived }),
+  startNow: (id: number) => request<Download>('PATCH', `/downloads/${id}`, { start_now: true }),
   setCategory: (id: number, category: Category) =>
     request<Download>('PATCH', `/downloads/${id}`, { category }),
 

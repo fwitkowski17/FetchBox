@@ -20,6 +20,8 @@ pub trait Service: Send + Sync + 'static {
     async fn version(&self, refresh: bool) -> Result<VersionInfo>;
     /// Ask the remote server about a URL (name, size, range support) without adding anything.
     async fn probe(&self, url: &str) -> Result<UrlInfo>;
+    /// "Download now": the download hours (and a start time) no longer hold this download back.
+    async fn start_now(&self, id: Id) -> Result<Download>;
     async fn pause(&self, id: Id) -> Result<Download>;
     async fn resume(&self, id: Id) -> Result<Download>;
     async fn cancel(&self, id: Id) -> Result<Download>;

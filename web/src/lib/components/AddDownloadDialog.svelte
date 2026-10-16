@@ -11,9 +11,11 @@
   import NoSpaceDialog from './NoSpaceDialog.svelte';
   import { i18n, t } from '../i18n';
   import { addDialog } from '../stores/addDialog.svelte';
+  import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
   import { isHttpUrl } from '../util/format';
   import { emptySummary, tally, type BatchSummary } from '../util/listing';
+  import { formatWhen, minutesToTime, nextOccurrence } from '../util/schedule';
 
   let url = $state('');
   let filename = $state('');
@@ -25,6 +27,21 @@
    *  so a conflict dialog after it does not ask again. */
   let noSpace = $state<SpaceInfo | null>(null);
   let ignoreSpace = false;
+
+  // ---- when to start (SPEC 6.3.2) ----------------------------------------------------
+  /** The download hours are on: a new download waits for them unless "Download now" is chosen. */
+  const hoursOn = $derived(settings.value?.schedule_enabled === true);
+  let startNow = $state(false);
+  /** No download hours: begin at a time of day instead of at once. */
+  let startLater = $state(false);
+  let startTime = $state('02:00');
+  const startAt = $derived(startLater && !hoursOn ? nextOccurrence(startTime, new Date()) : null);
+
+  /** What the add request says about the start. */
+  function startFields(): { start_now?: boolean; start_at?: number } {
+    if (hoursOn) return startNow ? { start_now: true } : {};
+    return startAt ? { start_at: Math.floor(startAt.getTime() / 1000) } : {};
+  }
 
   const urlOk = $derived(isHttpUrl(url));
   const showUrlHint = $derived(url.trim() !== '' && !urlOk);
@@ -133,6 +150,7 @@
         await api.addDownload({
           url: file.url,
           category: category === 'auto' ? undefined : category,
+          ...startFields(),
         });
         tally(summary, 'added');
       } catch (e) {
@@ -158,6 +176,8 @@
     url = '';
     trail = [];
     category = 'auto';
+    startNow = false;
+    startLater = false;
     addDialog.hide();
     location.hash = '#/';
   }
@@ -172,6 +192,7 @@
         category: category === 'auto' ? undefined : category,
         on_conflict: onConflict,
         ignore_space: ignoreSpace || undefined,
+        ...startFields(),
       });
       conflict = null;
       ignoreSpace = false;
@@ -180,6 +201,8 @@
       url = '';
       filename = '';
       category = 'auto';
+      startNow = false;
+      startLater = false;
       addDialog.hide();
       location.hash = '#/';
     } catch (e) {
@@ -331,6 +354,55 @@
       </div>
     </div>
 
+    <div class="grid gap-2" data-part="start-options">
+      {#if hoursOn}
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            class="mt-1 size-5 shrink-0 accent-[var(--accent)]"
+            bind:checked={startNow}
+            data-part="start-now"
+          />
+          <span class="grid gap-0.5">
+            <span class="font-semibold">{t('add.schedule.now')}</span>
+            <span class="hint">
+              {t('add.schedule.nowHint', {
+                from: minutesToTime(settings.value?.schedule_from ?? 0),
+                to: minutesToTime(settings.value?.schedule_to ?? 0),
+              })}
+            </span>
+          </span>
+        </label>
+      {:else}
+        <label class="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            class="size-5 shrink-0 accent-[var(--accent)]"
+            bind:checked={startLater}
+            data-part="start-later"
+          />
+          <span class="font-semibold">{t('add.schedule.later')}</span>
+        </label>
+        {#if startLater}
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pl-8">
+            <input
+              class="input w-32"
+              type="time"
+              required
+              aria-label={t('add.schedule.at')}
+              bind:value={startTime}
+              data-part="start-time"
+            />
+            {#if startAt}
+              <span class="hint" data-part="start-when">
+                {t('add.schedule.when', { when: formatWhen(Math.floor(startAt.getTime() / 1000), i18n.locale) })}
+              </span>
+            {/if}
+          </div>
+        {/if}
+      {/if}
+    </div>
+
     {#if error}
       <p
         class="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger [overflow-wrap:anywhere]"
@@ -348,7 +420,10 @@
       class="btn primary"
       type="submit"
       form="add-form"
-      disabled={!urlOk || busy || (listing !== null && (chosen.size === 0 || probe.state === 'checking'))}
+      disabled={!urlOk ||
+        busy ||
+        (startLater && !hoursOn && startAt === null) ||
+        (listing !== null && (chosen.size === 0 || probe.state === 'checking'))}
     >
       <Icon name="down" size={18} />
       {#if progress}

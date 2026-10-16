@@ -11,6 +11,16 @@ const DAY: i64 = 86_400;
 pub const CHART_DAYS: i64 = 14;
 const PEAK_SPEED: &str = "peak_speed";
 
+/// The time a download has spent transferring so far (milliseconds), `0` when none was measured.
+pub fn active_ms(conn: &Connection, id: Id) -> Result<u64> {
+    let ms: Option<i64> = conn
+        .query_row("SELECT active_ms FROM downloads WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    Ok(u64::try_from(ms.unwrap_or(0)).unwrap_or(0))
+}
+
 /// Add time spent transferring to a download (called once per progress tick and when it stops).
 pub fn add_active_ms(conn: &Connection, id: Id, ms: u64) -> Result<()> {
     let ms = i64::try_from(ms).unwrap_or(i64::MAX);
@@ -231,6 +241,8 @@ mod tests {
                 overwrite: false,
                 subdir: String::new(),
                 ignore_space: false,
+                start_at: None,
+                start_now: false,
             },
         )
         .expect("insert")
@@ -443,13 +455,15 @@ mod tests {
         // A database from before the table: migrate step by step, add rows, then the last one.
         let conn = Connection::open_in_memory().expect("db");
         let migrations = crate::MIGRATIONS;
-        for sql in &migrations[..migrations.len() - 1] {
+        // The statistics came with the eighth migration (index 7); later ones do not matter here.
+        const STATS: usize = 7;
+        for sql in &migrations[..STATS] {
             conn.execute_batch(sql).expect("old migration");
         }
         conn.execute("INSERT INTO downloads (url, filename, category, status, size, downloaded, finished_at) VALUES ('u1', 'a', 'photo', 'completed', 10, 10, 100)", []).expect("a");
         conn.execute("INSERT INTO downloads (url, filename, category, status, downloaded) VALUES ('u2', 'b', 'other', 'failed', 3)", []).expect("b");
         conn.execute("INSERT INTO downloads (url, filename, category, status, downloaded) VALUES ('u3', 'c', 'other', 'downloading', 5)", []).expect("c");
-        conn.execute_batch(migrations[migrations.len() - 1])
+        conn.execute_batch(migrations[STATS])
             .expect("stats migration");
         let rows: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))

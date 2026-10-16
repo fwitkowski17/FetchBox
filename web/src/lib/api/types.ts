@@ -16,6 +16,7 @@ export type AuthStatus = Schemas['AuthStatus'];
 export type DiskSpace = Schemas['DiskSpace'];
 export type UrlInfo = Schemas['UrlInfo'];
 export type VersionInfo = Schemas['VersionInfo'];
+export type Hold = Schemas['Hold'];
 export type ListingEntry = Schemas['ListingEntry'];
 export type Stats = Schemas['Stats'];
 export type StatsRange = Schemas['StatsRange'];

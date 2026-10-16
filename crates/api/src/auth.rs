@@ -527,6 +527,7 @@ pub(crate) async fn login(
         .unwrap_or(Err(LoginError::Unavailable));
     match result {
         Ok(token) => {
+            tracing::info!(target: "activity", "signed in");
             let mut resp = Json(LoginResponse {
                 token: token.clone(),
             })
@@ -705,6 +706,7 @@ pub(crate) async fn change_password(
 pub(crate) async fn logout(State(auth): State<Arc<Auth>>, headers: HeaderMap) -> Response {
     if let Some(token) = token_from(&headers) {
         auth.logout(&token);
+        tracing::info!(target: "activity", "signed out");
     }
     let mut resp = StatusCode::NO_CONTENT.into_response();
     resp.headers_mut()

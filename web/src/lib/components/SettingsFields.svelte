@@ -9,11 +9,19 @@
     type ErrorCode,
     type Errors,
   } from '../util/settingsForm';
+  import { knownZones, timeToMinutes } from '../util/schedule';
   import SpeedField from './SpeedField.svelte';
   import Toggle from './Toggle.svelte';
 
   let { draft = $bindable(), errors }: { draft: Draft; errors: Errors } = $props();
 
+
+  const zones = knownZones();
+  const overnight = $derived.by(() => {
+    const from = timeToMinutes(draft.scheduleFrom);
+    const to = timeToMinutes(draft.scheduleTo);
+    return from !== null && to !== null && to < from;
+  });
 
   /** The message for a validation code; the bounds are the form's own. */
   function errorText(code: ErrorCode): string {
@@ -76,6 +84,99 @@
       bind:value={draft.global}
       error={errors.global ? errorText(errors.global) : undefined}
     />
+  </section>
+
+  <section class={CARD} data-part="schedule">
+    <h2 class="font-semibold tracking-tight">{t('settings.schedule')}</h2>
+    <Toggle bind:checked={draft.scheduleEnabled} hint={t('settings.schedule.hint')}>
+      {t('settings.schedule.toggle')}
+    </Toggle>
+    {#if draft.scheduleEnabled}
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="field">
+          <label for="schedule-from">{t('settings.schedule.from')}</label>
+          <input
+            id="schedule-from"
+            class="input"
+            type="time"
+            required
+            bind:value={draft.scheduleFrom}
+            aria-invalid={errors.schedule ? 'true' : undefined}
+          />
+        </div>
+        <div class="field">
+          <label for="schedule-to">{t('settings.schedule.to')}</label>
+          <input
+            id="schedule-to"
+            class="input"
+            type="time"
+            required
+            bind:value={draft.scheduleTo}
+            aria-invalid={errors.schedule ? 'true' : undefined}
+          />
+        </div>
+      </div>
+      {#if errors.schedule}
+        <p class="text-sm text-danger" role="alert">{errorText(errors.schedule)}</p>
+      {:else}
+        <p class="hint" data-part="schedule-summary">
+          {t(overnight ? 'settings.schedule.summaryOvernight' : 'settings.schedule.summary', {
+            from: draft.scheduleFrom,
+            to: draft.scheduleTo,
+          })}
+        </p>
+      {/if}
+      <fieldset class="field m-0 border-0 p-0" data-part="on-end">
+        <legend class="mb-1 font-semibold">{t('settings.schedule.onEnd')}</legend>
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            name="schedule-on-end"
+            value="pause"
+            class="mt-1 size-5 shrink-0 accent-[var(--accent)]"
+            bind:group={draft.scheduleOnEnd}
+          />
+          <span class="grid gap-0.5">
+            <span class="font-medium">{t('settings.schedule.onEnd.pause')}</span>
+            <span class="hint">{t('settings.schedule.onEnd.pauseHint')}</span>
+          </span>
+        </label>
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            name="schedule-on-end"
+            value="finish"
+            class="mt-1 size-5 shrink-0 accent-[var(--accent)]"
+            bind:group={draft.scheduleOnEnd}
+          />
+          <span class="grid gap-0.5">
+            <span class="font-medium">{t('settings.schedule.onEnd.finish')}</span>
+            <span class="hint">{t('settings.schedule.onEnd.finishHint')}</span>
+          </span>
+        </label>
+      </fieldset>
+
+      <div class="field">
+        <label for="schedule-zone">{t('settings.schedule.zone')}</label>
+        <input
+          id="schedule-zone"
+          class="input"
+          list="schedule-zones"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          bind:value={draft.scheduleTimezone}
+          aria-invalid={errors.timezone ? 'true' : undefined}
+        />
+        <datalist id="schedule-zones">
+          {#each zones as zone (zone)}<option value={zone}></option>{/each}
+        </datalist>
+        <p class="hint">{t('settings.schedule.zoneHint')}</p>
+        {#if errors.timezone}
+          <p class="text-sm text-danger" role="alert">{errorText(errors.timezone)}</p>
+        {/if}
+      </div>
+    {/if}
   </section>
 
   <section class={CARD}>

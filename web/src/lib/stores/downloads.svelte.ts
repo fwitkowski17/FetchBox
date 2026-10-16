@@ -108,6 +108,7 @@ class DownloadsStore {
     if (ok && this.noSpaceFor === id) this.noSpaceFor = null;
     return ok;
   };
+  startNow = (id: number) => this.#run(() => api.startNow(id));
   cancel = (id: number) => this.#run(() => api.cancel(id));
   remove = (id: number, deleteFile = false) => this.#run(() => api.remove(id, deleteFile));
   setCategory = (id: number, category: Category) => this.#run(() => api.setCategory(id, category));

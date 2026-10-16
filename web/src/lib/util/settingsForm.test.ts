@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Settings } from '../api/types';
+import { browserZone } from './schedule';
 import {
   MAX_CONNECTIONS,
   fromDraft,
@@ -20,6 +21,11 @@ const base: Settings = {
   speed_global: 5 * 1024 * 1024,
   category_subdirs: true,
   check_updates: true,
+  schedule_enabled: false,
+  schedule_from: 0,
+  schedule_to: 360,
+  schedule_timezone: 'Europe/Warsaw',
+  schedule_on_end: 'pause',
 };
 
 describe('settings form', () => {
@@ -50,6 +56,56 @@ describe('settings form', () => {
     const { check_updates: _omit, ...legacy } = base;
     expect(toDraft(legacy).checkUpdates).toBe(true);
     expect(fromDraft({ ...toDraft(base), checkUpdates: false }).check_updates).toBe(false);
+  });
+
+  it('shows the download hours as times and keeps their zone', () => {
+    const night: Settings = {
+      ...base,
+      schedule_enabled: true,
+      schedule_from: 22 * 60,
+      schedule_to: 6 * 60 + 30,
+    };
+    const d = toDraft(night);
+    expect([d.scheduleEnabled, d.scheduleFrom, d.scheduleTo, d.scheduleTimezone]).toEqual([
+      true,
+      '22:00',
+      '06:30',
+      'Europe/Warsaw',
+    ]);
+    expect(fromDraft(d)).toEqual(night);
+  });
+
+  it('keeps the choice of what running downloads do when the hours end', () => {
+    expect(toDraft(base).scheduleOnEnd).toBe('pause');
+    const finish: Settings = { ...base, schedule_on_end: 'finish' };
+    expect(toDraft(finish).scheduleOnEnd).toBe('finish');
+    expect(fromDraft(toDraft(finish))).toEqual(finish);
+    expect(isDirty(toDraft(base), finish)).toBe(true);
+    const { schedule_on_end: _omit, ...older } = base;
+    expect(toDraft(older).scheduleOnEnd).toBe('pause');
+  });
+
+  it('offers this browser\'s zone while the hours are off and the server still has the default', () => {
+    const d = toDraft({ ...base, schedule_timezone: 'UTC' });
+    expect(d.scheduleTimezone).toBe(browserZone());
+    // That is not an edit: the form is compared with what it would show for the server's value.
+    expect(isDirty(d, { ...base, schedule_timezone: 'UTC' })).toBe(false);
+    // Once the hours are on, the zone is the user's and stays as stored.
+    expect(toDraft({ ...base, schedule_enabled: true, schedule_timezone: 'UTC' }).scheduleTimezone).toBe('UTC');
+  });
+
+  it('checks the download hours only while they are on', () => {
+    const d = toDraft(base);
+    d.scheduleFrom = d.scheduleTo = '03:00';
+    d.scheduleTimezone = 'Mars/Olympus';
+    expect(validate(d)).toEqual({});
+    d.scheduleEnabled = true;
+    expect(validate(d)).toEqual({ schedule: 'schedule', timezone: 'timezone' });
+    d.scheduleTo = '04:00';
+    d.scheduleTimezone = 'Europe/Warsaw';
+    expect(validate(d)).toEqual({});
+    d.scheduleFrom = '';
+    expect(validate(d).schedule).toBe('schedule');
   });
 
   it('validates counts and limits', () => {

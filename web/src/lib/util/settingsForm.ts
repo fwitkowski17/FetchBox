@@ -1,6 +1,7 @@
 // The settings form works with friendly values (KB/MB or Kbit/Mbit, "limit on/off"); the API with bytes/s and 0.
 import type { Settings } from '../api/types';
 import { joinSpeed, splitSpeed, type SpeedUnit } from './format';
+import { browserZone, isZone, minutesToTime, timeToMinutes } from './schedule';
 
 /** Mirrors the server's bound (`MAX_CONNECTIONS`). */
 export const MAX_CONNECTIONS = 32;
@@ -20,6 +21,15 @@ export interface Draft {
   global: SpeedDraft;
   categorySubdirs: boolean;
   checkUpdates: boolean;
+  /** Download only during set hours. */
+  scheduleEnabled: boolean;
+  /** `"HH:MM"`, as the time inputs have it. */
+  scheduleFrom: string;
+  scheduleTo: string;
+  /** IANA time zone the hours are in. */
+  scheduleTimezone: string;
+  /** What running downloads do when the hours end. */
+  scheduleOnEnd: 'pause' | 'finish';
 }
 
 export function speedToDraft(bytesPerSecond: number): SpeedDraft {
@@ -31,6 +41,11 @@ export function speedFromDraft(d: SpeedDraft): number {
   return d.limited ? joinSpeed(d.value, d.unit) : 0;
 }
 
+function scheduleZone(s: Settings): string {
+  const zone = s.schedule_timezone ?? 'UTC';
+  return !s.schedule_enabled && zone === 'UTC' ? browserZone() : zone;
+}
+
 export function toDraft(s: Settings): Draft {
   return {
     connections: s.connections,
@@ -40,6 +55,13 @@ export function toDraft(s: Settings): Draft {
     categorySubdirs: s.category_subdirs ?? false,
     // Older servers do not know the field; checks are on unless switched off.
     checkUpdates: s.check_updates ?? true,
+    scheduleEnabled: s.schedule_enabled ?? false,
+    scheduleFrom: minutesToTime(s.schedule_from ?? 0),
+    scheduleTo: minutesToTime(s.schedule_to ?? 360),
+    // The server's default is UTC. While the hours are off, offer the zone of this browser
+    // instead, which is what a person who switches them on means.
+    scheduleTimezone: scheduleZone(s),
+    scheduleOnEnd: s.schedule_on_end ?? 'pause',
   };
 }
 
@@ -51,13 +73,18 @@ export function fromDraft(d: Draft): Settings {
     speed_global: speedFromDraft(d.global),
     category_subdirs: d.categorySubdirs,
     check_updates: d.checkUpdates,
+    schedule_enabled: d.scheduleEnabled,
+    schedule_from: timeToMinutes(d.scheduleFrom) ?? 0,
+    schedule_to: timeToMinutes(d.scheduleTo) ?? 360,
+    schedule_timezone: d.scheduleTimezone.trim(),
+    schedule_on_end: d.scheduleOnEnd,
   };
 }
 
-export type Field = 'connections' | 'maxConcurrent' | 'perDownload' | 'global';
+export type Field = 'connections' | 'maxConcurrent' | 'perDownload' | 'global' | 'schedule' | 'timezone';
 
 /** Which message to show for a field (`settings.error.<code>`); the UI supplies the wording. */
-export type ErrorCode = 'connections' | 'concurrent' | 'speed';
+export type ErrorCode = 'connections' | 'concurrent' | 'speed' | 'schedule' | 'timezone';
 
 export type Errors = Partial<Record<Field, ErrorCode>>;
 
@@ -76,6 +103,12 @@ export function validate(d: Draft): Errors {
   }
   if (!isValidSpeed(d.perDownload)) errors.perDownload = 'speed';
   if (!isValidSpeed(d.global)) errors.global = 'speed';
+  if (d.scheduleEnabled) {
+    const from = timeToMinutes(d.scheduleFrom);
+    const to = timeToMinutes(d.scheduleTo);
+    if (from === null || to === null || from === to) errors.schedule = 'schedule';
+    if (!isZone(d.scheduleTimezone)) errors.timezone = 'timezone';
+  }
   return errors;
 }
 
@@ -86,7 +119,12 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.speed_per_download === b.speed_per_download &&
     a.speed_global === b.speed_global &&
     (a.category_subdirs ?? false) === (b.category_subdirs ?? false) &&
-    (a.check_updates ?? true) === (b.check_updates ?? true)
+    (a.check_updates ?? true) === (b.check_updates ?? true) &&
+    (a.schedule_enabled ?? false) === (b.schedule_enabled ?? false) &&
+    (a.schedule_from ?? 0) === (b.schedule_from ?? 0) &&
+    (a.schedule_to ?? 360) === (b.schedule_to ?? 360) &&
+    (a.schedule_timezone ?? 'UTC') === (b.schedule_timezone ?? 'UTC') &&
+    (a.schedule_on_end ?? 'pause') === (b.schedule_on_end ?? 'pause')
   );
 }
 

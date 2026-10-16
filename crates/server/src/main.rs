@@ -1,6 +1,8 @@
 //! FetchBox server binary: wires storage, API and the embedded frontend.
 
 mod assets;
+mod clock;
+mod logfmt;
 mod manager;
 #[cfg(test)]
 mod tests;
@@ -26,6 +28,10 @@ struct Args {
     /// Directory where downloaded files are stored.
     #[arg(long, default_value = "./downloads")]
     download_dir: PathBuf,
+    /// Log what happens to downloads and settings (added, paused, finished, removed with the
+    /// average speed, settings changes, download hours, sign-ins). Warnings and errors are always logged.
+    #[arg(long, env = "FETCHBOX_LOG_ACTIVITY")]
+    log_activity: bool,
     /// TCP port to listen on.
     #[arg(long, default_value_t = 8080)]
     port: u16,
@@ -194,14 +200,21 @@ fn main() -> anyhow::Result<()> {
     result
 }
 
-async fn run() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+/// Console logging. The per-event lines (target `activity`) are shown only with `--log-activity`;
+/// `RUST_LOG` still sets the level of everything else.
+fn init_logging(activity: bool) {
+    let mut filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let level = if activity { "info" } else { "warn" };
+    if let Ok(directive) = format!("activity={level}").parse() {
+        filter = filter.add_directive(directive);
+    }
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
 
+async fn run() -> anyhow::Result<()> {
     let args = Args::parse();
+    init_logging(args.log_activity);
     if args.print_openapi {
         // Before logging, passwords and directories: this must work on a bare checkout/CI.
         print!(
@@ -219,6 +232,7 @@ async fn run() -> anyhow::Result<()> {
     adopt_legacy_database(&args.data_dir)?;
     let db_path = args.data_dir.join("fetchbox.db");
     let db = fetchbox_storage::open(&db_path).context("open database")?;
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "FetchBox starting");
     tracing::info!(db = %db_path.display(), download_dir = %args.download_dir.display(), "storage ready");
 
     let manager = manager::Manager::start(
@@ -307,6 +321,7 @@ mod auth_config_tests {
             password_file,
             print_openapi: false,
             block_private_urls: false,
+            log_activity: false,
             no_auth,
             command: None,
         }
