@@ -8,6 +8,8 @@ import {
   filterDownloads,
   groupOf,
   groupOfDownload,
+  isHeld,
+  primaryAction,
   sortDownloads,
   summarize,
   type Filter,
@@ -240,5 +242,31 @@ describe('archived downloads', () => {
   it('keep the category counts of the tab being viewed', () => {
     expect(countCategories(items, { ...all, group: 'archived' }).music).toBe(1);
     expect(countCategories(items, all).music).toBe(0);
+  });
+});
+
+describe('primaryAction', () => {
+  it('picks the one button that matters for each status', () => {
+    expect(primaryAction(dl(1, { status: 'downloading' }))).toBe('pause');
+    expect(primaryAction(dl(1, { status: 'queued' }))).toBe('pause');
+    expect(primaryAction(dl(1, { status: 'paused' }))).toBe('resume');
+    expect(primaryAction(dl(1, { status: 'verifying' }))).toBe('skipVerify');
+    expect(primaryAction(dl(1, { status: 'failed' }))).toBe('retry');
+  });
+
+  it('starts a download that waits for the hours or a start time right away', () => {
+    const waiting = dl(1, { status: 'queued', hold: 'window' });
+    expect(isHeld(waiting)).toBe(true);
+    expect(primaryAction(waiting)).toBe('startNow');
+    expect(isHeld(dl(2, { status: 'paused', hold: 'window' }))).toBe(false);
+  });
+
+  it('downloads a file again when its checksum did not match', () => {
+    expect(primaryAction(dl(1, { status: 'failed', verify_failed: true }))).toBe('downloadAgain');
+  });
+
+  it('has nothing for the finished ones', () => {
+    expect(primaryAction(dl(1, { status: 'completed' }))).toBeNull();
+    expect(primaryAction(dl(1, { status: 'cancelled' }))).toBeNull();
   });
 });

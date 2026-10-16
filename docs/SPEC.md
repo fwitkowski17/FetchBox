@@ -346,6 +346,17 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   button takes over (the header one is hidden there, so there is one add button per layout). The side menu has no "Add"
   item: it lists the pages and the filters. Toasts sit at the bottom right on wide screens (so they never cover the header
   buttons) and under the top bar on narrow ones (the floating button is at the bottom there).
+- View switch: next to the sort controls the list header has two icon buttons, "Cards" and "Table" (`aria-pressed`, in a group labelled
+  "View"). The choice is kept per browser with the sort and the filters (`fetchbox.list`, field `view`; a save from before the views has
+  none and shows cards, with its sort and filters kept: `util/listPrefs`). Both views show the same filtered and sorted list and obey the
+  same selection mode. The table (`DownloadTable`, `DownloadRow`) is a real `<table>`: name (category icon, file name, `PROTOCOL user@host`
+  and folder, the error of a failed download in one truncated line, a warning icon for a file kept despite its checksum), status badge,
+  progress bar with the percentage, size, speed, time left and the buttons as icons (the main one, "more" menu, cancel or remove, and "keep"
+  for a failed verification), all with the same actions and confirmations as the card (`stores/downloadActions`, `util/downloads.primaryAction`).
+  The column headers of name, status, progress, size and speed are buttons that sort by that key (a new key starts in its natural direction,
+  the same key again reverses it, `aria-sort` marks the current one); "Date added" is only in the sort select, which stays in both views.
+  Columns drop out as the width shrinks: time left, speed and size below 64rem, the progress column below 48rem (the bar and a short line
+  of numbers move under the name), the status badge below 40rem. The table has no horizontal scroll and does not clip the card menu.
 - Selecting several downloads: a "Select" button in the list header switches the list to selection mode. Cards get a checkbox
   and become click targets (their own buttons are hidden meanwhile), the header buttons step aside and an action bar appears
   at the bottom (next to the side panel on wide screens; on a phone the count on top and four evenly spread buttons below).

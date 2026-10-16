@@ -3,6 +3,7 @@
   import { fly } from 'svelte/transition';
   import CategoryIcon from '../lib/components/CategoryIcon.svelte';
   import DownloadCard from '../lib/components/DownloadCard.svelte';
+  import DownloadTable from '../lib/components/DownloadTable.svelte';
   import SelectionBar from '../lib/components/SelectionBar.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import { i18n, t } from '../lib/i18n';
@@ -18,6 +19,7 @@
     filterDownloads,
     sortDownloads,
     summarize,
+    VIEW_MODES,
     type SortKey,
   } from '../lib/util/downloads';
 
@@ -134,6 +136,29 @@
     >
       <Icon name={prefs.sort.dir === 'asc' ? 'up' : 'down'} />
     </button>
+    <div
+      class="inline-flex h-11 shrink-0 rounded-lg border border-border bg-surface p-0.5"
+      role="group"
+      aria-label={t('downloads.view.label')}
+      data-part="view"
+    >
+      {#each VIEW_MODES as mode (mode)}
+        <button
+          type="button"
+          class={[
+            'grid h-full w-10 place-items-center rounded-md transition-colors',
+            prefs.view === mode ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface-2 hover:text-text',
+          ]}
+          aria-pressed={prefs.view === mode}
+          aria-label={t(`downloads.view.${mode}`)}
+          title={t(`downloads.view.${mode}`)}
+          onclick={() => prefs.setView(mode)}
+          data-view={mode}
+        >
+          <Icon name={mode === 'cards' ? 'viewCards' : 'viewTable'} size={19} />
+        </button>
+      {/each}
+    </div>
   </div>
 </div>
 
@@ -186,11 +211,15 @@
     {/if}
   </div>
 {:else}
-  <ul class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,25rem),1fr))] gap-3">
-    {#each visible as d (d.id)}
-      <li in:fly={{ y: 10, duration: motion(220) }}><DownloadCard download={d} /></li>
-    {/each}
-  </ul>
+  {#if prefs.view === 'table'}
+    <div class="mt-4"><DownloadTable items={visible} /></div>
+  {:else}
+    <ul class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,25rem),1fr))] gap-3">
+      {#each visible as d (d.id)}
+        <li in:fly={{ y: 10, duration: motion(220) }}><DownloadCard download={d} /></li>
+      {/each}
+    </ul>
+  {/if}
 {/if}
 
 {#if selection.active}
