@@ -110,6 +110,7 @@ class DownloadsStore {
   };
   startNow = (id: number) => this.#run(() => api.startNow(id));
   cancel = (id: number) => this.#run(() => api.cancel(id));
+  keep = (id: number) => this.#run(() => api.keep(id));
   remove = (id: number, deleteFile = false) => this.#run(() => api.remove(id, deleteFile));
   setCategory = (id: number, category: Category) => this.#run(() => api.setCategory(id, category));
   setArchived = (id: number, archived: boolean) => this.#run(() => api.setArchived(id, archived));

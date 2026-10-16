@@ -10,6 +10,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 - ⬇️ **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
 - 🚦 **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
 - 🌙 **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
+- ✅ **Checksum verification**: tick *Verify the checksum* when adding, pick the type (MD5, SHA-1, SHA-256, SHA-512; recognised from the pasted text) and paste it. The finished file is checked in the background (the card says *Verifying* and shows how far it has got) and then gets a green tick. A file that does not match lands in the failed ones, where you can download it again, keep it anyway, or delete it together with the file.
 - 🔗 **Adding**: paste a link (there is a paste button) and see the file's size and name before you start. If the link is a directory index page (Apache, nginx and the like), pick which files to download.
 - 🗂️ **Categories** (Photo, Music, Video, Program, Archive, Other), detected from the name or the server, changeable, with optional folders per category.
 - 💾 **Disk aware**: a ring shows the free space, a download that does not fit is refused or held until there is room.
@@ -255,7 +256,6 @@ The interface is translated without a library, and a new language is one file an
 
 Ideas in rough order, with no promised dates. The ones marked 🧭 are being designed.
 
-- ✅ **Checksum verification**: give a download its expected SHA-256 (or MD5, SHA-1, SHA-512), or a link to a checksum file next to it, and see whether the finished file matches; a mismatch is reported instead of silently kept.
 - 🧲 **BitTorrent**: magnet links and `.torrent` files through [`librqbit`](https://github.com/ikatson/rqbit), behind the same queue, limits, hours and statistics as the other downloads. The `torrent_engine` crate is already in place as a stub.
 - 📈 **Metrics for Prometheus and VictoriaMetrics**: a `/metrics` endpoint in the Prometheus text format (downloads by state, queue length, current and total speed, bytes fetched, disk space), which both scrape as they are, plus an example Grafana dashboard. Pushing to VictoriaMetrics may follow.
 - 🧩 **Plugins** 🧭: an extension system, with a place for it in the web app (a tab above Settings, or a part of Settings): hooks on events such as added, finished or failed (notifications, moving or renaming files, calling a webhook) and, later, extra sources. It is designed first so that an extension cannot take down the downloads.

@@ -36,6 +36,7 @@ describe('groups and filters', () => {
   it('maps statuses to tabs', () => {
     expect(groupOf('downloading')).toBe('active');
     expect(groupOf('queued')).toBe('active');
+    expect(groupOf('verifying')).toBe('active');
     expect(groupOf('paused')).toBe('paused');
     expect(groupOf('completed')).toBe('completed');
     expect(groupOf('failed')).toBe('stopped');

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { ApiError, api, type SpaceInfo } from '../api/client';
-  import type { Category, Conflict, ListingEntry, OnConflict, UrlInfo } from '../api/types';
+  import type { Category, ChecksumAlgo, Conflict, ListingEntry, OnConflict, UrlInfo } from '../api/types';
   import { CATEGORIES } from '../api/types';
+  import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import ConflictDialog from './ConflictDialog.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
@@ -13,6 +14,7 @@
   import { addDialog } from '../stores/addDialog.svelte';
   import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
+  import { ALGOS, algoLabel, checkChecksum, detectAlgo } from '../util/checksum';
   import { isHttpUrl } from '../util/format';
   import { emptySummary, tally, type BatchSummary } from '../util/listing';
   import { formatWhen, minutesToTime, nextOccurrence } from '../util/schedule';
@@ -62,6 +64,37 @@
   /** The listing on screen. It stays while the next folder is being looked at, so the list does not
    *  collapse and spring back on every step. */
   let listing = $state<UrlInfo | null>(null);
+
+  // ---- verify the finished file against a checksum (SPEC 6.2.2) ----------------------
+  let verifyOn = $state(false);
+  let sumAlgo = $state<ChecksumAlgo>('sha256');
+  let sumValue = $state('');
+
+  // Pasting a checksum picks its type: the label in it, or else its length. Choosing another type
+  // by hand afterwards sticks until the text changes again.
+  $effect(() => {
+    const detected = detectAlgo(sumValue);
+    if (detected !== null) untrack(() => (sumAlgo = detected));
+  });
+
+  /** What is wrong with the checksum so far (nothing is said about an empty field). */
+  const sumProblem = $derived.by(() => {
+    if (!verifyOn || sumValue.trim() === '') return null;
+    const check = checkChecksum(sumAlgo, sumValue);
+    if (check.ok) return null;
+    if (check.reason === 'chars') return t('add.checksum.chars');
+    if (check.reason === 'length') {
+      return t('add.checksum.length', { algo: algoLabel(sumAlgo), expected: check.expected, got: check.got });
+    }
+    return null;
+  });
+  /** Nothing is asked of the checksum unless it is switched on (and a listing has one per file). */
+  const sumReady = $derived(!verifyOn || listing !== null || checkChecksum(sumAlgo, sumValue).ok);
+
+  /** What the add request says about the checksum. */
+  function checksumFields(): { checksum?: { algo: ChecksumAlgo; value: string } } {
+    return verifyOn && listing === null ? { checksum: { algo: sumAlgo, value: sumValue } } : {};
+  }
   /** Typing waits a moment for more keystrokes; pasting an address looks at once. */
   const TYPING_DELAY_MS = 500;
   let lookAtOnce = false;
@@ -193,6 +226,7 @@
         on_conflict: onConflict,
         ignore_space: ignoreSpace || undefined,
         ...startFields(),
+        ...checksumFields(),
       });
       conflict = null;
       ignoreSpace = false;
@@ -203,6 +237,8 @@
       category = 'auto';
       startNow = false;
       startLater = false;
+      verifyOn = false;
+      sumValue = '';
       addDialog.hide();
       location.hash = '#/';
     } catch (e) {
@@ -354,6 +390,50 @@
       </div>
     </div>
 
+    {#if !listing}
+      <div class="grid gap-2" data-part="checksum-options">
+        <label class="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            class="size-5 shrink-0 accent-[var(--accent)]"
+            bind:checked={verifyOn}
+            data-part="verify-checksum"
+          />
+          <span class="font-semibold">{t('add.checksum')}</span>
+        </label>
+        {#if verifyOn}
+          <div class="grid items-start gap-3 pl-8 sm:grid-cols-[9rem_minmax(0,1fr)]">
+            <div class="field">
+              <label for="checksum-type">{t('add.checksum.type')}</label>
+              <select id="checksum-type" class="select" bind:value={sumAlgo} data-part="checksum-type">
+                {#each ALGOS as a (a.id)}
+                  <option value={a.id}>{a.label}</option>
+                {/each}
+              </select>
+            </div>
+            <div class="field">
+              <label for="checksum-value">{t('add.checksum.value')}</label>
+              <input
+                id="checksum-value"
+                class="input font-mono text-sm"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                placeholder={t('add.checksum.placeholder')}
+                bind:value={sumValue}
+                aria-invalid={sumProblem ? 'true' : undefined}
+                aria-describedby="checksum-hint"
+                data-part="checksum-value"
+              />
+              <p id="checksum-hint" class={['hint', sumProblem && 'text-warning']} data-part="checksum-hint">
+                {sumProblem ?? t('add.checksum.hint')}
+              </p>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <div class="grid gap-2" data-part="start-options">
       {#if hoursOn}
         <label class="flex cursor-pointer items-start gap-3">
@@ -422,6 +502,7 @@
       form="add-form"
       disabled={!urlOk ||
         busy ||
+        !sumReady ||
         (startLater && !hoursOn && startAt === null) ||
         (listing !== null && (chosen.size === 0 || probe.state === 'checking'))}
     >

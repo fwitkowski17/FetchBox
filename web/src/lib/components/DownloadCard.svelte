@@ -2,8 +2,10 @@
   import type { Download } from '../api/types';
   import { i18n, t } from '../i18n';
   import { confirmAction } from '../stores/confirm.svelte';
+  import { deleteDialog } from '../stores/deleteDialog.svelte';
   import { downloads } from '../stores/downloads.svelte';
   import { selection } from '../stores/selection.svelte';
+  import { algoLabel } from '../util/checksum';
   import { speedOf } from '../util/downloads';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
   import { formatWhen } from '../util/schedule';
@@ -31,6 +33,13 @@
   const folder = $derived(d.subdir ? `${d.subdir}/` : '');
   /** Queued on purpose (download hours, or a start time): it starts by itself, or now on request. */
   const held = $derived(d.status === 'queued' && d.hold != null);
+  /** The file is complete and its checksum is being computed. */
+  const verifying = $derived(d.status === 'verifying');
+  /** Completed, and the file matched its checksum. */
+  const verified = $derived(d.status === 'completed' && d.verified === true && d.checksum != null);
+  /** The checksum did not match (or the file could not be read): the user decides what to do. */
+  const verifyFailed = $derived(d.status === 'failed' && d.verify_failed === true);
+  const sumLabel = $derived(d.checksum ? algoLabel(d.checksum.algo) : '');
 
   /** The one big button that matters for this status. */
   const primary = $derived.by(() => {
@@ -42,10 +51,16 @@
         return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
       case 'downloading':
         return { label: t('card.pause'), icon: 'pause', run: () => downloads.pause(d.id) } as const;
+      case 'verifying':
+        return { label: t('card.skipVerify'), icon: 'x', run: () => downloads.keep(d.id) } as const;
       case 'paused':
         return { label: t('card.resume'), icon: 'play', run: () => downloads.resume(d.id) } as const;
       case 'failed':
-        return { label: t('card.retry'), icon: 'retry', run: () => downloads.resume(d.id) } as const;
+        return {
+          label: verifyFailed ? t('card.downloadAgain') : t('card.retry'),
+          icon: 'retry',
+          run: () => downloads.resume(d.id),
+        } as const;
       default:
         return null;
     }
@@ -71,6 +86,7 @@
   }
 
   const remove = () => act(() => downloads.remove(d.id));
+  const keepFile = () => act(() => downloads.keep(d.id));
 </script>
 
 <!-- In selection mode the whole card is the target; the checkbox is for keyboards and screen readers. -->
@@ -133,8 +149,19 @@
       {:else if d.status === 'queued'}
         <span>{t('card.waiting')}{d.size != null ? ` · ${i18n.bytes(d.size)}` : ''}</span>
         {#if d.speed_limit}<span>{t('card.limit', { speed: i18n.speed(d.speed_limit) })}</span>{/if}
+      {:else if verifying}
+        <span>
+          {t('card.verifying')}
+          {#if frac !== null}<strong class="ml-1 font-semibold text-text">{formatPercent(frac)}</strong>{/if}
+        </span>
+        {#if speed > 0}<span>{i18n.speed(speed)}</span>{/if}
       {:else if d.status === 'completed'}
         <span>{i18n.bytes(d.size ?? d.downloaded)}</span>
+        {#if verified}
+          <span class="inline-flex items-center gap-1 text-success" data-part="verified">
+            <Icon name="checkCircle" size={15} />{t('card.verified', { algo: sumLabel })}
+          </span>
+        {/if}
       {:else if d.status === 'cancelled'}
         <span>{t('card.cancelled')}</span>
       {:else}
@@ -155,7 +182,29 @@
     </p>
   {/if}
 
-  {#if d.status === 'failed' && d.error}
+  {#if verifyFailed && d.checksum}
+    <div
+      class="grid gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger"
+      role="alert"
+      data-part="verify-failed"
+    >
+      <p class="flex items-start gap-2 font-semibold">
+        <span class="mt-0.5"><Icon name="alert" size={16} /></span>
+        {d.checksum.actual ? t('card.verifyFailed') : t('card.verifyUnreadable')}
+      </p>
+      {#if d.checksum.actual}
+        <dl class="grid gap-0.5 font-mono text-xs [overflow-wrap:anywhere]">
+          <dt class="font-sans font-semibold">{t('card.expected', { algo: sumLabel })}</dt>
+          <dd data-part="expected">{d.checksum.expected}</dd>
+          <dt class="mt-1 font-sans font-semibold">{t('card.actual')}</dt>
+          <dd data-part="actual">{d.checksum.actual}</dd>
+        </dl>
+      {:else if d.error}
+        <p class="[overflow-wrap:anywhere]">{d.error}</p>
+      {/if}
+      <p class="text-muted">{t('card.verifyFailed.hint')}</p>
+    </div>
+  {:else if d.status === 'failed' && d.error}
     <p
       class="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]"
       role="alert"
@@ -168,10 +217,16 @@
   {/if}
 
   {#if !selecting}
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       {#if primary}
         <button class="btn primary flex-1" disabled={busy} onclick={() => act(primary.run)}>
           <Icon name={primary.icon} size={18} />{primary.label}
+        </button>
+      {/if}
+
+      {#if verifyFailed}
+        <button class="btn flex-1" disabled={busy} onclick={keepFile} data-part="keep">
+          <Icon name="check" size={18} />{t('card.keepFile')}
         </button>
       {/if}
 
@@ -199,12 +254,24 @@
         >
           <Icon name="x" />
         </button>
+      {:else if verifyFailed}
+        <!-- The file is still there: the dialog offers to take it with the entry. -->
+        <button
+          class="btn icon ml-auto"
+          disabled={busy}
+          aria-label={t('card.remove.label', { name: d.filename })}
+          title={t('card.deleteWithFile')}
+          onclick={() => deleteDialog.show(d.id)}
+          data-part="delete-with-file"
+        >
+          <Icon name="trash" />
+        </button>
       {:else}
         <button
           class="btn icon ml-auto"
           disabled={busy}
           aria-label={t('card.remove.label', { name: d.filename })}
-          title={d.status === 'completed' ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
+          title={d.status === 'completed' || verifying ? t('card.remove.titleKeepsFile') : t('card.remove.title')}
           onclick={remove}
         >
           <Icon name="trash" />

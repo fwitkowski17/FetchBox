@@ -14,6 +14,7 @@
     queued: 'bg-surface-2 text-muted',
     downloading: 'bg-accent-soft text-accent',
     paused: 'bg-warning-soft text-warning',
+    verifying: 'bg-accent-soft text-accent',
     completed: 'bg-success-soft text-success',
     failed: 'bg-danger-soft text-danger',
     cancelled: 'bg-danger-soft text-danger',
@@ -28,7 +29,7 @@
     STYLE[status],
   ]}
 >
-  <span class={['size-1.5 rounded-full bg-current', status === 'downloading' && 'animate-pulse']}></span>
+  <span class={['size-1.5 rounded-full bg-current', (status === 'downloading' || status === 'verifying') && 'animate-pulse']}></span>
   {#if waiting}
     {t('status.waitingSpace')}
   {:else if hold}

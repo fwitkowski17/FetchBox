@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Download } from '../api/types';
-import { bulkInfo, pickSelected } from './bulk';
+import { bulkInfo, hasFinishedFile, pickSelected } from './bulk';
 
 function dl(id: number, over: Partial<Download> = {}): Download {
   return {
@@ -33,6 +33,24 @@ describe('bulkInfo', () => {
 
   it('is all zero for nothing', () => {
     expect(bulkInfo([])).toEqual({ total: 0, archivable: 0, archived: 0, unfinished: 0, withFile: 0 });
+  });
+});
+
+describe('downloads with a checksum', () => {
+  it('have a finished file while verifying and after a failed verification', () => {
+    expect(hasFinishedFile(dl(1))).toBe(true);
+    expect(hasFinishedFile(dl(2, { status: 'verifying' }))).toBe(true);
+    expect(hasFinishedFile(dl(3, { status: 'failed', verify_failed: true }))).toBe(true);
+    // A plain failure left only a partial file.
+    expect(hasFinishedFile(dl(4, { status: 'failed' }))).toBe(false);
+    expect(hasFinishedFile(dl(5, { status: 'downloading' }))).toBe(false);
+  });
+
+  it('offer deleting the file, and are not "unfinished" while only the checking is stopped', () => {
+    const info = bulkInfo([dl(1, { status: 'verifying' }), dl(2, { status: 'failed', verify_failed: true })]);
+    expect(info.withFile).toBe(2);
+    expect(info.unfinished).toBe(0);
+    expect(info.archivable).toBe(1); // only the failed one: a verification in progress is not over
   });
 });
 

@@ -2,6 +2,14 @@
 import type { Download } from '../api/types';
 
 const FINISHED = new Set(['completed', 'failed', 'cancelled']);
+/** Not there yet: deleting them stops the transfer, and the partial file goes. (A download that is
+ *  being verified has its whole file.) */
+const TRANSFERRING = new Set(['queued', 'downloading', 'paused']);
+
+/** Has a finished file on the disk: completed, being verified, or failed its verification. */
+export function hasFinishedFile(d: Download): boolean {
+  return d.status === 'completed' || d.status === 'verifying' || (d.status === 'failed' && d.verify_failed === true);
+}
 
 export interface BulkInfo {
   /** Selected downloads. */
@@ -12,7 +20,7 @@ export interface BulkInfo {
   archived: number;
   /** Not finished (queued, running, paused): deleting them stops them first. */
   unfinished: number;
-  /** Completed: the ones that have a file on the disk. */
+  /** The ones that have a finished file on the disk (completed, verifying, failed verification). */
   withFile: number;
 }
 
@@ -21,8 +29,8 @@ export function bulkInfo(items: readonly Download[]): BulkInfo {
   for (const d of items) {
     if (d.archived) info.archived++;
     else if (FINISHED.has(d.status)) info.archivable++;
-    if (!FINISHED.has(d.status)) info.unfinished++;
-    if (d.status === 'completed') info.withFile++;
+    if (TRANSFERRING.has(d.status)) info.unfinished++;
+    if (hasFinishedFile(d)) info.withFile++;
   }
   return info;
 }
