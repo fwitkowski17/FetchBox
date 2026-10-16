@@ -7,7 +7,7 @@
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "0.8.0"
+    "version": "0.8.1"
   },
   "paths": {
     "/api/auth/login": {
@@ -2709,7 +2709,7 @@
           },
           "current": {
             "type": "string",
-            "description": "Version of this program (`0.8.0`)."
+            "description": "Version of this program (`0.8.1`)."
           },
           "enabled": {
             "type": "boolean",

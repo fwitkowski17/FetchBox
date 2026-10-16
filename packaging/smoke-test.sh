@@ -43,13 +43,24 @@ getent passwd fetchbox >/dev/null || fail "no user fetchbox"
 [ "$(stat -c '%U %a' /var/lib/fetchbox)" = "fetchbox 750" ] || fail "/var/lib/fetchbox is '$(stat -c '%U %a' /var/lib/fetchbox)', expected 'fetchbox 750'"
 ok "user fetchbox and /var/lib/fetchbox in place"
 
+# Makes sure a command the test needs exists, installing the package that has it: a minimal
+# container image may lack it (the Fedora one has no runuser).
+need() {
+  command -v "$1" >/dev/null && return 0
+  case "$pkg" in
+    *.deb) apt-get install -y -qq "$2" >/dev/null ;;
+    *) dnf install -y -q "$2" >/dev/null ;;
+  esac
+  command -v "$1" >/dev/null || fail "$1 is not available, and installing $2 did not help"
+}
+
+# What --run needs. Checked every time, so that the CI, which cannot run its stub program, still
+# proves that these tools can be had on each system.
+need curl curl
+need runuser util-linux
+ok "curl and runuser are available"
+
 if [ "$run" = "--run" ]; then
-  command -v curl >/dev/null || {
-    case "$pkg" in
-      *.deb) apt-get install -y -qq curl >/dev/null ;;
-      *) dnf install -y -q curl >/dev/null ;;
-    esac
-  }
   # The same settings the unit gives the service, on another port.
   runuser -u fetchbox -- env FETCHBOX_DATA_DIR=/var/lib/fetchbox FETCHBOX_DOWNLOAD_DIR=/var/lib/fetchbox/downloads \
     FETCHBOX_PORT=18080 fetchbox >/tmp/fetchbox-smoke.log 2>&1 &
