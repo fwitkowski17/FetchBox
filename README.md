@@ -26,7 +26,8 @@ Planned: BitTorrent (magnet links and `.torrent` files). Status: usable, version
 | --- | --- | --- |
 | [Docker Compose](#docker-compose) | any machine with Docker | builds the image from this repository |
 | [Proxmox LXC](#proxmox-lxc) | a Proxmox VE host | one command, optional host folder for the downloads |
-| [Release binary](#release-binary) | any Linux box | one file, run it yourself or under systemd |
+| [Linux host (systemd)](#linux-host-systemd) | any Linux box with systemd | one command: installs the binary as a service |
+| [Release binary](#release-binary) | any Linux box | one file, run it yourself |
 | [From source](#from-source) | development | Rust and Node.js |
 
 ### Docker Compose
@@ -55,6 +56,32 @@ bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 
 It creates a small Debian 13 container, installs the prebuilt binary from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
 
+### Linux host (systemd)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fwitkowski17/WebDownloadManager/main/deploy/install.sh | sudo bash
+```
+
+The script downloads the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) for your CPU (x86_64 or aarch64), checks its checksum, creates a `fetchbox` user, writes `/etc/systemd/system/fetchbox.service`, starts the service and prints the address and the one-time setup code. Nothing is compiled. Options go after `bash -s --`, for example `... | sudo bash -s -- install --port 9000 --download-dir /mnt/nas/downloads`; `--user NAME` runs the service as an existing user (the owner of a NAS folder) and `--version X.Y.Z` picks a release.
+
+| What | Where |
+| --- | --- |
+| program | `/usr/local/bin/fetchbox` |
+| settings (`FETCHBOX_PASSWORD`, `FETCHBOX_LOG_ACTIVITY`...) | `/etc/fetchbox/fetchbox.env`, then `systemctl restart fetchbox` |
+| database | `/var/lib/fetchbox` |
+| downloads | `/var/lib/fetchbox/downloads` unless `--download-dir` says otherwise |
+| logs | `journalctl -u fetchbox -f` |
+
+Download the script first (`curl -fsSLO .../deploy/install.sh`) if you want to read it before running it. Later:
+
+```bash
+sudo ./install.sh update               # new program, the same database, settings and unit
+sudo ./install.sh uninstall            # removes the service and the program, keeps data and downloads
+sudo ./install.sh uninstall --purge    # also the database, the settings and the service user (never the downloads)
+```
+
+It needs root, systemd, `curl` or `wget`, `tar` and `sha256sum`; `./install.sh help` lists everything.
+
 ### Release binary
 
 Download `fetchbox-linux-x86_64.tar.gz` (or `-aarch64`) from the [Releases](https://github.com/fwitkowski17/WebDownloadManager/releases) page, unpack it and run:
@@ -63,7 +90,7 @@ Download `fetchbox-linux-x86_64.tar.gz` (or `-aarch64`) from the [Releases](http
 ./fetchbox --data-dir ./data --download-dir ./downloads --port 8080
 ```
 
-The web app is inside the binary. It needs Debian 12 or newer, Ubuntu 22.04 or newer, or another Linux with a glibc that old. The container installer above contains a ready-made systemd unit you can copy ([`install/fetchbox-install.sh`](deploy/proxmox/install/fetchbox-install.sh)).
+The web app is inside the binary. It needs Debian 12 or newer, Ubuntu 22.04 or newer, or another Linux with a glibc that old. To keep it running, use the installer above (it writes the systemd unit for you).
 
 ### From source
 
@@ -161,6 +188,7 @@ The interface is translated without a library, and a new language is one file an
 | [docs/SPEC.md](docs/SPEC.md) | the specification: architecture and every design decision |
 | [docs/openapi.json](docs/openapi.json) | the HTTP API (OpenAPI 3.1), also served at `/api/openapi.json` |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how to develop, test, translate and release |
+| [deploy/install.sh](deploy/install.sh) | the installer for a Linux host with systemd |
 | [deploy/proxmox/README.md](deploy/proxmox/README.md) | the Proxmox LXC installer |
 
 ## Contributing

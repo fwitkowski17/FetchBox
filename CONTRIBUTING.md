@@ -53,6 +53,7 @@ crates/
   api/             axum routes, SSE, authentication, the OpenAPI document
   server/          the binary `fetchbox`: wires everything, the download manager, update check, embedded frontend, CLI
 web/               Svelte 5 + Vite + TypeScript frontend, embedded into the binary at build time
+deploy/install.sh  installer for a Linux host with systemd (run `shellcheck` on it)
 deploy/proxmox/    the Proxmox LXC installer
 docs/              SPEC.md and the generated openapi.json
 scripts/           build.sh, gen-api.sh
