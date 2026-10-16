@@ -52,3 +52,26 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  # The DEB and RPM packaging (packaging/) and the shell scripts. The packages are made around a stub
+  # program, so this stays fast: it checks the package description, the maintainer scripts and what
+  # an installation leaves behind. The real binary is tested in the release workflow.
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell scripts pass shellcheck
+        run: shellcheck -e SC1090 -e SC1091 deploy/install.sh deploy/proxmox/ct/*.sh deploy/proxmox/install/*.sh packaging/*.sh packaging/scripts/*.sh
+      - uses: ./.github/actions/setup-nfpm
+      - name: Build the packages around a stub program
+        run: |
+          set -euo pipefail
+          printf '#!/bin/sh\necho "fetchbox 0.0.0-ci"\n' > stub
+          chmod +x stub
+          packaging/build.sh 0.0.0-ci amd64 stub out
+          packaging/build.sh 0.0.0-ci arm64 stub out
+          ls -l out
+      - name: Install and remove the DEB on Debian 12
+        run: docker run --rm -v "$PWD:/w" -w /w debian:12 packaging/smoke-test.sh out/fetchbox_0.0.0-ci_amd64.deb 0.0.0-ci
+      - name: Install and remove the RPM on Fedora
+        run: docker run --rm -v "$PWD:/w" -w /w fedora:latest packaging/smoke-test.sh out/fetchbox-0.0.0-ci-1.x86_64.rpm 0.0.0-ci

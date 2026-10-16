@@ -581,9 +581,16 @@ impl Manager {
                 segments: segs,
             } => {
                 let pairs: Vec<(u32, u64)> = segs.iter().map(|s| (s.idx, s.downloaded)).collect();
+                // What is stored is what is safe on the disk (the segments); the screen gets what
+                // has been received so far. A plain stream has no segments and is stored as is.
+                let stored = if segs.is_empty() {
+                    downloaded
+                } else {
+                    segs.iter().map(|s| s.downloaded).sum()
+                };
                 let ms = self.active_lap(id);
                 let r = self.with_db(|c| {
-                    downloads::set_downloaded(c, id, downloaded)?;
+                    downloads::set_downloaded(c, id, stored)?;
                     stats::add_active_ms(c, id, ms)?;
                     segments::update_offsets(c, id, &pairs)
                 });

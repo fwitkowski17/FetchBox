@@ -29,8 +29,10 @@ pub struct SegmentSpec {
 
 /// Download one segment into the (already existing) `.part` file.
 ///
-/// `done` counts bytes durably written; it is only advanced *after* a write completes,
-/// so after an abort it is always a safe resume point. Retries continue from `done`.
+/// `done` counts bytes the operating system has accepted: it is only advanced *after* a write
+/// has completed (not merely been buffered), so after an abort or a kill it is a safe resume
+/// point for the process. Making those bytes survive a power cut is the engine's checkpoint
+/// (`sync`). Retries continue from `done`.
 pub async fn run(
     client: &Client,
     url: &Url,
@@ -133,6 +135,9 @@ async fn fetch(
         let n = chunk.len() as u64;
         limiter.acquire(n).await;
         file.write_all(&chunk).await?;
+        // tokio's file hands the data to a blocking task and returns at once; wait for that
+        // write, so that `done` never counts bytes that a killed process would still lose.
+        file.flush().await?;
         done.fetch_add(n, Ordering::Relaxed);
         received += n;
     }

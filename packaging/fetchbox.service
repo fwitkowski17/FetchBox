@@ -1,0 +1,33 @@
+[Unit]
+Description=FetchBox download manager
+Documentation=https://github.com/fwitkowski17/WebDownloadManager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fetchbox
+Group=fetchbox
+WorkingDirectory=/var/lib/fetchbox
+# Defaults; /etc/fetchbox/fetchbox.env overrides them (FETCHBOX_PORT, FETCHBOX_DOWNLOAD_DIR, ...).
+Environment=FETCHBOX_DATA_DIR=/var/lib/fetchbox
+Environment=FETCHBOX_DOWNLOAD_DIR=/var/lib/fetchbox/downloads
+EnvironmentFile=-/etc/fetchbox/fetchbox.env
+ExecStart=/usr/bin/fetchbox
+Restart=on-failure
+RestartSec=3
+
+# /usr, /boot and /etc are read-only for the service. The rest of the file system is left writable
+# on purpose: the download folder can be anywhere (/mnt/nas, /home/...).
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

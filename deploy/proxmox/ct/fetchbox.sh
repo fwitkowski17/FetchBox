@@ -30,13 +30,56 @@ color
 catch_errors
 
 FB_REPO="fwitkowski17/WebDownloadManager"
-FB_DIR="/opt/fetchbox"
+FB_LEGACY_DIR="/opt/fetchbox" # where the first versions of this installer put the program
 FB_UID=1000 # the user the service runs as, inside the container (the install script creates it)
 FB_DOWNLOADS="/downloads"
 
-# The archive on the GitHub release that holds the program (built by .github/workflows/release.yml).
-function fetchbox_asset() {
-  echo "fetchbox-linux-$(arch_resolve x86_64 aarch64).tar.gz"
+# The CPU in the name of the package on the GitHub release (built by .github/workflows/release.yml).
+function fetchbox_deb_arch() {
+  arch_resolve amd64 arm64
+}
+
+# The latest release: its version (without the "v") and the address of the .deb for this CPU.
+# Sets FB_LATEST and FB_DEB_URL; returns 1 when there is no such release.
+function fetchbox_latest() {
+  local json
+  json="$(curl -fsSL -m 30 "https://api.github.com/repos/${FB_REPO}/releases/latest" 2>/dev/null)" || return 1
+  FB_LATEST="$(grep -o '"tag_name": *"[^"]*"' <<<"$json" | head -n1 | sed 's/.*: *"v\{0,1\}\(.*\)"/\1/')"
+  FB_DEB_URL="$(grep -o "\"browser_download_url\": *\"[^\"]*_$(fetchbox_deb_arch)\.deb\"" <<<"$json" | head -n1 | sed 's/.*: *"\(.*\)"/\1/')"
+  [[ -n "$FB_LATEST" && -n "$FB_DEB_URL" ]]
+}
+
+# Download FB_DEB_URL, check it against its .sha256 and install it (an upgrade when FetchBox is
+# there). The settings in /etc/fetchbox/fetchbox.env are kept; the package restarts a running service.
+function fetchbox_install_deb() {
+  local dir file
+  dir="$(mktemp -d)"
+  file="${dir}/$(basename "$FB_DEB_URL")"
+  curl -fsSL -o "$file" "$FB_DEB_URL"
+  curl -fsSL -o "${file}.sha256" "${FB_DEB_URL}.sha256"
+  (cd "$dir" && sha256sum --check --status "$(basename "$file").sha256")
+  $STD apt-get install -y -o Dpkg::Options::=--force-confold "$file"
+  rm -rf "$dir"
+}
+
+# The first versions of this installer put the program in /opt/fetchbox with its own unit. Move it
+# to the package: data and settings are carried over, the downloads (/downloads) are not touched.
+function fetchbox_migrate_legacy() {
+  systemctl stop fetchbox
+  install -d -m 0750 -o fetchbox -g fetchbox /var/lib/fetchbox
+  if [[ -d "${FB_LEGACY_DIR}/data" ]]; then
+    cp -a "${FB_LEGACY_DIR}/data/." /var/lib/fetchbox/
+    chown -R fetchbox:fetchbox /var/lib/fetchbox
+  fi
+  install -d /etc/fetchbox
+  [[ -f "${FB_LEGACY_DIR}/fetchbox.env" ]] && cp -a "${FB_LEGACY_DIR}/fetchbox.env" /etc/fetchbox/fetchbox.env
+  install -d /etc/systemd/system/fetchbox.service.d
+  printf '[Service]\nEnvironment=FETCHBOX_DOWNLOAD_DIR=%s\n' "$FB_DOWNLOADS" >/etc/systemd/system/fetchbox.service.d/10-downloads.conf
+  rm -f /etc/systemd/system/fetchbox.service
+  systemctl daemon-reload
+  fetchbox_install_deb
+  # The old copy goes last: until the package is installed it is the way back.
+  rm -rf "$FB_LEGACY_DIR"
 }
 
 # ------------------------------------------------------------------------------
@@ -47,36 +90,42 @@ function update_script() {
   header_info
   check_container_storage
   check_container_resources
-  if [[ ! -x "${FB_DIR}/fetchbox" ]]; then
+  local installed=""
+  installed="$(dpkg-query -W -f='${Version}' fetchbox 2>/dev/null || true)"
+  if [[ -z "$installed" && ! -x "${FB_LEGACY_DIR}/fetchbox" ]]; then
     msg_error "No ${APP} Installation Found!"
     exit
   fi
-  if check_for_gh_release "fetchbox" "${FB_REPO}"; then
-    msg_info "Stopping Service"
-    systemctl stop fetchbox
-    msg_ok "Stopped Service"
-
-    # Only the binary is replaced: the database (${FB_DIR}/data), the settings (fetchbox.env) and
-    # the downloads are not touched.
-    fetch_and_deploy_gh_release "fetchbox" "${FB_REPO}" "prebuild" "latest" "${FB_DIR}" "$(fetchbox_asset)"
-    chmod 0755 "${FB_DIR}/fetchbox"
-
-    msg_info "Starting Service"
-    systemctl start fetchbox
-    msg_ok "Started Service"
-    msg_ok "Updated successfully!"
+  if ! fetchbox_latest; then
+    msg_error "Could not find the latest ${APP} release (with a .deb for $(fetchbox_deb_arch)): https://github.com/${FB_REPO}/releases"
+    exit
   fi
+  if [[ -n "$installed" && "$installed" == "$FB_LATEST" ]]; then
+    msg_ok "No update required. ${APP} is already at ${FB_LATEST}"
+    exit
+  fi
+
+  if [[ -z "$installed" ]]; then
+    msg_info "Moving ${APP} from ${FB_LEGACY_DIR} to the package (${FB_LATEST})"
+    fetchbox_migrate_legacy
+    msg_ok "Moved ${APP} to the package"
+  else
+    # Only the program is replaced: the database (/var/lib/fetchbox), the settings
+    # (/etc/fetchbox/fetchbox.env) and the downloads are not touched. The package's own script
+    # restarts the service.
+    msg_info "Updating ${APP} ${installed} -> ${FB_LATEST}"
+    fetchbox_install_deb
+    msg_ok "Updated ${APP}"
+  fi
+  msg_ok "Updated successfully!"
   exit
 }
 
-# Before a container is made: is there a release with a program for this CPU? (The installer takes
+# Before a container is made: is there a release with a package for this CPU? (The installer takes
 # the program from there; without it the container would be created and then fail.)
 function check_release() {
-  local asset
-  asset="$(fetchbox_asset)" || exit 1
-  if ! curl -fsSL -m 20 "https://api.github.com/repos/${FB_REPO}/releases/latest" 2>/dev/null |
-    grep -q "\"name\": *\"${asset}\""; then
-    msg_error "No ${APP} release with ${asset} has been published yet: https://github.com/${FB_REPO}/releases"
+  if ! fetchbox_latest; then
+    msg_error "No ${APP} release with a .deb for $(fetchbox_deb_arch) has been published yet: https://github.com/${FB_REPO}/releases"
     exit 1
   fi
 }

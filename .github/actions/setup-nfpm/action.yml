@@ -1,0 +1,18 @@
+name: Set up nfpm
+description: Installs the nfpm packager (DEB and RPM from one description), pinned and checked against its checksum.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NFPM_VERSION: "2.43.0"
+        # SHA-256 of nfpm_<version>_Linux_x86_64.tar.gz (all jobs run on x86_64; the packages for
+        # other CPUs are only assembled, nothing of them is executed).
+        NFPM_SHA256: "a80d5f724ed70b192ffa8a2bde469c013cef559c8afa3441eb51dd9a918beb6b"
+      run: |
+        set -euo pipefail
+        archive="nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+        curl -fsSL --retry 3 -o "${RUNNER_TEMP}/${archive}" "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/${archive}"
+        echo "${NFPM_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum --check --status
+        sudo tar -xzf "${RUNNER_TEMP}/${archive}" -C /usr/local/bin nfpm
+        nfpm --version | head -n 1 || true

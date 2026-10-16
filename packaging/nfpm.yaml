@@ -1,0 +1,53 @@
+# DEB and RPM packages of the release binary, built by .github/workflows/release.yml (and checked by
+# ci.yml). The environment supplies VERSION (0.6.1, 0.7.0-rc.1), ARCH (amd64 | arm64) and BINARY
+# (the path of the release binary for that architecture).
+name: fetchbox
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: net
+priority: optional
+maintainer: fwitkowski17 <fwitkowski17@users.noreply.github.com>
+description: |-
+  Self-hosted download manager with a web interface.
+  One program that downloads in segments, pauses and resumes, sorts files into categories and limits
+  speed, controlled from a browser (the web app is inside the binary). Runs as a systemd service.
+vendor: fwitkowski17
+homepage: https://github.com/fwitkowski17/WebDownloadManager
+license: MIT
+
+# The binary is built on Debian 12 (glibc 2.36), which is the oldest system it runs on.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.36)
+  rpm:
+    depends:
+      - glibc >= 2.36
+
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/fetchbox
+    expand: true
+    file_info:
+      mode: 0755
+  - src: packaging/fetchbox.service
+    dst: /usr/lib/systemd/system/fetchbox.service
+    file_info:
+      mode: 0644
+  # Edited by the administrator; an upgrade keeps their version.
+  - src: packaging/fetchbox.env
+    dst: /etc/fetchbox/fetchbox.env
+    type: config|noreplace
+    file_info:
+      mode: 0600
+  - src: LICENSE
+    dst: /usr/share/doc/fetchbox/copyright
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: packaging/scripts/postinstall.sh
+  preremove: packaging/scripts/preremove.sh
+  postremove: packaging/scripts/postremove.sh

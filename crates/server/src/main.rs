@@ -23,17 +23,17 @@ use fetchbox_api::auth::MIN_PASSWORD_LEN;
 #[command(name = "fetchbox", version, about)]
 struct Args {
     /// Directory for the SQLite database.
-    #[arg(long, default_value = "./data")]
+    #[arg(long, env = "FETCHBOX_DATA_DIR", default_value = "./data")]
     data_dir: PathBuf,
     /// Directory where downloaded files are stored.
-    #[arg(long, default_value = "./downloads")]
+    #[arg(long, env = "FETCHBOX_DOWNLOAD_DIR", default_value = "./downloads")]
     download_dir: PathBuf,
     /// Log what happens to downloads and settings (added, paused, finished, removed with the
     /// average speed, settings changes, download hours, sign-ins). Warnings and errors are always logged.
     #[arg(long, env = "FETCHBOX_LOG_ACTIVITY")]
     log_activity: bool,
     /// TCP port to listen on.
-    #[arg(long, default_value_t = 8080)]
+    #[arg(long, env = "FETCHBOX_PORT", default_value_t = 8080)]
     port: u16,
     /// Read the login password from this file (e.g. a Docker secret).
     /// Without it the `FETCHBOX_PASSWORD` environment variable is used.
@@ -45,7 +45,7 @@ struct Args {
     /// Refuse downloads from private, loopback and link-local addresses (SSRF protection).
     /// Enable it when the manager is reachable from outside your network. Off by default,
     /// because fetching from a NAS or another host in the LAN is a normal use.
-    #[arg(long)]
+    #[arg(long, env = "FETCHBOX_BLOCK_PRIVATE_URLS")]
     block_private_urls: bool,
     /// Run without authentication. Anyone who can reach the port can use the manager.
     #[arg(long)]
