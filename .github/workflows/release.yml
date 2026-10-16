@@ -1,0 +1,114 @@
+name: Release
+
+# Push a tag `v<version>` (the version in Cargo.toml, e.g. v0.6.1) and this builds the web UI and the
+# binary for x86_64 and aarch64 Linux, then publishes a GitHub Release with the archives attached.
+# The Proxmox installer (deploy/proxmox) and the update check in the app both read that release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The app compares the release tag with its own version to say "an update is available", so a
+      # tag that differs from the version inside the binary would be a lie.
+      - name: Compare the tag with the workspace version
+        run: |
+          version="$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml | head -n1)"
+          echo "Cargo.toml: ${version}, tag: ${GITHUB_REF_NAME}"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not match version ${version} in Cargo.toml"
+            exit 1
+          fi
+
+  web:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+  binary:
+    name: Binary (${{ matrix.arch }})
+    needs: web
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # Built on Debian 12 (glibc 2.36) on purpose, although the Docker image and the Proxmox
+    # container are on Debian 13: a binary needs at least the glibc it was linked against, so the
+    # older builder gives a binary that runs on Debian 12 and 13, Ubuntu 22.04 and newer and
+    # Raspberry Pi OS. Nothing from the builder ends up in the binary or is patched later (the libc
+    # is the one of the machine it runs on), so "oldstable" costs nothing here. Move to
+    # `rust:1-trixie` when Debian 12 no longer needs to be supported: the floor becomes glibc 2.41.
+    container: rust:1-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - run: cargo build --release --locked -p server
+      - name: Package
+        run: |
+          mkdir -p out
+          # The archive holds just the binary, at its top level; the web UI is inside it.
+          tar -C target/release -czf "out/fetchbox-linux-${{ matrix.arch }}.tar.gz" fetchbox
+          (cd out && sha256sum "fetchbox-linux-${{ matrix.arch }}.tar.gz" > "fetchbox-linux-${{ matrix.arch }}.tar.gz.sha256")
+          ./target/release/fetchbox --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.arch }}
+          path: out/*
+
+  release:
+    needs: binary
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: out
+      - name: Publish the release
+        run: |
+          ls -l out
+          prerelease=""
+          # A tag like v0.7.0-rc.1 is a pre-release: the update check in the app skips those.
+          case "${GITHUB_REF_NAME}" in *-*) prerelease="--prerelease" ;; esac
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            # The release was made by hand first (the web page): only add the files.
+            gh release upload "${GITHUB_REF_NAME}" out/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" out/* --verify-tag --title "${GITHUB_REF_NAME}" --generate-notes ${prerelease}
+          fi

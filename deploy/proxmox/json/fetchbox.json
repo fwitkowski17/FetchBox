@@ -1,0 +1,46 @@
+{
+  "name": "FetchBox",
+  "slug": "fetchbox",
+  "categories": [11],
+  "date_created": "2026-10-15",
+  "type": "ct",
+  "updateable": true,
+  "privileged": false,
+  "interface_port": 8080,
+  "documentation": "https://github.com/fwitkowski17/WebDownloadManager/blob/main/deploy/proxmox/README.md",
+  "website": "https://github.com/fwitkowski17/WebDownloadManager",
+  "logo": null,
+  "config_path": "/opt/fetchbox/fetchbox.env",
+  "description": "Self-hosted download manager with a web interface for desktop and phone: segmented downloads with pause and resume, a queue, speed limits, file categories and statistics. One small binary, no database server.",
+  "install_methods": [
+    {
+      "type": "default",
+      "script": "ct/fetchbox.sh",
+      "resources": {
+        "cpu": 1,
+        "ram": 512,
+        "hdd": 8,
+        "os": "debian",
+        "version": "13"
+      }
+    }
+  ],
+  "default_credentials": {
+    "username": null,
+    "password": null
+  },
+  "notes": [
+    {
+      "text": "On first run the web interface asks for a setup code: it is printed at the end of the installation, or run `journalctl -u fetchbox | grep 'setup code'` in the container.",
+      "type": "info"
+    },
+    {
+      "text": "To keep downloads on the host (a big disk or a NAS share), set `var_downloads_dir=/path/on/the/host` when running the script, or enter it when asked.",
+      "type": "info"
+    },
+    {
+      "text": "The installer takes the program from the GitHub release of the repository (fetchbox-linux-<arch>.tar.gz), so a release with binaries must have been published.",
+      "type": "warning"
+    }
+  ]
+}

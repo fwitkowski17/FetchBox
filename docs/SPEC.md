@@ -492,8 +492,13 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   restart or `docker compose up` brings back the image's version, so a self-replaced binary would not survive; updating the
   container from inside would also need access to the Docker socket, which is root on the host. A user who wants unattended
   updates can run an updater such as Watchtower with a published image; that is outside the app.
-- A release is made by publishing a GitHub Release whose tag is `v<version>` (for example `v0.6.1`); that is what the check
-  finds. Raising the version means changing `Cargo.toml` (and `web/package.json`) first.
+- A release is made by pushing the tag `v<version>` (for example `v0.6.1`): `.github/workflows/release.yml` checks that the tag
+  equals the workspace version, builds the web UI and the binary for x86_64 and aarch64 Linux (in a Debian 12 container on purpose: the glibc
+  it is linked against is the oldest it runs on, so it runs on Debian 12+ and Ubuntu 22.04+; the Docker image and the Proxmox
+  container are Debian 13) and publishes a GitHub Release with `fetchbox-linux-<arch>.tar.gz` (just the binary,
+  the web UI is inside it) and a `.sha256` file for each, with generated notes; a tag with a dash is a pre-release. That
+  release is what the update check finds and what the Proxmox installer (`deploy/proxmox`) installs and updates from; nothing
+  is compiled on the user's machine. Raising the version means changing `Cargo.toml` (and `web/package.json`) first.
 
 ## 7. Dependencies (Rust)
 
