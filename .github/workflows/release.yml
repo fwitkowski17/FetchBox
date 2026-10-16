@@ -8,6 +8,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Started by tag.yml for the tag it has just made (a tag pushed with the workflow token does not
+  # start workflows by itself), and by hand: run it on the tag's ref, not on a branch.
+  workflow_dispatch:
 
 permissions:
   contents: write
