@@ -254,6 +254,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look at a URL without adding it: the file name, size, range support and category the server
+         *     and the file name suggest. The same checks as an add apply (private addresses can be refused).
+         *     A `POST` so that the address, which may carry a token, stays out of access logs.
+         */
+        post: operations["probe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings": {
         parameters: {
             query?: never;
@@ -290,6 +311,43 @@ export interface paths {
         get: operations["stats"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The running version and, unless update checks are switched off in the settings, whether a newer
+         *     release has been published on GitHub (looked up at most every six hours and kept meanwhile).
+         */
+        get: operations["version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/version/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Look for a newer release now instead of using the kept answer (not more often than every 30 seconds). */
+        post: operations["check_version"];
         delete?: never;
         options?: never;
         head?: never;
@@ -511,6 +569,21 @@ export interface components {
              */
             size: number;
         };
+        /** @description One item of a directory index page. */
+        ListingEntry: {
+            /** @description What the file name says it is (`Other` for a directory). */
+            category: components["schemas"]["Category"];
+            is_dir: boolean;
+            /** @description Name as shown on the page (decoded), without a trailing slash. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Size in bytes when the page shows one.
+             */
+            size?: number | null;
+            /** @description Absolute address; a file is added with it, a directory is opened with it. */
+            url: string;
+        };
         /** @description Too many failed logins. */
         LockedBody: {
             error: string;
@@ -534,6 +607,19 @@ export interface components {
          * @enum {string}
          */
         OnConflict: "reject" | "rename" | "overwrite";
+        /** @description Request to look at a URL before adding it. */
+        ProbeRequest: {
+            url: string;
+        };
+        /** @description What a release changed, as its author wrote it on GitHub (Markdown). */
+        ReleaseNote: {
+            /** @description The description of the release (Markdown, shortened when very long). Show it as text. */
+            body: string;
+            /** @description Page of the release. */
+            url: string;
+            /** @description Version without a leading `v`. */
+            version: string;
+        };
         /** @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. */
         Settings: {
             /**
@@ -541,6 +627,11 @@ export interface components {
              *     Existing downloads keep the directory they were created with.
              */
             category_subdirs?: boolean;
+            /**
+             * @description Ask GitHub now and then whether a newer release exists (`GET /api/version`). Nothing is
+             *     sent but the request itself (address of the server, program name and version).
+             */
+            check_updates?: boolean;
             /**
              * Format: int32
              * @description Connections (segments) per download.
@@ -679,6 +770,52 @@ export interface components {
              *     failed downloads (`409` otherwise). Applied live to a running download.
              */
             speed_limit?: number | null;
+        };
+        /** @description What the remote server says about a URL: what an add request would work with. */
+        UrlInfo: {
+            /** @description Category the download would get when none is chosen. */
+            category: components["schemas"]["Category"];
+            /** @description For a listing: the directories first, then the files, each group in page order. Empty for a file. */
+            entries: components["schemas"]["ListingEntry"][];
+            /** @description The (sanitized) file name the download would get. */
+            filename: string;
+            kind: components["schemas"]["UrlKind"];
+            /** @description The server honours `Range`, so the download can be paused and resumed. */
+            resumable: boolean;
+            /**
+             * Format: int64
+             * @description Size in bytes; `None` when the server does not tell.
+             */
+            size?: number | null;
+            /** @description The page had more items than are returned. */
+            truncated: boolean;
+        };
+        /**
+         * @description What a URL turned out to be.
+         * @enum {string}
+         */
+        UrlKind: "file" | "listing";
+        /** @description The version of the running program and what is known about newer ones. */
+        VersionInfo: {
+            /** @description The last attempt did not get an answer (offline, rate limited, ...). */
+            check_failed: boolean;
+            /**
+             * Format: int64
+             * @description When the answer was obtained (unix seconds); `None` if no check has succeeded yet.
+             */
+            checked_at?: number | null;
+            /** @description Version of this program (`0.6.1`). */
+            current: string;
+            /** @description Update checks are switched on (`Settings::check_updates`). When off, nothing else is set. */
+            enabled: boolean;
+            /** @description Version of the newest published release, without a leading `v`. */
+            latest?: string | null;
+            /** @description What changed in every release newer than `current`, newest first (at most ten). */
+            notes: components["schemas"]["ReleaseNote"][];
+            /** @description Page of the newest release. */
+            release_url?: string | null;
+            /** @description `latest` is newer than `current`. */
+            update_available: boolean;
         };
     };
     responses: never;
@@ -1330,6 +1467,56 @@ export interface operations {
             };
         };
     };
+    probe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProbeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UrlInfo"];
+                };
+            };
+            /** @description Not a usable http(s) URL */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The remote server could not be reached */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_settings: {
         parameters: {
             query?: never;
@@ -1422,6 +1609,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Stats"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionInfo"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    check_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionInfo"];
                 };
             };
             /** @description Not logged in */

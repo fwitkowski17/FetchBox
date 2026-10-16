@@ -414,7 +414,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fetchbox-api"
-version = "0.1.0"
+version = "0.6.1"
 dependencies = [
  "argon2",
  "async-trait",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "fetchbox-core"
-version = "0.1.0"
+version = "0.6.1"
 dependencies = [
  "async-trait",
  "serde",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "fetchbox-http-engine"
-version = "0.1.0"
+version = "0.6.1"
 dependencies = [
  "async-trait",
  "fetchbox-core",
@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "fetchbox-storage"
-version = "0.1.0"
+version = "0.6.1"
 dependencies = [
  "fetchbox-core",
  "rusqlite",
@@ -468,7 +468,7 @@ dependencies = [
 
 [[package]]
 name = "fetchbox-torrent-engine"
-version = "0.1.0"
+version = "0.6.1"
 
 [[package]]
 name = "find-msvc-tools"
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "async-trait",

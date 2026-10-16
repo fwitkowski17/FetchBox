@@ -199,6 +199,14 @@ pub struct Settings {
     /// Existing downloads keep the directory they were created with.
     #[serde(default)]
     pub category_subdirs: bool,
+    /// Ask GitHub now and then whether a newer release exists (`GET /api/version`). Nothing is
+    /// sent but the request itself (address of the server, program name and version).
+    #[serde(default = "default_check_updates")]
+    pub check_updates: bool,
+}
+
+fn default_check_updates() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -209,6 +217,7 @@ impl Default for Settings {
             speed_per_download: 0,
             speed_global: 0,
             category_subdirs: false,
+            check_updates: true,
         }
     }
 }
@@ -265,6 +274,92 @@ pub struct AddRequest {
     /// or deleted before it starts. If it still does not fit when it starts, it fails then.
     #[serde(default)]
     pub ignore_space: bool,
+}
+
+/// What a release changed, as its author wrote it on GitHub (Markdown).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ReleaseNote {
+    /// Version without a leading `v`.
+    pub version: String,
+    /// Page of the release.
+    pub url: String,
+    /// The description of the release (Markdown, shortened when very long). Show it as text.
+    pub body: String,
+}
+
+/// The version of the running program and what is known about newer ones.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct VersionInfo {
+    /// Version of this program (`0.6.1`).
+    pub current: String,
+    /// Update checks are switched on (`Settings::check_updates`). When off, nothing else is set.
+    pub enabled: bool,
+    /// Version of the newest published release, without a leading `v`.
+    pub latest: Option<String>,
+    /// `latest` is newer than `current`.
+    pub update_available: bool,
+    /// Page of the newest release.
+    pub release_url: Option<String>,
+    /// When the answer was obtained (unix seconds); `None` if no check has succeeded yet.
+    pub checked_at: Option<i64>,
+    /// The last attempt did not get an answer (offline, rate limited, ...).
+    pub check_failed: bool,
+    /// What changed in every release newer than `current`, newest first (at most ten).
+    pub notes: Vec<ReleaseNote>,
+}
+
+/// Request to look at a URL before adding it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProbeRequest {
+    pub url: String,
+}
+
+/// What a URL turned out to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum UrlKind {
+    /// A file (or anything that is not recognised as a listing): add it as it is.
+    File,
+    /// A directory index page; `entries` lists what is in it, to choose from.
+    Listing,
+}
+
+/// One item of a directory index page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListingEntry {
+    /// Name as shown on the page (decoded), without a trailing slash.
+    pub name: String,
+    /// Absolute address; a file is added with it, a directory is opened with it.
+    pub url: String,
+    /// Size in bytes when the page shows one.
+    pub size: Option<u64>,
+    pub is_dir: bool,
+    /// What the file name says it is (`Other` for a directory).
+    pub category: Category,
+}
+
+/// What the remote server says about a URL: what an add request would work with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UrlInfo {
+    pub kind: UrlKind,
+    /// The (sanitized) file name the download would get.
+    pub filename: String,
+    /// Size in bytes; `None` when the server does not tell.
+    pub size: Option<u64>,
+    /// The server honours `Range`, so the download can be paused and resumed.
+    pub resumable: bool,
+    /// Category the download would get when none is chosen.
+    pub category: Category,
+    /// For a listing: the directories first, then the files, each group in page order. Empty for a file.
+    pub entries: Vec<ListingEntry>,
+    /// The page had more items than are returned.
+    pub truncated: bool,
 }
 
 /// Why an add request collided with something.

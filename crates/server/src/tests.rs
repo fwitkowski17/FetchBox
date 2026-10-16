@@ -2298,3 +2298,239 @@ async fn the_stats_endpoint_answers_with_the_summary_and_checks_its_query() {
     let (status, _) = send(&c, reqwest::Method::GET, format!("{locked}/stats"), None).await;
     assert_eq!(status, 401);
 }
+
+#[tokio::test]
+async fn the_probe_endpoint_describes_a_url_without_adding_it() {
+    let h = Harness::new().await;
+    let api = spawn_api(&h).await;
+    let c = reqwest::Client::new();
+    let post = |url: String| format!(r#"{{"url":"{url}"}}"#);
+
+    let (status, v) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/probe"),
+        Some(&post(h.url("fast", "holiday.mkv"))),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["filename"], "holiday.mkv");
+    assert_eq!(v["size"], BODY_LEN as u64);
+    assert_eq!(v["category"], "video");
+    assert!(v["resumable"].is_boolean());
+    assert!(
+        h.mgr.list().await.expect("list").is_empty(),
+        "nothing is added"
+    );
+
+    let (status, _) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/probe"),
+        Some(r#"{"url":"ftp://example.com/a.bin"}"#),
+    )
+    .await;
+    assert_eq!(status, 400);
+
+    let locked = spawn_api_with(
+        &h,
+        fetchbox_api::Auth::with_password("correct-horse".to_owned()),
+    )
+    .await;
+    let (status, _) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{locked}/probe"),
+        Some(&post(h.url("fast", "a.bin"))),
+    )
+    .await;
+    assert_eq!(status, 401);
+}
+
+#[tokio::test]
+async fn the_probe_follows_the_private_url_policy() {
+    let h = Harness::with_policy(fetchbox_http_engine::UrlPolicy {
+        block_private: true,
+    })
+    .await;
+    let r = h.mgr.probe(&h.url("fast", "a.bin")).await;
+    assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
+}
+
+/// A server with a directory index at `/pub/` and an ordinary HTML page at `/blog`.
+async fn spawn_index_server() -> String {
+    use axum::http::header::CONTENT_TYPE;
+    use axum::routing::get;
+    const INDEX: &str = r#"<html><head><title>Index of /pub</title></head><body><h1>Index of /pub</h1><pre>
+<a href="../">../</a>
+<a href="sub/">sub/</a>        12-Jan-2024 10:00     -
+<a href="song.mp3">song.mp3</a>   12-Jan-2024 10:00  4096
+<a href="notes.txt">notes.txt</a>  12-Jan-2024 10:00  12
+</pre></body></html>"#;
+    let app = axum::Router::new()
+        .route(
+            "/pub/",
+            get(|| async { ([(CONTENT_TYPE, "text/html; charset=utf-8")], INDEX) }),
+        )
+        .route(
+            "/blog",
+            get(|| async {
+                (
+                    [(CONTENT_TYPE, "text/html")],
+                    "<title>A blog</title><a href=\"a.zip\">a</a>",
+                )
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{addr}")
+}
+
+#[tokio::test]
+async fn probing_a_directory_index_lists_what_is_in_it() {
+    let h = Harness::new().await;
+    let site = spawn_index_server().await;
+
+    let info = h.mgr.probe(&format!("{site}/pub/")).await.expect("probe");
+    assert_eq!(info.kind, fetchbox_core::UrlKind::Listing);
+    let names: Vec<_> = info
+        .entries
+        .iter()
+        .map(|e| (e.name.as_str(), e.is_dir, e.size))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("sub", true, None),
+            ("song.mp3", false, Some(4096)),
+            ("notes.txt", false, Some(12)),
+        ]
+    );
+    assert_eq!(info.entries[1].url, format!("{site}/pub/song.mp3"));
+    assert!(h.mgr.list().await.expect("list").is_empty());
+
+    // Any other page is just a file.
+    let page = h.mgr.probe(&format!("{site}/blog")).await.expect("probe");
+    assert_eq!(page.kind, fetchbox_core::UrlKind::File);
+    assert!(page.entries.is_empty());
+    let file = h.mgr.probe(&h.url("fast", "a.bin")).await.expect("probe");
+    assert_eq!(file.kind, fetchbox_core::UrlKind::File);
+}
+
+#[tokio::test]
+async fn the_private_url_policy_also_covers_reading_a_listing() {
+    let h = Harness::with_policy(fetchbox_http_engine::UrlPolicy {
+        block_private: true,
+    })
+    .await;
+    let site = spawn_index_server().await;
+    let r = h.mgr.probe(&format!("{site}/pub/")).await;
+    assert!(matches!(r, Err(Error::InvalidInput(_))), "{r:?}");
+}
+
+#[tokio::test]
+async fn the_version_endpoint_reports_a_newer_release_unless_checks_are_off() {
+    use axum::routing::get;
+    let release = axum::Router::new().route(
+        "/latest",
+        get(|| async {
+            r#"[{"tag_name":"v99.0.0","html_url":"https://github.com/o/r/releases/tag/v99.0.0","body":"- Faster"}]"#
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let source = format!("http://{}/latest", listener.local_addr().expect("addr"));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, release).await;
+    });
+
+    let dir = tempfile::tempdir().expect("tmp");
+    let db = fetchbox_storage::open_in_memory().expect("db");
+    let mgr = Manager::start_with(
+        db,
+        dir.path().to_owned(),
+        fetchbox_http_engine::UrlPolicy::default(),
+        Some(source),
+    )
+    .await
+    .expect("start");
+    let api = {
+        let app = fetchbox_api::router(mgr.clone(), fetchbox_api::Auth::disabled());
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = l.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(l, app).await;
+        });
+        format!("http://{addr}/api")
+    };
+    let c = reqwest::Client::new();
+
+    let (status, v) = send(&c, reqwest::Method::GET, format!("{api}/version"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["current"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["enabled"], true);
+    assert_eq!(v["latest"], "99.0.0");
+    assert_eq!(v["update_available"], true);
+    assert_eq!(
+        v["release_url"],
+        "https://github.com/o/r/releases/tag/v99.0.0"
+    );
+    assert_eq!(v["notes"][0]["version"], "99.0.0");
+    assert_eq!(v["notes"][0]["body"], "- Faster");
+    let (status, v) = send(
+        &c,
+        reqwest::Method::POST,
+        format!("{api}/version/check"),
+        None,
+    )
+    .await;
+    assert_eq!((status, v["update_available"].as_bool()), (200, Some(true)));
+
+    // Switched off in the settings: nothing is asked, nothing is reported.
+    let mut settings = mgr.settings().await.expect("settings");
+    assert!(settings.check_updates, "on by default");
+    settings.check_updates = false;
+    mgr.update_settings(settings).await.expect("save");
+    let (_, v) = send(&c, reqwest::Method::GET, format!("{api}/version"), None).await;
+    assert_eq!(v["enabled"], false);
+    assert_eq!(v["latest"], serde_json::Value::Null);
+    assert_eq!(v["update_available"], false);
+
+    // Signed-in users only.
+    let locked = {
+        let app = fetchbox_api::router(
+            mgr.clone(),
+            fetchbox_api::Auth::with_password("correct-horse".to_owned()),
+        );
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = l.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(l, app).await;
+        });
+        format!("http://{addr}/api")
+    };
+    let (status, _) = send(&c, reqwest::Method::GET, format!("{locked}/version"), None).await;
+    assert_eq!(status, 401);
+}
+
+#[test]
+fn update_checks_are_on_unless_switched_off() {
+    // A client that does not know the field (an older UI, a script) must not switch checks off.
+    let body = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0}"#;
+    let s: Settings = serde_json::from_str(body).expect("settings");
+    assert!(s.check_updates);
+    assert!(Settings::default().check_updates);
+    let off = r#"{"connections":4,"max_concurrent":3,"speed_per_download":0,"speed_global":0,"check_updates":false}"#;
+    let s: Settings = serde_json::from_str(off).expect("settings");
+    assert!(!s.check_updates);
+}

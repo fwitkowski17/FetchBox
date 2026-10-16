@@ -10,7 +10,8 @@ use axum::{
     Json, Router,
 };
 use fetchbox_core::{
-    AddRequest, Category, DiskSpace, Download, Error, Id, Settings, Stats, StatsRange,
+    AddRequest, Category, DiskSpace, Download, Error, Id, ProbeRequest, Settings, Stats,
+    StatsRange, UrlInfo, VersionInfo,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -33,6 +34,9 @@ pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
         .route("/downloads/{id}/resume", post(resume))
         .route("/downloads/{id}/cancel", post(cancel))
         .route("/settings", get(get_settings).put(put_settings))
+        .route("/probe", post(probe))
+        .route("/version", get(version))
+        .route("/version/check", post(check_version))
         .route("/disk", get(disk))
         .route("/stats", get(stats))
         .route("/events", get(sse::events))
@@ -125,6 +129,60 @@ pub(crate) async fn add(
     Json(req): Json<AddRequest>,
 ) -> ApiResult<(StatusCode, Json<Download>)> {
     Ok((StatusCode::CREATED, Json(svc.add(req).await?)))
+}
+
+/// Look at a URL without adding it: the file name, size, range support and category the server
+/// and the file name suggest. The same checks as an add apply (private addresses can be refused).
+/// A `POST` so that the address, which may carry a token, stays out of access logs.
+#[utoipa::path(
+    post,
+    path = "/api/probe",
+    tag = "downloads",
+    security(("session" = []), ("bearer" = [])),
+    request_body = ProbeRequest,
+    responses(
+        (status = 200, body = UrlInfo),
+        (status = 400, description = "Not a usable http(s) URL", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 502, description = "The remote server could not be reached", body = ErrorBody),
+    )
+)]
+pub(crate) async fn probe(
+    State(svc): Svc,
+    Json(req): Json<ProbeRequest>,
+) -> ApiResult<Json<UrlInfo>> {
+    Ok(Json(svc.probe(&req.url).await?))
+}
+
+/// The running version and, unless update checks are switched off in the settings, whether a newer
+/// release has been published on GitHub (looked up at most every six hours and kept meanwhile).
+#[utoipa::path(
+    get,
+    path = "/api/version",
+    tag = "system",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, body = VersionInfo),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+    )
+)]
+pub(crate) async fn version(State(svc): Svc) -> ApiResult<Json<VersionInfo>> {
+    Ok(Json(svc.version(false).await?))
+}
+
+/// Look for a newer release now instead of using the kept answer (not more often than every 30 seconds).
+#[utoipa::path(
+    post,
+    path = "/api/version/check",
+    tag = "system",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, body = VersionInfo),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+    )
+)]
+pub(crate) async fn check_version(State(svc): Svc) -> ApiResult<Json<VersionInfo>> {
+    Ok(Json(svc.version(true).await?))
 }
 
 /// Free space on the disk that holds the download directory, and how much of it the running

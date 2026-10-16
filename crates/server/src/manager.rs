@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Instant, UNIX_EPOCH};
 
+use crate::update::{self, UpdateChecker};
 use async_trait::async_trait;
 use fetchbox_api::service::Service;
 use fetchbox_core::category::detect as detect_category;
@@ -19,7 +20,8 @@ use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, DiskSpace, Download, Downloader, Error, Event,
-    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status,
+    Id, Job, OnConflict, Result, Settings, SourceKind, Stats, StatsRange, Status, UrlInfo, UrlKind,
+    VersionInfo,
 };
 use fetchbox_http_engine::{candidates, HttpDownloader, UrlPolicy};
 use fetchbox_storage::downloads::{self, NewDownload};
@@ -56,6 +58,8 @@ pub struct Manager {
     active: Mutex<HashMap<Id, Instant>>,
     /// The highest speed seen so far (bytes/s), also kept in the database.
     peak_speed: AtomicU64,
+    /// Looks for a newer release (see `update`).
+    updates: Arc<UpdateChecker>,
 }
 
 impl Manager {
@@ -64,6 +68,20 @@ impl Manager {
         conn: Connection,
         dir: PathBuf,
         policy: UrlPolicy,
+    ) -> anyhow::Result<Arc<Self>> {
+        // `FETCHBOX_UPDATE_URL` points the update check somewhere else (a mirror, a fork).
+        let source = std::env::var("FETCHBOX_UPDATE_URL")
+            .ok()
+            .filter(|u| !u.is_empty());
+        Self::start_with(conn, dir, policy, source).await
+    }
+
+    /// Like `start`, with the address of the releases API given (`None`: GitHub).
+    pub async fn start_with(
+        conn: Connection,
+        dir: PathBuf,
+        policy: UrlPolicy,
+        update_source: Option<String>,
     ) -> anyhow::Result<Arc<Self>> {
         let current = settings::load(&conn)?;
         let peak_speed = stats::peak_speed(&conn)?;
@@ -88,6 +106,7 @@ impl Manager {
             closing: watch::channel(false).0,
             active: Mutex::new(HashMap::new()),
             peak_speed: AtomicU64::new(peak_speed),
+            updates: UpdateChecker::new(update_source)?,
         });
 
         tokio::spawn(Arc::clone(&me).run_events(rx));
@@ -592,6 +611,17 @@ impl Manager {
     }
 }
 
+impl Manager {
+    /// Probe a URL through the engine (which applies the private-address policy) and name what
+    /// went wrong the way the API reports it.
+    async fn probe_remote(&self, url: &str) -> Result<fetchbox_http_engine::RemoteInfo> {
+        self.engine.probe_url(url).await.map_err(|e| match e {
+            fetchbox_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
+            other => Error::Engine(format!("cannot reach {url}: {other}")),
+        })
+    }
+}
+
 fn io_err(e: std::io::Error) -> Error {
     Error::Internal(e.to_string())
 }
@@ -603,11 +633,43 @@ impl Service for Manager {
         Ok(all.into_iter().map(|d| self.view(d)).collect())
     }
 
+    async fn version(&self, refresh: bool) -> Result<VersionInfo> {
+        if !self.current_settings().check_updates {
+            return Ok(update::disabled());
+        }
+        Ok(self.updates.info(refresh).await)
+    }
+
+    async fn probe(&self, url: &str) -> Result<UrlInfo> {
+        let info = self.probe_remote(url).await?;
+        let is_html = info.content_type.as_deref().is_some_and(|c| {
+            let c = c.to_ascii_lowercase();
+            c.starts_with("text/html") || c.starts_with("application/xhtml")
+        });
+        // A directory index is offered as a list to choose from. Reading it is an extra request, and
+        // a failure of that one only means "treat it as a file": the add reports real problems.
+        let listing = if is_html {
+            self.engine.listing_url(url).await.ok().flatten()
+        } else {
+            None
+        };
+        let (kind, entries, truncated) = match listing {
+            Some(l) => (UrlKind::Listing, l.entries, l.truncated),
+            None => (UrlKind::File, Vec::new(), false),
+        };
+        Ok(UrlInfo {
+            kind,
+            category: detect_category(&info.filename, info.content_type.as_deref()),
+            filename: info.filename,
+            size: info.size,
+            resumable: info.resumable,
+            entries,
+            truncated,
+        })
+    }
+
     async fn add(&self, req: AddRequest) -> Result<Download> {
-        let info = self.engine.probe_url(&req.url).await.map_err(|e| match e {
-            fetchbox_http_engine::EngineError::InvalidUrl(m) => Error::InvalidInput(m),
-            other => Error::Engine(format!("cannot reach {}: {other}", req.url)),
-        })?;
+        let info = self.probe_remote(&req.url).await?;
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
         let category = req
             .category

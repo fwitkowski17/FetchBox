@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use fetchbox_core::{
     AddRequest, Category, DiskSpace, Download, Event, Id, Result, Settings, Stats, StatsRange,
+    UrlInfo, VersionInfo,
 };
 use tokio::sync::{broadcast, watch};
 
@@ -14,6 +15,11 @@ pub trait Service: Send + Sync + 'static {
     async fn list(&self) -> Result<Vec<Download>>;
     /// Add a download. A collision returns `Error::Conflict` unless the request says how to resolve it.
     async fn add(&self, req: AddRequest) -> Result<Download>;
+    /// The running version and whether a newer release is known. `refresh` asks again now instead
+    /// of using what was found a while ago (still not more often than every half minute).
+    async fn version(&self, refresh: bool) -> Result<VersionInfo>;
+    /// Ask the remote server about a URL (name, size, range support) without adding anything.
+    async fn probe(&self, url: &str) -> Result<UrlInfo>;
     async fn pause(&self, id: Id) -> Result<Download>;
     async fn resume(&self, id: Id) -> Result<Download>;
     async fn cancel(&self, id: Id) -> Result<Download>;

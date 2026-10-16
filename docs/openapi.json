@@ -7,7 +7,7 @@
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "0.1.0"
+    "version": "0.6.1"
   },
   "paths": {
     "/api/auth/login": {
@@ -856,6 +856,75 @@
         }
       }
     },
+    "/api/probe": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "summary": "Look at a URL without adding it: the file name, size, range support and category the server\nand the file name suggest. The same checks as an add apply (private addresses can be refused).\nA `POST` so that the address, which may carry a token, stays out of access logs.",
+        "operationId": "probe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable http(s) URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The remote server could not be reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": [
@@ -997,6 +1066,84 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/version": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The running version and, unless update checks are switched off in the settings, whether a newer\nrelease has been published on GitHub (looked up at most every six hours and kept meanwhile).",
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/version/check": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Look for a newer release now instead of using the kept answer (not more often than every 30 seconds).",
+        "operationId": "check_version",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
                 }
               }
             }
@@ -1507,6 +1654,42 @@
           }
         }
       },
+      "ListingEntry": {
+        "type": "object",
+        "description": "One item of a directory index page.",
+        "required": [
+          "name",
+          "url",
+          "is_dir",
+          "category"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category",
+            "description": "What the file name says it is (`Other` for a directory)."
+          },
+          "is_dir": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name as shown on the page (decoded), without a trailing slash."
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Size in bytes when the page shows one.",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string",
+            "description": "Absolute address; a file is added with it, a directory is opened with it."
+          }
+        }
+      },
       "LockedBody": {
         "type": "object",
         "description": "Too many failed logins.",
@@ -1560,6 +1743,41 @@
           "overwrite"
         ]
       },
+      "ProbeRequest": {
+        "type": "object",
+        "description": "Request to look at a URL before adding it.",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "ReleaseNote": {
+        "type": "object",
+        "description": "What a release changed, as its author wrote it on GitHub (Markdown).",
+        "required": [
+          "version",
+          "url",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "The description of the release (Markdown, shortened when very long). Show it as text."
+          },
+          "url": {
+            "type": "string",
+            "description": "Page of the release."
+          },
+          "version": {
+            "type": "string",
+            "description": "Version without a leading `v`."
+          }
+        }
+      },
       "Settings": {
         "type": "object",
         "description": "Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited.",
@@ -1573,6 +1791,10 @@
           "category_subdirs": {
             "type": "boolean",
             "description": "Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).\nExisting downloads keep the directory they were created with."
+          },
+          "check_updates": {
+            "type": "boolean",
+            "description": "Ask GitHub now and then whether a newer release exists (`GET /api/version`). Nothing is\nsent but the request itself (address of the server, program name and version)."
           },
           "connections": {
             "type": "integer",
@@ -1814,6 +2036,121 @@
             "format": "int64",
             "description": "Speed of this download alone, bytes per second. It replaces the default speed of each\ndownload (it may be faster or slower); `0` removes it, so the default applies again. The\ntotal limit of all downloads still caps the sum. Only for queued, running, paused and\nfailed downloads (`409` otherwise). Applied live to a running download.",
             "minimum": 0
+          }
+        }
+      },
+      "UrlInfo": {
+        "type": "object",
+        "description": "What the remote server says about a URL: what an add request would work with.",
+        "required": [
+          "kind",
+          "filename",
+          "resumable",
+          "category",
+          "entries",
+          "truncated"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category",
+            "description": "Category the download would get when none is chosen."
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListingEntry"
+            },
+            "description": "For a listing: the directories first, then the files, each group in page order. Empty for a file."
+          },
+          "filename": {
+            "type": "string",
+            "description": "The (sanitized) file name the download would get."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UrlKind"
+          },
+          "resumable": {
+            "type": "boolean",
+            "description": "The server honours `Range`, so the download can be paused and resumed."
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Size in bytes; `None` when the server does not tell.",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "The page had more items than are returned."
+          }
+        }
+      },
+      "UrlKind": {
+        "type": "string",
+        "description": "What a URL turned out to be.",
+        "enum": [
+          "file",
+          "listing"
+        ]
+      },
+      "VersionInfo": {
+        "type": "object",
+        "description": "The version of the running program and what is known about newer ones.",
+        "required": [
+          "current",
+          "enabled",
+          "update_available",
+          "check_failed",
+          "notes"
+        ],
+        "properties": {
+          "check_failed": {
+            "type": "boolean",
+            "description": "The last attempt did not get an answer (offline, rate limited, ...)."
+          },
+          "checked_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the answer was obtained (unix seconds); `None` if no check has succeeded yet."
+          },
+          "current": {
+            "type": "string",
+            "description": "Version of this program (`0.6.1`)."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Update checks are switched on (`Settings::check_updates`). When off, nothing else is set."
+          },
+          "latest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Version of the newest published release, without a leading `v`."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReleaseNote"
+            },
+            "description": "What changed in every release newer than `current`, newest first (at most ten)."
+          },
+          "release_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Page of the newest release."
+          },
+          "update_available": {
+            "type": "boolean",
+            "description": "`latest` is newer than `current`."
           }
         }
       }

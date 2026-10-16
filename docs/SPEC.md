@@ -17,6 +17,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - default speed of each download (a single download can get its own speed from its menu, which replaces the default, see 6.6)
   - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
+  - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
 
@@ -121,6 +122,20 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   with a warning instead of blocking downloads. Only downloads that probe at the very same moment as the engine check
   can race; the loser fails on the write error like any full disk.
 
+### 6.2.1 Directory index pages
+
+- A URL that answers with an HTML page is read once more (at most 2 MiB, through the same client, so the private-address
+  policy and the redirect checks apply) and, if it is a *directory index* ("Index of ..." or "Directory listing for ..." in
+  the title or first heading: Apache, nginx, lighttpd, Python's `http.server`), reported by `POST /api/probe` as
+  `kind: "listing"`. Any other page is a file like before. No HTML parser: the anchors of the page are scanned.
+- Only the direct children of the page are listed: folders (`is_dir`, address ending in `/`) first, then files, each group in
+  page order, with the decoded name, absolute address, the category of the file name and a size when the page shows one
+  (bytes as nginx prints them, or `1.5G` as Apache does; none for Python's server). Links to other hosts or other places, the
+  parent folder, sort links (`?C=N;O=D`), non-`http(s)` schemes and names with `/`, `\` or control characters are dropped.
+  At most 2000 items are returned (`truncated`). Folders are not scanned recursively: the user opens one, which is a new probe.
+- A listing is not a download by itself: the chosen files are added one by one with the ordinary `POST /api/downloads`
+  (the server names them, detects the category and checks space for each).
+
 ### 6.3 Scheduler and limits
 
 - `Semaphore` limits concurrent downloads; overflow = `Queued`.
@@ -155,7 +170,7 @@ DB field `source_kind`: `http` | `magnet` | `torrent_file`.
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates)
 
 Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 
@@ -168,6 +183,10 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
 - `PATCH /api/downloads/:id` (`category`, `archived` and/or `speed_limit` in bytes/s, `0` = back to the default speed: archiving hides a finished, failed or cancelled download from
   the main list, `409` for an unfinished one; the file stays where it is and the entry still counts for duplicate and name
   checks)
+- `POST /api/probe {url}` (looks at a URL without adding anything and answers `{kind, filename, size?, resumable, category,
+  entries, truncated}`: the same probe an add makes, with the same URL policy and the same errors, `400` for a bad URL and
+  `502` when the server cannot be reached; a `POST` so that an address with a token stays out of access logs. `kind` is
+  `file`, or `listing` when the address is a directory index page, see 6.2.1)
 - `GET /api/settings`, `PUT /api/settings`
 - `GET /api/disk` (free space of the download disk)
 - `GET /api/stats?range=today|7d|30d|all&offset=<minutes east of UTC>` (a summary of the downloads of a period, in the
@@ -176,6 +195,8 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   spent transferring, timed rows only), `peak_speed` (all time), `largest`, `categories` of the completed ones biggest
   first, and `days`: the last 14 days oldest first with the empty ones, whatever the period. Cancelling counts as neither
   success nor failure.)
+- `GET /api/version` and `POST /api/version/check` (see 6.9): `{current, enabled, latest?, update_available, release_url?,
+  checked_at?, check_failed, notes}`; the `POST` looks again now, at most every 30 s
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -264,6 +285,21 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
   success clears it), the name-conflict and "does not fit" dialogs open on top of it, and a success closes everything and
   shows the list. Old `#/add` links still work: they open the dialog and the hash goes back to `#/`.
+  The address field has a paste button (clipboard icon) at its right end: it reads the clipboard (a secure context and the
+  browser's consent are needed; on a plain-HTTP LAN page it says so in a toast and Ctrl+V still works) and puts the first
+  line in the field. A valid http(s) address is looked at with `POST /api/probe`, 0.5 s after the last keystroke or at once
+  after a paste, and the result is shown under the field: the category icon, "Size: N" (or that the server does not report
+  one) and, when the server does not support ranges, that the download cannot be resumed once paused; the file name
+  field's placeholder becomes the name the server suggests. An older look is cancelled when the address changes. A
+  failed look shows its reason but never blocks adding (the add reports a real problem itself).
+  When the address is a directory index (`kind: "listing"`) the file name field gives way to a list (`ListingPicker`): "Select
+  all" (of what the filter shows), a filter box, the folders (a click opens one: the address becomes the folder's and
+  "Back" returns) and the files with a checkbox, category icon and size, then "N selected" with the total size ("at least"
+  when some sizes are unknown). Every file starts chosen. The category choice applies to all of them and the button reads
+  "Download N files". Adding sends the chosen files one after the other, "Adding i of N..."; a file that already exists
+  (`409`) or does not fit (`507`) is skipped and counted instead of asking, so one problem does not stop the rest, and one
+  toast sums it up (a warning when something was skipped or failed). When nothing at all was added the dialog stays open
+  with the reason.
 - Motion: short and functional (about 150-250 ms), never decorative loops. Dialogs fade and rise in and fade and sink out
   (the native `<dialog>` is closed only after the exit has played; reopening during the exit cancels it); toasts fly in,
   fade out and the rest glide into place; the drawer scrim fades; the floating button pops in; a card added to an existing
@@ -272,8 +308,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
   respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
   their duration from `util/motion.ts`, which is 0 then.
-- Layout: side menu. From 64rem a permanent left panel (navigation, status and category filters with counts, speed, theme
-  switch, disk ring); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
+- Layout: side menu. From 64rem a permanent left panel (status and category filters with counts, where "All" is the way back to the list, then, pinned
+  to the bottom, speed, the Statistics and Settings links, theme switch and the disk ring last; there is no separate
+  "Downloads" link, and the filters are marked as current only while the list is shown, not on Statistics or Settings); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
   backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
   Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
 - First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
@@ -282,7 +319,7 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   only button goes to the downloads. No download limits, speed unit or other options are asked: they have sensible
   defaults and live in Settings. Back goes to the previous step until the account exists; the final step already runs
   signed in, and reloading after the password step simply opens the app.
-- Password: Settings has a "Password" card. For an account created in the UI it has a "Change password..." button that
+- Password: Settings has a "Password" card (the sign-out card comes after it: signing out is the last thing on the page). For an account created in the UI it has a "Change password..." button that
   opens a dialog (`ChangePasswordDialog`) with the current password, the new one and the new one again (hidden text,
   `autocomplete` hints for password managers). The checks are the server's (8 to 256 characters, both new entries equal)
   plus "not the same as the current one"; a wrong current password (`403`) and too many attempts (`429`) are shown in the
@@ -348,6 +385,9 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   follow the speed unit of the app. The numbers reload every 10 s while the page is open (not in a hidden tab) and as soon
   as a download ends. Nothing to count yet shows an explanation instead of zeroes. Because the numbers come from the
   history, they stay when downloads are removed from the list.
+- Dialogs: the buttons of a dialog (`Modal` footer) stay at the bottom of the dialog while its content scrolls, so a long
+  dialog (update notes, the file list of the add dialog on a phone) never hides them below the fold; content columns are
+  `minmax(0, 1fr)` so a long command or file name scrolls or wraps inside the dialog instead of widening it.
 - Select boxes (language, speed unit, category, sort, field units) are drawn like the text inputs: same height, border, font
   and hover/focus, no native arrow but one chevron in every theme. Number inputs have no native spin buttons.
 - Settings form works in KB/s, MB/s, Kbit/s and Mbit/s and "limit on/off"; the API stays in bytes/s with `0` = unlimited.
@@ -414,6 +454,46 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   stuck in the OS, a slow disk) instead of for ever. Running downloads need no step of their own: offsets are persisted
   every tick and whatever was running is re-queued at the next start (see "Crash safety"); at most one tick of progress
   is fetched again.
+
+### 6.9 Version and updates
+
+- The version is the workspace version in `Cargo.toml` (`0.6.1` while there is no final release); the binary prints it with
+  `--version`, the API with `GET /api/version` and Settings shows it in the "About" card (also in `docs/openapi.json`, whose
+  `info.version` it is). `web/package.json` carries the same number.
+- Update check: the server asks the GitHub releases API for the list of releases (`/repos/<owner>/<repo>/releases?per_page=20`;
+  drafts and pre-releases are skipped) with a 5 s timeout, takes the highest version as `latest` and compares its tag
+  (`v0.7.0` -> `0.7.0`, numbers compared one by one, a pre-release below its release) with its own version. `notes` holds the
+  description (Markdown, at most 8000 characters) of each release newer than the running version, newest first, at most ten:
+  what changed since the user's version. An answer is kept for 6 hours, a failure for 15 minutes (an offline
+  server does not retry on every page view), and "Check now" cannot ask more often than every 30 s (anonymous GitHub limit: 60
+  requests an hour). An empty list or a `404` means no release has been published yet and is not an error. The release link is shown only
+  when it is an `https://` address. Nothing is sent but the request itself (the server's IP address and
+  `User-Agent: FetchBox/<version>`).
+- It can be switched off (`Settings.check_updates`, default on; a client that does not send the field leaves it on). Then
+  `GET /api/version` answers `enabled: false` and the server contacts nobody. `FETCHBOX_UPDATE_URL` replaces the endpoint (a
+  mirror, a fork, a test server).
+- Settings "About" card (after the password card, before the sign-out card): `FetchBox <version>`, one line of status ("Version X
+  is available" with a "View the release" button, "You have the latest version", "No release has been published yet", "Could
+  not check", "switched off"), the time of the last answer, "Check now" and the switch "Check for updates automatically"
+  (part of the settings form: saved with it, and the answer is fetched again once saved).
+- Settings "Check now" always answers with a toast: the latest version (success), a newer one (info, and the update dialog
+  opens), no release published yet, switched off, or could not check (warning).
+- Update dialog (`UpdateDialog`, `stores/updateNotice`): "Version X is available", "You are running version Y", "What is new" (the
+  notes of every newer release in a scrolling box, each with a link to GitHub) and "How to update": Docker Compose (as in the
+  repository: `git pull`, `docker compose up -d --build fetchbox`; data in `./data` and `./downloads` stays, unfinished
+  downloads continue after the restart) and without Docker (`git pull`, `./scripts/build.sh`, start the new binary), each
+  command with a copy button. Notes are drawn as text nodes from a small Markdown reading (headings, lists, paragraphs, `**bold**`,
+  `code`; link targets dropped), never as HTML (`util/notes`). After signing in the app looks once and, if an update is known,
+  opens the dialog with "Remind me later" (hides it for that version for 24 hours; Escape and the backdrop mean the same) and
+  "Skip this version" (never announces that version again; a later one is announced); both are kept per browser in
+  `localStorage` (`fetchbox.updateSnooze`, `fetchbox.updateSkip`). From Settings ("How to update" in the About card) it opens
+  with a plain "Close". It does not open while update checks are off.
+- The app does not update itself. In the container the image is read-only (distroless, no shell, no package manager) and a
+  restart or `docker compose up` brings back the image's version, so a self-replaced binary would not survive; updating the
+  container from inside would also need access to the Docker socket, which is root on the host. A user who wants unattended
+  updates can run an updater such as Watchtower with a published image; that is outside the app.
+- A release is made by publishing a GitHub Release whose tag is `v<version>` (for example `v0.6.1`); that is what the check
+  finds. Raising the version means changing `Cargo.toml` (and `web/package.json`) first.
 
 ## 7. Dependencies (Rust)
 

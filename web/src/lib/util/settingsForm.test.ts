@@ -19,6 +19,7 @@ const base: Settings = {
   speed_per_download: 0,
   speed_global: 5 * 1024 * 1024,
   category_subdirs: true,
+  check_updates: true,
 };
 
 describe('settings form', () => {
@@ -43,6 +44,12 @@ describe('settings form', () => {
   it('treats a missing subdirs flag as off', () => {
     const { category_subdirs: _omit, ...legacy } = base;
     expect(toDraft(legacy).categorySubdirs).toBe(false);
+  });
+
+  it('treats a missing update-check flag as on', () => {
+    const { check_updates: _omit, ...legacy } = base;
+    expect(toDraft(legacy).checkUpdates).toBe(true);
+    expect(fromDraft({ ...toDraft(base), checkUpdates: false }).check_updates).toBe(false);
   });
 
   it('validates counts and limits', () => {
