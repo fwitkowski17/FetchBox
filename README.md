@@ -109,9 +109,13 @@ Log in with `POST /api/auth/login {"password": "..."}`: the response sets an `Ht
 docker compose up --build   # UI on http://localhost:8080, volumes ./data and ./downloads
 ```
 
+## Releasing
+
+Pushing a tag `v<version>` (the version in `Cargo.toml`, e.g. `v0.6.1`) runs `.github/workflows/release.yml`: it builds the web interface and the binary for x86_64 and aarch64 Linux and publishes a GitHub Release with the archives (`fetchbox-linux-<arch>.tar.gz`) and checksums attached. The Proxmox installer and the app's update check read that release. Details in [deploy/proxmox/README.md](deploy/proxmox/README.md#releasing).
+
 ## Proxmox LXC
 
-`deploy/proxmox/` has an installer for a Proxmox VE container in the style of the [community-scripts](https://github.com/community-scripts/ProxmoxVE) (Debian, built from source, optional host directory for the downloads). See [deploy/proxmox/README.md](deploy/proxmox/README.md).
+`deploy/proxmox/` has an installer for a Proxmox VE container in the style of the [community-scripts](https://github.com/community-scripts/ProxmoxVE) (Debian, prebuilt binary from the GitHub release, optional host directory for the downloads). See [deploy/proxmox/README.md](deploy/proxmox/README.md).
 
 ## Upgrading from `dlmanager`
 

@@ -17,8 +17,8 @@
       "type": "default",
       "script": "ct/fetchbox.sh",
       "resources": {
-        "cpu": 2,
-        "ram": 2048,
+        "cpu": 1,
+        "ram": 512,
         "hdd": 8,
         "os": "debian",
         "version": "13"
@@ -39,7 +39,7 @@
       "type": "info"
     },
     {
-      "text": "The program is compiled during installation and updates (a few minutes, about 2 GB of RAM); the build tools are removed afterwards.",
+      "text": "The installer takes the program from the GitHub release of the repository (fetchbox-linux-<arch>.tar.gz), so a release with binaries must have been published.",
       "type": "warning"
     }
   ]

@@ -8,10 +8,10 @@ source "$_cs_boot" 2>/dev/null || source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_
 
 APP="FetchBox"
 var_tags="${var_tags:-downloads;manager}"
-# Compiling the program needs memory and a few minutes; once installed it needs far less
-# (about 64 MB). The RAM can be lowered afterwards, but an update compiles again.
-var_cpu="${var_cpu:-2}"
-var_ram="${var_ram:-2048}"
+# A small program: one binary, about 64 MB of RAM while running. Downloads go to /downloads, which
+# lives on the container's disk unless a host directory is mapped there (see var_downloads_dir).
+var_cpu="${var_cpu:-1}"
+var_ram="${var_ram:-512}"
 var_disk="${var_disk:-8}"
 var_os="${var_os:-debian}"
 var_version="${var_version:-13}"
@@ -34,23 +34,14 @@ FB_DIR="/opt/fetchbox"
 FB_UID=1000 # the user the service runs as, inside the container (the install script creates it)
 FB_DOWNLOADS="/downloads"
 
+# The archive on the GitHub release that holds the program (built by .github/workflows/release.yml).
+function fetchbox_asset() {
+  echo "fetchbox-linux-$(arch_resolve x86_64 aarch64).tar.gz"
+}
+
 # ------------------------------------------------------------------------------
 # Updating (runs inside the container: `update`)
 # ------------------------------------------------------------------------------
-
-# The newest published release (its tag), or `main` while there is none. FETCHBOX_REF pins a tag
-# or a branch instead.
-function fetchbox_target_ref() {
-  if [[ -n "${FETCHBOX_REF:-}" ]]; then
-    echo "$FETCHBOX_REF"
-    return
-  fi
-  local tag
-  # `|| true`: a failing curl (offline, rate limited) must mean "no release", not stop the script.
-  tag="$(curl -fsSL -m 15 "https://api.github.com/repos/${FB_REPO}/releases/latest" 2>/dev/null |
-    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1 || true)"
-  echo "${tag:-main}"
-}
 
 function update_script() {
   header_info
@@ -60,60 +51,34 @@ function update_script() {
     msg_error "No ${APP} Installation Found!"
     exit
   fi
+  if check_for_gh_release "fetchbox" "${FB_REPO}"; then
+    msg_info "Stopping Service"
+    systemctl stop fetchbox
+    msg_ok "Stopped Service"
 
-  local ref installed remote
-  ref="$(fetchbox_target_ref)"
-  installed="$(awk '{print $2}' "${FB_DIR}/.installed" 2>/dev/null || true)"
-  remote="$(git ls-remote "https://github.com/${FB_REPO}.git" "${ref}" "${ref}^{}" 2>/dev/null | tail -n1 | cut -f1 || true)"
-  if [[ -z "$remote" ]]; then
-    msg_error "Could not find '${ref}' on GitHub"
-    exit
+    # Only the binary is replaced: the database (${FB_DIR}/data), the settings (fetchbox.env) and
+    # the downloads are not touched.
+    fetch_and_deploy_gh_release "fetchbox" "${FB_REPO}" "prebuild" "latest" "${FB_DIR}" "$(fetchbox_asset)"
+    chmod 0755 "${FB_DIR}/fetchbox"
+
+    msg_info "Starting Service"
+    systemctl start fetchbox
+    msg_ok "Started Service"
+    msg_ok "Updated successfully!"
   fi
-  if [[ "$installed" == "$remote" ]]; then
-    msg_ok "No update available: ${APP} (${ref})"
-    exit
-  fi
-
-  msg_info "Installing build tools"
-  $STD apt-get install -y git build-essential pkg-config curl ca-certificates
-  msg_ok "Installed build tools"
-  NODE_VERSION="22" setup_nodejs
-  setup_rust
-
-  local src="/opt/fetchbox-src"
-  msg_info "Fetching ${APP} ${ref}"
-  rm -rf "$src"
-  $STD git clone --depth 1 --branch "$ref" "https://github.com/${FB_REPO}.git" "$src"
-  msg_ok "Fetched ${APP} ${ref}"
-
-  msg_info "Building the web interface"
-  (cd "${src}/web" && $STD npm ci && $STD npm run build)
-  msg_ok "Built the web interface"
-
-  msg_info "Building ${APP} (this takes a few minutes)"
-  (cd "$src" && $STD cargo build --release -p server)
-  msg_ok "Built ${APP}"
-
-  msg_info "Stopping Service"
-  systemctl stop fetchbox
-  msg_ok "Stopped Service"
-
-  msg_info "Installing the new version"
-  install -m 0755 "${src}/target/release/fetchbox" "${FB_DIR}/fetchbox"
-  echo "${ref} $(git -C "$src" rev-parse HEAD)" >"${FB_DIR}/.installed"
-  msg_ok "Installed the new version"
-
-  msg_info "Cleaning up"
-  rm -rf "$src" "$HOME/.cargo" "$HOME/.rustup" "$HOME/.npm"
-  $STD apt-get purge -y nodejs build-essential
-  $STD apt-get autoremove -y
-  msg_ok "Cleaned up"
-
-  msg_info "Starting Service"
-  systemctl start fetchbox
-  msg_ok "Started Service"
-  msg_ok "Updated successfully to ${ref}!"
   exit
+}
+
+# Before a container is made: is there a release with a program for this CPU? (The installer takes
+# the program from there; without it the container would be created and then fail.)
+function check_release() {
+  local asset
+  asset="$(fetchbox_asset)" || exit 1
+  if ! curl -fsSL -m 20 "https://api.github.com/repos/${FB_REPO}/releases/latest" 2>/dev/null |
+    grep -q "\"name\": *\"${asset}\""; then
+    msg_error "No ${APP} release with ${asset} has been published yet: https://github.com/${FB_REPO}/releases"
+    exit 1
+  fi
 }
 
 # ------------------------------------------------------------------------------
@@ -171,6 +136,7 @@ function map_downloads() {
 }
 
 start
+check_release
 build_container
 map_downloads
 description

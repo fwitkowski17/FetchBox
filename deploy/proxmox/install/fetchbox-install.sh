@@ -17,43 +17,18 @@ FB_REPO="fwitkowski17/WebDownloadManager"
 FB_DIR="/opt/fetchbox"
 FB_UID=1000 # keep in step with ct/fetchbox.sh
 
-msg_info "Installing Dependencies"
-$STD apt-get install -y git build-essential pkg-config curl ca-certificates
-msg_ok "Installed Dependencies"
-
-# The newest published release, or `main` while there is none (FETCHBOX_REF pins one).
-ref="${FETCHBOX_REF:-}"
-if [[ -z "$ref" ]]; then
-  # `|| true`: a failing curl (offline, rate limited) must mean "no release", not stop the script.
-  ref="$(curl -fsSL -m 15 "https://api.github.com/repos/${FB_REPO}/releases/latest" 2>/dev/null |
-    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1 || true)"
-  ref="${ref:-main}"
-fi
-
-NODE_VERSION="22" setup_nodejs
-setup_rust
-
-# The program is built here, from source, then the tools that built it are removed again: the
-# finished container holds one binary, no Node.js and no compiler (the web interface is inside it).
-src="/opt/fetchbox-src"
-msg_info "Fetching ${ref}"
-$STD git clone --depth 1 --branch "$ref" "https://github.com/${FB_REPO}.git" "$src"
-msg_ok "Fetched ${ref}"
-
-msg_info "Building the web interface"
-(cd "${src}/web" && $STD npm ci && $STD npm run build)
-msg_ok "Built the web interface"
-
-msg_info "Building FetchBox (this takes a few minutes)"
-(cd "$src" && $STD cargo build --release -p server)
-msg_ok "Built FetchBox"
-
-msg_info "Creating the service"
+msg_info "Creating the user and folders"
 useradd --system --uid "$FB_UID" --user-group --home-dir "$FB_DIR" --no-create-home --shell /usr/sbin/nologin fetchbox
 install -d -m 0755 "$FB_DIR"
 install -d -o fetchbox -g fetchbox "${FB_DIR}/data" /downloads
-install -m 0755 "${src}/target/release/fetchbox" "${FB_DIR}/fetchbox"
-echo "${ref} $(git -C "$src" rev-parse HEAD)" >"${FB_DIR}/.installed"
+msg_ok "Created the user and folders"
+
+# The program is a single binary (the web interface is inside it), built by the release workflow of
+# the repository. Nothing is compiled here.
+fetch_and_deploy_gh_release "fetchbox" "${FB_REPO}" "prebuild" "latest" "${FB_DIR}" "fetchbox-linux-$(arch_resolve x86_64 aarch64).tar.gz"
+chmod 0755 "${FB_DIR}/fetchbox"
+
+msg_info "Creating the service"
 cat <<'EOT' >"${FB_DIR}/fetchbox.env"
 # Settings of the service (read by systemd). Restart after a change: systemctl restart fetchbox
 #
@@ -88,11 +63,6 @@ WantedBy=multi-user.target
 EOT
 systemctl enable -q --now fetchbox
 msg_ok "Created the service"
-
-msg_info "Cleaning up the build tools"
-rm -rf "$src" "$HOME/.cargo" "$HOME/.rustup" "$HOME/.npm"
-$STD apt-get purge -y nodejs build-essential
-msg_ok "Cleaned up the build tools"
 
 # The first start prints a one-time setup code; show it, since it is needed to create the account.
 code=""
