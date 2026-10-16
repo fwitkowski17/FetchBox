@@ -539,6 +539,23 @@ Statuses: `queued`, `downloading`, `paused`, `completed`, `failed`, `cancelled`.
   release is what the update check finds and what the Proxmox installer (`deploy/proxmox`) installs and updates from; nothing
   is compiled on the user's machine. Raising the version means changing `Cargo.toml` (and `web/package.json`) first.
 
+### 6.10 Console log
+
+The server logs what a user would want to look up later, one line per event, at `info` (`RUST_LOG=debug` adds the rest). Values are
+`key=value` pairs after the message; sizes are binary (`7.8 MiB`), speeds `MiB/s`.
+
+- Start-up: the version, the data and download directories, the listening address, the settings in force (in words) and the
+  number of downloads per status.
+- Downloads: added (id, name, category, size, host of the address), started (segments, resumable), paused, resumed (offset),
+  completed (size and the average speed over the time spent transferring), failed (reason), cancelled, category and own
+  speed changed, "download now", waiting for the download hours (and when they open), and removed from the list (status it had,
+  size, bytes fetched, average speed and whether the file was deleted too). Refused adds are `warn`.
+- Settings: one line listing only what changed (`connections 4 -> 8; download hours off -> 22:00-06:00 Europe/Warsaw`).
+- Download hours: they opened or closed, how many downloads were released or stopped, and what the end does.
+- Sign-in and sign-out; a newer version found by the update check.
+- Never logged: passwords, tokens, setup codes, session ids, and the path and query of a URL (only its host, because an address
+  may carry a token). Progress ticks and the 15 s hours check log nothing unless something changes.
+
 ## 7. Dependencies (Rust)
 
 `tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `jiff` (time zones for the download hours, with its tz database bundled so no `tzdata` is needed), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix). Later: `librqbit`.

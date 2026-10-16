@@ -17,6 +17,22 @@ pub fn zone(name: &str) -> Option<TimeZone> {
     TimeZone::get(name.trim()).ok()
 }
 
+/// A moment as a person reads it in the log: `2026-10-16 06:00 Europe/Warsaw` (UTC when the zone
+/// is unknown).
+pub fn describe(at: i64, zone_name: &str) -> String {
+    let Ok(ts) = Timestamp::from_second(at) else {
+        return String::new();
+    };
+    match zone(zone_name) {
+        Some(tz) => format!(
+            "{} {}",
+            ts.to_zoned(tz).strftime("%Y-%m-%d %H:%M"),
+            zone_name.trim()
+        ),
+        None => ts.to_string(),
+    }
+}
+
 /// The minute of the day (minutes after local midnight) at unix time `at` in `tz`.
 pub fn minute_of_day(at: i64, tz: &TimeZone) -> Option<u16> {
     let zoned = Timestamp::from_second(at).ok()?.to_zoned(tz.clone());
@@ -55,6 +71,18 @@ mod tests {
 
     fn ts(s: &str) -> i64 {
         s.parse::<Timestamp>().expect("timestamp").as_second()
+    }
+
+    #[test]
+    fn a_moment_is_described_in_its_zone() {
+        assert_eq!(
+            describe(ts("2026-01-10T21:00:00Z"), "Europe/Warsaw"),
+            "2026-01-10 22:00 Europe/Warsaw"
+        );
+        assert_eq!(
+            describe(ts("2026-01-10T21:00:00Z"), "Mars/Olympus"),
+            "2026-01-10T21:00:00Z"
+        );
     }
 
     #[test]

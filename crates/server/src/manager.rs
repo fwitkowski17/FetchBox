@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::clock;
+use crate::logfmt;
 use crate::update::{self, UpdateChecker};
 use async_trait::async_trait;
 use fetchbox_api::service::Service;
@@ -71,6 +72,9 @@ pub struct Manager {
     /// Running downloads that the download hours asked to stop: when the engine reports them
     /// paused they go back to the queue (held) instead of to `paused`.
     suspended: Mutex<HashSet<Id>>,
+    /// Whether the download hours were open when `reevaluate` last looked (`None`: they are off or
+    /// have not been looked at since the settings changed). Only for the log: a change is news.
+    hours_seen: Mutex<Option<bool>>,
 }
 
 impl Manager {
@@ -105,6 +109,17 @@ impl Manager {
         }
         let queued = downloads::list_by_status(&conn, Status::Queued)?;
         let (bus, _) = broadcast::channel(BUS_CAPACITY);
+        tracing::info!("settings: {}", logfmt::settings_summary(&current));
+        let all = downloads::list(&conn)?;
+        let count = |s: Status| all.iter().filter(|d| d.status == s).count();
+        tracing::info!(
+            total = all.len(),
+            queued = count(Status::Queued),
+            paused = count(Status::Paused),
+            completed = count(Status::Completed),
+            failed = count(Status::Failed),
+            "downloads in the list"
+        );
 
         let me = Arc::new(Self {
             db: Mutex::new(conn),
@@ -120,6 +135,7 @@ impl Manager {
             updates: UpdateChecker::new(update_source)?,
             held: Mutex::new(HashSet::new()),
             suspended: Mutex::new(HashSet::new()),
+            hours_seen: Mutex::new(None),
         });
 
         tokio::spawn(Arc::clone(&me).run_events(rx));
@@ -222,6 +238,28 @@ impl Manager {
         self.suspended.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The file name of a download, for the log (empty when it is gone).
+    fn name_of(&self, id: Id) -> String {
+        self.with_db(|c| downloads::get(c, id))
+            .ok()
+            .flatten()
+            .map(|d| d.filename)
+            .unwrap_or_default()
+    }
+
+    /// What a download has averaged: `2.0 MiB/s over 3m 20s`, or why there is no figure.
+    fn average_of(&self, id: Id, bytes: u64) -> String {
+        let ms = self.with_db(|c| stats::active_ms(c, id)).unwrap_or(0);
+        match logfmt::average_speed(bytes, ms) {
+            Some(speed) => format!(
+                "{} over {}",
+                logfmt::rate(speed),
+                logfmt::duration(ms / 1000)
+            ),
+            None => "no time measured".to_owned(),
+        }
+    }
+
     fn get(&self, id: Id) -> Result<Download> {
         self.with_db(|c| downloads::get(c, id))?
             .ok_or(Error::NotFound(id))
@@ -311,9 +349,62 @@ impl Manager {
         };
         if wait {
             self.held().insert(id);
+            self.log_waiting(id);
             Vec::new()
         } else {
             self.sched().enqueue(id)
+        }
+    }
+
+    /// Say why a download waits and until when.
+    fn log_waiting(&self, id: Id) {
+        let name = self.name_of(id);
+        let now = clock::now();
+        let start_at = self
+            .with_db(|c| downloads::get(c, id))
+            .ok()
+            .flatten()
+            .and_then(|d| d.start_at);
+        match start_at {
+            Some(at) if at > now => {
+                let when = jiff::Timestamp::from_second(at)
+                    .map(|t| t.to_string())
+                    .unwrap_or_default();
+                tracing::info!(id, %name, start_at = %when, "download waits for its start time");
+            }
+            _ => {
+                let s = self.current_settings();
+                let opens = self
+                    .next_opening(now)
+                    .map_or_else(String::new, |at| clock::describe(at, &s.schedule_timezone));
+                tracing::info!(id, %name, opens = %opens, "download waits for the download hours");
+            }
+        }
+    }
+
+    /// Say when the download hours open or close (once per change, not every check).
+    fn log_hours(&self, s: &Settings, now: i64) {
+        let seen = if s.schedule_enabled {
+            Some(self.window_open(s, now))
+        } else {
+            None
+        };
+        let mut last = self.hours_seen.lock().unwrap_or_else(|e| e.into_inner());
+        if *last == seen {
+            return;
+        }
+        *last = seen;
+        match seen {
+            Some(true) => tracing::info!(
+                hours = %format!("{}-{} {}", logfmt::clock(s.schedule_from), logfmt::clock(s.schedule_to), s.schedule_timezone),
+                "download hours are open: waiting downloads may start"
+            ),
+            Some(false) => tracing::info!(
+                opens = %self.next_opening(now).map_or_else(String::new, |at| clock::describe(at, &s.schedule_timezone)),
+                on_end = s.schedule_on_end.as_str(),
+                "download hours are closed: nothing new starts"
+            ),
+            None => {}
         }
     }
 
@@ -322,6 +413,7 @@ impl Manager {
     /// they have). Called every few seconds, and at once when the settings change.
     pub(crate) async fn reevaluate(&self) {
         let now = clock::now();
+        self.log_hours(&self.current_settings(), now);
         let waiting: Vec<Id> = self.held().iter().copied().collect();
         let mut start = Vec::new();
         for id in waiting {
@@ -333,6 +425,7 @@ impl Manager {
             let may = self.gate_for(id).map_or(true, |g| g.may_start(now));
             if may {
                 self.held().remove(&id);
+                tracing::info!(id, name = %self.name_of(id), "no longer waiting: it may start");
                 start.extend(self.sched().enqueue(id));
                 self.publish_download(id);
             }
@@ -471,6 +564,14 @@ impl Manager {
                     Ok(())
                 });
                 self.log_err("started", id, r);
+                tracing::info!(
+                    id,
+                    name = %self.name_of(id),
+                    size = %size.map_or_else(|| "unknown".to_owned(), logfmt::bytes),
+                    resumable,
+                    segments = segs.len(),
+                    "download started"
+                );
                 self.active_start(id);
                 self.publish_download(id);
             }
@@ -523,6 +624,14 @@ impl Manager {
                 self.log_err("paused", id, r);
                 if by_schedule {
                     self.held().insert(id);
+                    tracing::info!(
+                        id,
+                        name = %self.name_of(id),
+                        downloaded = %logfmt::bytes(downloaded),
+                        "stopped by the download hours; it goes on when they open"
+                    );
+                } else {
+                    tracing::info!(id, name = %self.name_of(id), downloaded = %logfmt::bytes(downloaded), "download paused");
                 }
                 self.publish_download(id);
                 let next = self.sched().release(id);
@@ -547,6 +656,13 @@ impl Manager {
                     Ok(())
                 });
                 self.log_err("completed", id, r);
+                tracing::info!(
+                    id,
+                    name = %self.name_of(id),
+                    size = %logfmt::bytes(size),
+                    average = %self.average_of(id, size),
+                    "download completed"
+                );
                 self.publish_download(id);
                 let next = self.sched().release(id);
                 self.launch(next).await;
@@ -561,6 +677,7 @@ impl Manager {
                     downloads::transition(c, id, &ACTIVE, Status::Failed, Some(&error))
                 });
                 self.log_err("failed", id, r);
+                tracing::warn!(id, name = %self.name_of(id), %error, "download failed");
                 self.publish_download(id);
                 let next = self.sched().release(id);
                 self.launch(next).await;
@@ -706,6 +823,7 @@ impl Manager {
             stats::add_active_ms(c, d.id, ms)?;
             downloads::set_status(c, d.id, Status::Cancelled, None).map(|_| ())
         })?;
+        tracing::info!(id = d.id, name = %d.filename, "download cancelled");
         self.publish_download(d.id);
         self.launch(next).await;
         Ok(())
@@ -825,7 +943,9 @@ impl Service for Manager {
     }
 
     async fn add(&self, req: AddRequest) -> Result<Download> {
-        let info = self.probe_remote(&req.url).await?;
+        let info = self.probe_remote(&req.url).await.inspect_err(|e| {
+            tracing::warn!(from = %logfmt::host(&req.url), error = %e, "cannot add the download");
+        })?;
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
         let category = req
             .category
@@ -837,6 +957,7 @@ impl Service for Manager {
             String::new()
         };
         let url = req.url.trim().to_owned();
+        let from = logfmt::host(&url);
         if let Some(at) = req.start_at {
             let now = clock::now();
             if req.start_now || at > now + MAX_START_AHEAD_SECS {
@@ -855,7 +976,9 @@ impl Service for Manager {
             // the lock, so two adds cannot both claim the last free gigabytes.
             // `ignore_space`: the user knows better (files may be moved away before it starts).
             let hold = match (info.size, req.ignore_space) {
-                (Some(size), false) => self.check_room(&subdir, size)?,
+                (Some(size), false) => self.check_room(&subdir, size).inspect_err(|e| {
+                    tracing::info!(%name, error = %e, "download refused: it does not fit on the disk");
+                })?,
                 _ => false,
             };
             let found = self.detect_conflict(&url, &subdir, &name).await?;
@@ -904,6 +1027,14 @@ impl Service for Manager {
             self.publish_download(id);
             return self.get(id).map(|d| self.view(d));
         }
+        tracing::info!(
+            id,
+            name = %self.name_of(id),
+            category = category.as_str(),
+            size = %info.size.map_or_else(|| "unknown".to_owned(), logfmt::bytes),
+            from = %from,
+            "download added"
+        );
         let start = self.admit(id);
         self.publish_download(id);
         self.launch(start).await;
@@ -919,6 +1050,7 @@ impl Service for Manager {
             )));
         }
         self.with_db(|c| downloads::set_start_now(c, id).map(|_| ()))?;
+        tracing::info!(id, name = %d.filename, "download now: the download hours no longer apply to it");
         let start = if self.held().remove(&id) {
             self.sched().enqueue(id)
         } else {
@@ -978,6 +1110,13 @@ impl Service for Manager {
             }
         }
         self.with_db(|c| downloads::set_status(c, id, Status::Queued, None).map(|_| ()))?;
+        tracing::info!(
+            id,
+            name = %d.filename,
+            downloaded = %logfmt::bytes(d.downloaded),
+            "{}",
+            if d.status == Status::Failed { "download retried" } else { "download resumed" }
+        );
         let start = self.admit(id);
         self.publish_download(id);
         self.launch(start).await;
@@ -1005,6 +1144,18 @@ impl Service for Manager {
         if delete_file && d.status == Status::Completed {
             self.delete_finished_file(&d).await?;
         }
+        // What the download came to, now that it is over (a cancelled one has stopped counting).
+        let fetched = self.get(id).map_or(d.downloaded, |now| now.downloaded);
+        tracing::info!(
+            id,
+            name = %d.filename,
+            was = d.status.as_str(),
+            size = %d.size.map_or_else(|| "unknown".to_owned(), logfmt::bytes),
+            fetched = %logfmt::bytes(fetched),
+            average = %self.average_of(id, fetched),
+            file_deleted = delete_file && d.status == Status::Completed,
+            "download removed from the list"
+        );
         self.with_db(|c| downloads::delete(c, id).map(|_| ()))?;
         self.publish(Event::Removed { id });
         Ok(())
@@ -1023,6 +1174,7 @@ impl Service for Manager {
         }
         self.with_db(|c| downloads::set_speed_limit(c, id, rate))?;
         self.engine.set_speed_limit(id, rate); // live, if it is running
+        tracing::info!(id, name = %d.filename, limit = %logfmt::limit(rate), "speed of the download changed");
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
     }
@@ -1036,6 +1188,7 @@ impl Service for Manager {
             )));
         }
         self.with_db(|c| downloads::set_archived(c, id, archived))?;
+        tracing::info!(id, name = %d.filename, "{}", if archived { "download archived" } else { "download restored from the archive" });
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
     }
@@ -1044,6 +1197,7 @@ impl Service for Manager {
         if !self.with_db(|c| downloads::set_category(c, id, category))? {
             return Err(Error::NotFound(id));
         }
+        tracing::info!(id, name = %self.name_of(id), category = category.as_str(), "category of the download changed");
         self.publish_download(id);
         self.get(id).map(|d| self.view(d))
     }
@@ -1076,8 +1230,17 @@ impl Service for Manager {
                 new.schedule_timezone
             )));
         }
+        let old = self.current_settings();
         self.with_db(|c| settings::save(c, &new))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
+        let changes = logfmt::settings_changes(&old, &new);
+        if changes.is_empty() {
+            tracing::debug!("settings saved, nothing changed");
+        } else {
+            tracing::info!(changes = %changes.join("; "), "settings changed");
+            // The hours may have moved or been switched: say how they stand once more.
+            *self.hours_seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         // Live: limits touch running downloads, the slot limit only gates new ones.
         self.engine.limiter().set_global(new.speed_global);
         self.engine.set_default_speed(new.speed_per_download);

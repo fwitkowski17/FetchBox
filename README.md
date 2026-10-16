@@ -87,7 +87,7 @@ Everything day to day (connections, limits, category folders, theme, language, u
 | `--block-private-urls` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
 | `FETCHBOX_PASSWORD` | a fixed password (8+ characters) instead of one created in the browser |
 | `FETCHBOX_UPDATE_URL` | use another releases endpoint for the update check (a mirror, a fork) |
-| `RUST_LOG` | log level, e.g. `debug` (default `info`) |
+| `RUST_LOG` | log level, e.g. `debug` (default `info`); at `info` the console shows every added, paused, finished and removed download (with its average speed), settings changes and the download hours |
 
 Put a reverse proxy with HTTPS in front when it is reachable beyond your LAN, and send `X-Forwarded-Proto: https` so the session cookie gets `Secure`. The live updates use server-sent events: switch response buffering off for `/api/events` (the server already sends `X-Accel-Buffering: no`).
 

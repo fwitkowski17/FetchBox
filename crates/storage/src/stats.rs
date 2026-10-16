@@ -11,6 +11,16 @@ const DAY: i64 = 86_400;
 pub const CHART_DAYS: i64 = 14;
 const PEAK_SPEED: &str = "peak_speed";
 
+/// The time a download has spent transferring so far (milliseconds), `0` when none was measured.
+pub fn active_ms(conn: &Connection, id: Id) -> Result<u64> {
+    let ms: Option<i64> = conn
+        .query_row("SELECT active_ms FROM downloads WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    Ok(u64::try_from(ms.unwrap_or(0)).unwrap_or(0))
+}
+
 /// Add time spent transferring to a download (called once per progress tick and when it stops).
 pub fn add_active_ms(conn: &Connection, id: Id, ms: u64) -> Result<()> {
     let ms = i64::try_from(ms).unwrap_or(i64::MAX);

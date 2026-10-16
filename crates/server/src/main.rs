@@ -2,6 +2,7 @@
 
 mod assets;
 mod clock;
+mod logfmt;
 mod manager;
 #[cfg(test)]
 mod tests;
@@ -220,6 +221,7 @@ async fn run() -> anyhow::Result<()> {
     adopt_legacy_database(&args.data_dir)?;
     let db_path = args.data_dir.join("fetchbox.db");
     let db = fetchbox_storage::open(&db_path).context("open database")?;
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "FetchBox starting");
     tracing::info!(db = %db_path.display(), download_dir = %args.download_dir.display(), "storage ready");
 
     let manager = manager::Manager::start(
