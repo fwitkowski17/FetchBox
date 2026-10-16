@@ -51,17 +51,18 @@ $STD apt-get install -y "$deb_file"
 rm -rf "$deb_dir"
 msg_ok "Installed FetchBox"
 
-# The first start prints a one-time setup code; show it, since it is needed to create the account.
-code=""
+# The first start prints a one-time setup code, but it is not shown here: the service makes a new code
+# at every start, and this container may be restarted before it is set up (when a downloads folder is
+# mapped), which would make a code shown now wrong. ct/fetchbox.sh asks the running service for the
+# current one at the very end. All that is needed here is that the service has started.
 for _ in $(seq 1 20); do
-  code="$(journalctl -u fetchbox --no-pager 2>/dev/null | grep -o 'setup code [A-Z0-9]\{8\}' | tail -n1 | awk '{print $3}' || true)"
-  [[ -n "$code" ]] && break
+  systemctl is-active --quiet fetchbox && break
   sleep 1
 done
-if [[ -n "$code" ]]; then
-  msg_ok "Setup code (enter it in the web interface): ${code}"
+if systemctl is-active --quiet fetchbox; then
+  msg_ok "FetchBox is running"
 else
-  msg_warn "Could not read the setup code; see: journalctl -u fetchbox | grep 'setup code'"
+  msg_warn "FetchBox is not running yet; see: systemctl status fetchbox"
 fi
 
 motd_ssh
