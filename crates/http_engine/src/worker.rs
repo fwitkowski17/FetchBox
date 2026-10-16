@@ -32,8 +32,11 @@ pub trait ChunkSource: Send {
     /// The next piece, or `None` at the end.
     async fn next(&mut self) -> Result<Option<Bytes>, EngineError>;
     /// The stream is no longer needed. `complete`: everything that was asked for has arrived (the
-    /// connection can be ended politely); otherwise it is dropped as it is.
-    async fn close(&mut self, _complete: bool) {}
+    /// connection can be ended politely, and a server's last word on the transfer is read); otherwise
+    /// it is dropped as it is. An error is a transfer that the server says did not complete.
+    async fn close(&mut self, _complete: bool) -> Result<(), EngineError> {
+        Ok(())
+    }
 }
 
 /// Where the bytes of a download come from.
@@ -93,7 +96,9 @@ impl Transport {
                 policy,
                 target,
                 address,
-            } => Ok(Box::new(ftp::open(*policy, target, address, from).await?)),
+            } => Ok(Box::new(
+                ftp::open(*policy, target, address, from, to.is_some()).await?,
+            )),
             Transport::Sftp {
                 policy,
                 target,
@@ -196,8 +201,8 @@ async fn fetch(
 ) -> Result<(), EngineError> {
     let mut source = transport.open(write_at, range.map(|(_, to)| to)).await?;
     let result = pump(&mut *source, part, write_at, expected, done, limiter).await;
-    source.close(result.is_ok()).await;
-    result
+    let closed = source.close(result.is_ok()).await;
+    result.and(closed)
 }
 
 /// Write what `source` sends into the `.part` file from `write_at`, until `expected` bytes have

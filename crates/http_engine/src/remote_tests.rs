@@ -337,6 +337,64 @@ async fn folders_are_listed_whatever_style_the_server_uses() {
 }
 
 #[tokio::test]
+async fn a_folder_without_a_trailing_slash_is_found_by_entering_it() {
+    let server = FtpServer::spawn(
+        &[
+            ("pub/sub dir/a.txt", data(3)),
+            ("pub/sub dir/b.txt", data(4)),
+        ],
+        Options {
+            mlsd: false,
+            ..Options::default()
+        },
+    )
+    .await;
+    let (_dir, dl, _rx) = engine();
+    let found = dl
+        .inspect_url(&server.url("ftp", "pub/sub%20dir"), None)
+        .await
+        .expect("inspect");
+    let names: Vec<_> = found
+        .listing
+        .expect("a folder")
+        .entries
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+    // The folder was entered and listed where it is, not looked for inside itself.
+    assert_eq!(names, ["a.txt", "b.txt"]);
+    assert!(server.commands().iter().any(|c| c == "CWD pub/sub dir"));
+    assert!(server.commands().iter().any(|c| c == "LIST"));
+}
+
+#[tokio::test]
+async fn a_cut_transfer_of_unknown_length_is_not_taken_for_a_complete_one() {
+    // Without a size there is nothing to compare the bytes with: only the server's last reply
+    // (426: aborted) says that the transfer was cut, and the download starts over.
+    let body = data(60_000);
+    let options = Options {
+        size: false,
+        feat: false,
+        mlsd: false,
+        cut_after: vec![10_000],
+        ..Options::default()
+    };
+    let server = FtpServer::spawn(&[("a.bin", body.clone())], options).await;
+    let (dir, dl, mut rx) = engine();
+    dl.start(&job(1, server.url("ftp", "a.bin"), "a.bin"))
+        .await
+        .expect("start");
+    assert!(completed(&finish(&mut rx).await));
+    assert_eq!(std::fs::read(dir.path().join("a.bin")).expect("file"), body);
+    let transfers = server
+        .commands()
+        .iter()
+        .filter(|c| c.starts_with("RETR"))
+        .count();
+    assert_eq!(transfers, 2, "{:?}", server.commands());
+}
+
+#[tokio::test]
 async fn a_folder_is_not_a_file_and_a_missing_name_is_said_so() {
     let server = FtpServer::spawn(&[("pub/a.bin", data(5))], Options::default()).await;
     let (_dir, dl, _rx) = engine();

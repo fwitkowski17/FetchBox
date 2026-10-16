@@ -593,14 +593,14 @@ async fn inspect_inner(s: &mut Session, address: &Address) -> Result<Inspected, 
                 "{path:?} is not on the server"
             )));
         }
+    } else if !path.is_empty() && !s.is_dir(&path).await? {
+        return Err(EngineError::NotFound(format!(
+            "the folder {path:?} is not on the server"
+        )));
     }
-    let command = match (s.mlsd, path.is_empty()) {
-        (true, true) => "MLSD".to_owned(),
-        (true, false) => format!("MLSD {path}"),
-        (false, true) => "LIST".to_owned(),
-        (false, false) => format!("LIST {path}"),
-    };
-    let text = s.listing_text(&command).await?;
+    // The folder has been entered (`CWD`): list it where it is. Giving its name again would look
+    // for it inside itself.
+    let text = s.listing_text(if s.mlsd { "MLSD" } else { "LIST" }).await?;
     let raw = if s.mlsd {
         parse_mlsd(&text)
     } else {
@@ -705,6 +705,9 @@ pub struct Chunks {
     session: Session,
     io: Option<BoxIo>,
     buf: Vec<u8>,
+    /// The length of the file is not known, so the server's last reply is the only way to tell a
+    /// complete transfer from one that was cut off.
+    strict: bool,
 }
 
 /// Open `path` from `offset` for the download worker.
@@ -713,6 +716,7 @@ pub async fn open(
     target: &Target,
     address: &Address,
     offset: u64,
+    length_known: bool,
 ) -> Result<Chunks, EngineError> {
     let mut session = connect(policy, target).await?;
     let path = command_path(address);
@@ -721,6 +725,7 @@ pub async fn open(
         session,
         io: Some(io),
         buf: vec![0; CHUNK],
+        strict: !length_known,
     })
 }
 
@@ -748,17 +753,25 @@ impl ChunkSource for Chunks {
         Ok(Some(Bytes::copy_from_slice(&self.buf[..n])))
     }
 
-    async fn close(&mut self, complete: bool) {
+    async fn close(&mut self, complete: bool) -> Result<(), EngineError> {
         // End the data connection first (with TLS, properly): many servers send their final reply
         // only after they have seen it close.
         if let Some(mut io) = self.io.take() {
             let _ = timeout(Duration::from_secs(2), io.shutdown()).await;
         }
+        let mut outcome = Ok(());
         if complete {
-            // The server's last word on the transfer; a refusal here does not undo the bytes.
-            let _ = timeout(Duration::from_secs(5), self.session.read_reply()).await;
+            // The server's last word on the transfer. When the length is known, the bytes that
+            // arrived already say whether it was complete, and a refusal here does not undo them.
+            let last = timeout(Duration::from_secs(5), self.session.read_reply()).await;
+            if let (true, Ok(Ok(reply))) = (self.strict, last) {
+                if !matches!(reply.code, 226 | 250) {
+                    outcome = Err(reply.error());
+                }
+            }
         }
         self.session.quit().await;
+        outcome
     }
 }
 

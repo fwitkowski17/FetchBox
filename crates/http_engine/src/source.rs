@@ -116,15 +116,29 @@ pub fn split_login(
                 EngineError::InvalidUrl("cannot remove the login from the address".into())
             })?;
     }
-    let login = explicit.cloned().or(from_url);
+    // A login that is only a name for nothing is no login.
+    let explicit = explicit.filter(|c| !(c.username.is_empty() && c.password.is_empty()));
+    let login = explicit.cloned().or(from_url.clone());
     if let Some(c) = &login {
+        if c.username.is_empty() {
+            return Err(EngineError::InvalidUrl(
+                "a password needs a user name".into(),
+            ));
+        }
         if has_control(&c.username) || has_control(&c.password) {
             return Err(EngineError::InvalidUrl(
                 "the login contains a control character".into(),
             ));
         }
     }
-    Ok((url.to_string(), login))
+    // An address without a login in it is kept exactly as it was typed (apart from the spaces
+    // around it), not rewritten into the form `Url` prints.
+    let clean = if from_url.is_some() {
+        url.to_string()
+    } else {
+        raw.trim().to_owned()
+    };
+    Ok((clean, login))
 }
 
 /// A character that must never reach a protocol line.
@@ -180,6 +194,33 @@ mod tests {
         assert_eq!(a.path(), "/My Files/ał.iso");
         let a = parse("sftp://[::1]:2222/x").expect("url");
         assert_eq!(a.host(), "::1");
+    }
+
+    #[test]
+    fn an_address_without_a_login_is_kept_as_it_was_typed() {
+        for raw in [
+            "HTTP://Example.COM/a b?x=%7e",
+            "https://h",
+            "ftp://h/My Files/a.iso",
+        ] {
+            let (url, login) = split_login(&format!("  {raw}  "), None).expect("split");
+            assert_eq!(url, raw);
+            assert!(login.is_none());
+        }
+        // An empty login is none; a password without a user name is a mistake.
+        let nothing = Credentials {
+            username: String::new(),
+            password: String::new(),
+        };
+        assert!(split_login("ftp://h/a", Some(&nothing))
+            .expect("split")
+            .1
+            .is_none());
+        let only_password = Credentials {
+            username: String::new(),
+            password: "pw".into(),
+        };
+        assert!(split_login("ftp://h/a", Some(&only_password)).is_err());
     }
 
     #[test]

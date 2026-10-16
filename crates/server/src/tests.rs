@@ -3464,6 +3464,90 @@ mod remote_sources {
     }
 
     #[tokio::test]
+    async fn an_ftp_download_is_paused_and_continues_from_where_it_stopped() {
+        let big: Vec<u8> = (0..300_000).map(|i| (i % 251) as u8).collect();
+        let ftp = FtpServer::spawn(
+            &[("big.bin", big.clone())],
+            FtpOptions {
+                chunk_delay_ms: 20,
+                ..FtpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        let d = h
+            .mgr
+            .add(req(ftp.url("ftp", "big.bin"), None))
+            .await
+            .expect("add");
+        h.wait_status(d.id, Status::Downloading).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        h.mgr.pause(d.id).await.expect("pause");
+        let paused = h.wait_status(d.id, Status::Paused).await;
+        assert!(
+            paused.downloaded > 0 && paused.downloaded < big.len() as u64,
+            "paused part-way: {}",
+            paused.downloaded
+        );
+        h.mgr.resume(d.id).await.expect("resume");
+        h.wait_status(d.id, Status::Completed).await;
+        assert_eq!(file(&h.path("big.bin")), big);
+        // The second transfer asked for the rest, not for everything again.
+        let offset = ftp
+            .commands()
+            .iter()
+            .filter_map(|c| c.strip_prefix("REST ")?.parse::<u64>().ok())
+            .find(|n| *n > 0)
+            .expect("a REST with an offset");
+        assert!(
+            offset <= paused.downloaded,
+            "{offset} > {}",
+            paused.downloaded
+        );
+    }
+
+    #[tokio::test]
+    async fn an_sftp_download_is_paused_and_continues_from_where_it_stopped() {
+        let big: Vec<u8> = (0..4_000_000).map(|i| (i % 251) as u8).collect();
+        let sftp = SftpServer::spawn(
+            &[("/srv/big.bin", big.clone())],
+            SftpOptions {
+                users: users("filip", "s3cret"),
+                read_delay_ms: 30,
+                ..SftpOptions::default()
+            },
+        )
+        .await;
+        let h = Harness::new().await;
+        h.mgr
+            .trust_host(TrustHost {
+                host: "127.0.0.1".into(),
+                port: sftp.addr.port(),
+                key_type: "ssh-ed25519".into(),
+                fingerprint: sftp.fingerprint.clone(),
+            })
+            .await
+            .expect("trust");
+        let d = h
+            .mgr
+            .add(req(sftp.url("srv/big.bin"), Some(login("filip", "s3cret"))))
+            .await
+            .expect("add");
+        h.wait_status(d.id, Status::Downloading).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        h.mgr.pause(d.id).await.expect("pause");
+        let paused = h.wait_status(d.id, Status::Paused).await;
+        assert!(
+            paused.downloaded > 0 && paused.downloaded < big.len() as u64,
+            "paused part-way: {}",
+            paused.downloaded
+        );
+        h.mgr.resume(d.id).await.expect("resume");
+        h.wait_status(d.id, Status::Completed).await;
+        assert_eq!(file(&h.path("big.bin")), big);
+    }
+
+    #[tokio::test]
     async fn a_wrong_password_adds_nothing_and_says_so() {
         let ftp = FtpServer::spawn(
             &[("a.bin", body())],

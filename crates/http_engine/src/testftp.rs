@@ -44,6 +44,9 @@ pub struct Options {
     pub trusted_cert: bool,
     /// Cut the first transfers off after this many bytes (one entry per transfer).
     pub cut_after: Vec<usize>,
+    /// Send a file in pieces of 4 KiB with this many milliseconds between them (0: all at once),
+    /// so that a test has time to pause a transfer.
+    pub chunk_delay_ms: u64,
 }
 
 impl Default for Options {
@@ -61,6 +64,7 @@ impl Default for Options {
             refuse: Vec::new(),
             trusted_cert: true,
             cut_after: Vec::new(),
+            chunk_delay_ms: 0,
         }
     }
 }
@@ -179,6 +183,8 @@ async fn session(sock: TcpStream, state: Arc<State>) -> std::io::Result<()> {
     let mut user = String::new();
     let mut logged_in = false;
     let mut rest = 0usize;
+    // Where relative names are looked for: the login folder until `CWD` says otherwise.
+    let mut cwd = String::new();
     let mut passive: Option<TcpListener> = None;
     let mut protected = opts.security == Security::Implicit;
     let mut line = String::new();
@@ -245,18 +251,20 @@ async fn session(sock: TcpStream, state: Arc<State>) -> std::io::Result<()> {
             "TYPE" => reply(&mut io, "200 binary").await?,
             "PWD" => reply(&mut io, "257 \"/\"").await?,
             "CWD" => {
-                if is_dir(&state, arg) {
+                let target = resolve(&cwd, arg);
+                if is_dir(&state, &target) {
+                    cwd = target;
                     reply(&mut io, "250 ok").await?
                 } else {
                     reply(&mut io, "550 No such directory").await?
                 }
             }
-            "SIZE" if opts.size => match state.files.get(arg) {
+            "SIZE" if opts.size => match state.files.get(&resolve(&cwd, arg)) {
                 Some(d) => reply(&mut io, &format!("213 {}", d.len())).await?,
                 None => reply(&mut io, "550 Could not get file size.").await?,
             },
             "SIZE" => reply(&mut io, "502 not implemented").await?,
-            "MDTM" => match state.files.get(arg) {
+            "MDTM" => match state.files.get(&resolve(&cwd, arg)) {
                 Some(_) => reply(&mut io, "213 20240131120000").await?,
                 None => reply(&mut io, "550 No such file").await?,
             },
@@ -293,7 +301,7 @@ async fn session(sock: TcpStream, state: Arc<State>) -> std::io::Result<()> {
                 .await?
             }
             "RETR" => {
-                let Some(data) = state.files.get(arg) else {
+                let Some(data) = state.files.get(&resolve(&cwd, arg)) else {
                     reply(&mut io, "550 No such file").await?;
                     continue;
                 };
@@ -319,7 +327,18 @@ async fn session(sock: TcpStream, state: Arc<State>) -> std::io::Result<()> {
                         reply(&mut io, "426 Connection closed; transfer aborted.").await?;
                     }
                     _ => {
-                        out.write_all(body).await?;
+                        if opts.chunk_delay_ms > 0 {
+                            for piece in body.chunks(4096) {
+                                out.write_all(piece).await?;
+                                out.flush().await?;
+                                tokio::time::sleep(std::time::Duration::from_millis(
+                                    opts.chunk_delay_ms,
+                                ))
+                                .await;
+                            }
+                        } else {
+                            out.write_all(body).await?;
+                        }
                         out.flush().await?;
                         let _ = out.shutdown().await;
                         drop(out);
@@ -336,14 +355,15 @@ async fn session(sock: TcpStream, state: Arc<State>) -> std::io::Result<()> {
                     reply(&mut io, "425 use PASV first").await?;
                     continue;
                 };
-                if !is_dir(&state, arg) {
+                let target = resolve(&cwd, arg);
+                if !is_dir(&state, &target) {
                     reply(&mut io, "550 No such directory").await?;
                     continue;
                 }
                 reply(&mut io, "150 listing").await?;
                 let (sock, _) = l.accept().await?;
                 let mut out = data_io(&state, sock, protected).await?;
-                out.write_all(listing(&state, arg, cmd == "MLSD").as_bytes())
+                out.write_all(listing(&state, &target, cmd == "MLSD").as_bytes())
                     .await?;
                 out.flush().await?;
                 let _ = out.shutdown().await;
@@ -364,6 +384,21 @@ async fn data_io(state: &State, sock: TcpStream, protected: bool) -> std::io::Re
         (Some(acceptor), true) => Ok(Box::new(acceptor.accept(sock).await?)),
         _ => Ok(Box::new(sock)),
     }
+}
+
+/// What `arg` names when the working directory is `cwd` (both without a leading or trailing slash;
+/// a name that starts with a slash is from the root).
+fn resolve(cwd: &str, arg: &str) -> String {
+    let arg = arg.trim();
+    if let Some(absolute) = arg.strip_prefix('/') {
+        return absolute.trim_end_matches('/').to_owned();
+    }
+    let joined = match (cwd.is_empty(), arg.is_empty()) {
+        (_, true) => cwd.to_owned(),
+        (true, false) => arg.to_owned(),
+        (false, false) => format!("{cwd}/{arg}"),
+    };
+    joined.trim_end_matches('/').to_owned()
 }
 
 fn dir_prefix(path: &str) -> String {

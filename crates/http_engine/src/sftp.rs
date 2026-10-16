@@ -325,8 +325,9 @@ impl ChunkSource for Chunks {
         Ok(Some(Bytes::copy_from_slice(&self.buf[..n])))
     }
 
-    async fn close(&mut self, _complete: bool) {
+    async fn close(&mut self, _complete: bool) -> Result<(), EngineError> {
         self.session.close().await;
+        Ok(())
     }
 }
 

@@ -21,6 +21,9 @@ pub struct Options {
     pub users: HashMap<String, String>,
     /// Cut the first transfers off after this many bytes (one entry per opened file).
     pub cut_after: Vec<usize>,
+    /// Wait this many milliseconds before answering a read (0: at once), so that a test has time
+    /// to pause a transfer.
+    pub read_delay_ms: u64,
 }
 
 struct State {
@@ -281,6 +284,9 @@ impl russh_sftp::server::Handler for Sftp {
         offset: u64,
         len: u32,
     ) -> Result<Data, Self::Error> {
+        if self.state.options.read_delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(self.state.options.read_delay_ms)).await;
+        }
         let data = self
             .state
             .files
