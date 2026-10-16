@@ -7,6 +7,7 @@ const info = (over: Partial<VersionInfo> = {}): VersionInfo => ({
   enabled: true,
   latest: '0.7.0',
   update_available: true,
+  latest_prerelease: false,
   release_url: 'https://github.com/o/r/releases/tag/v0.7.0',
   checked_at: 1,
   check_failed: false,

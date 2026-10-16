@@ -1816,12 +1816,17 @@
         "required": [
           "version",
           "url",
-          "body"
+          "body",
+          "prerelease"
         ],
         "properties": {
           "body": {
             "type": "string",
             "description": "The description of the release (Markdown, shortened when very long). Show it as text."
+          },
+          "prerelease": {
+            "type": "boolean",
+            "description": "A pre-release (`0.7.0-rc.1`); only listed when `Settings::check_prereleases` is on."
           },
           "url": {
             "type": "string",
@@ -1846,6 +1851,10 @@
           "category_subdirs": {
             "type": "boolean",
             "description": "Put new downloads into a subdirectory named after their category (`video/`, `music/`, ...).\nExisting downloads keep the directory they were created with."
+          },
+          "check_prereleases": {
+            "type": "boolean",
+            "description": "Also announce pre-releases (`0.7.0-rc.1`) as updates. Off by default: a pre-release is for\nthose who want to try what is coming and do not mind a rough edge."
           },
           "check_updates": {
             "type": "boolean",
@@ -2189,6 +2198,7 @@
           "current",
           "enabled",
           "update_available",
+          "latest_prerelease",
           "check_failed",
           "notes"
         ],
@@ -2219,6 +2229,10 @@
               "null"
             ],
             "description": "Version of the newest published release, without a leading `v`."
+          },
+          "latest_prerelease": {
+            "type": "boolean",
+            "description": "`latest` is a pre-release (only possible when `Settings::check_prereleases` is on)."
           },
           "notes": {
             "type": "array",

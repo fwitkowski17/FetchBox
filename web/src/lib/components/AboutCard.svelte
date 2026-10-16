@@ -18,6 +18,7 @@
   // Loads on arrival, and again once a change of the switch has been saved.
   $effect(() => {
     void settings.value?.check_updates;
+    void settings.value?.check_prereleases;
     untrack(() => void version.load());
   });
 
@@ -28,10 +29,16 @@
     else if (!result.enabled) toast.info(t('settings.update.off'));
     else if (result.check_failed) toast.warning(t('settings.update.failed'));
     else if (result.update_available && result.latest) {
-      toast.info(t('settings.update.available', { version: result.latest }));
+      toast.info(availableText(result));
       updateNotice.show();
     } else if (result.latest) toast.success(t('settings.update.latestToast', { version: result.current }));
     else toast.info(t('settings.update.none'));
+  }
+
+  /** "Version X is available" or, for a pre-release, "Pre-release X is available". */
+  function availableText(v: { latest?: string | null; latest_prerelease?: boolean }): string {
+    const key = v.latest_prerelease ? 'settings.update.availablePre' : 'settings.update.available';
+    return t(key, { version: v.latest ?? '' });
   }
 
   const info = $derived(version.info);
@@ -55,7 +62,7 @@
         <p class="hint">{t('settings.update.off')}</p>
       {:else if info.update_available && info.latest}
         <p class="flex items-start gap-2 font-semibold text-accent">
-          <Icon name="down" size={18} />{t('settings.update.available', { version: info.latest })}
+          <Icon name="down" size={18} />{availableText(info)}
         </p>
       {:else if info.check_failed}
         <p class="hint">{t('settings.update.failed')}</p>
@@ -95,6 +102,13 @@
   {#if draft}
     <Toggle bind:checked={draft.checkUpdates} hint={t('settings.update.hint')}>
       {t('settings.update.toggle')}
+    </Toggle>
+    <Toggle
+      bind:checked={draft.checkPrereleases}
+      disabled={!draft.checkUpdates}
+      hint={t('settings.update.prereleaseHint')}
+    >
+      {t('settings.update.prereleaseToggle')}
     </Toggle>
   {/if}
 </section>

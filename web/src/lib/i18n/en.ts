@@ -315,6 +315,13 @@ export const en = {
   'settings.update.off': 'Update checks are switched off.',
   'settings.update.checked': 'Last checked: {date}',
   'settings.update.toggle': 'Check for updates automatically',
+  'settings.update.prereleaseToggle': 'Also announce pre-releases',
+  'settings.update.prereleaseHint':
+    'Pre-releases (such as 0.7.0-rc.1) let you try what is coming, and may have rough edges. They are announced here; the installers and the update command of the Proxmox container install only stable versions.',
+  'settings.update.availablePre': 'Pre-release {version} is available.',
+  'update.prerelease': 'pre-release',
+  'update.prereleaseNote':
+    'This is a pre-release: it may have rough edges. Download it from the release page; the commands below install the stable version.',
   'settings.update.hint':
     'The server asks GitHub now and then for the latest release. Only the request itself is sent: the IP address of the server, the program name and its version.',
   'settings.account': 'Account',

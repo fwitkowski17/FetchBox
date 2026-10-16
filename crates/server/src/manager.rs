@@ -915,10 +915,11 @@ impl Service for Manager {
     }
 
     async fn version(&self, refresh: bool) -> Result<VersionInfo> {
-        if !self.current_settings().check_updates {
+        let settings = self.current_settings();
+        if !settings.check_updates {
             return Ok(update::disabled());
         }
-        Ok(self.updates.info(refresh).await)
+        Ok(self.updates.info(refresh, settings.check_prereleases).await)
     }
 
     async fn probe(&self, url: &str) -> Result<UrlInfo> {

@@ -27,6 +27,9 @@
 >
   <div class="grid grid-cols-[minmax(0,1fr)] gap-4" data-part="update-dialog">
     <p>{t('update.intro', { current: info?.current ?? '' })}</p>
+    {#if info?.latest_prerelease}
+      <p class="hint" data-part="prerelease-note">{t('update.prereleaseNote')}</p>
+    {/if}
 
     <section class="grid grid-cols-[minmax(0,1fr)] gap-2">
       <h3 class="font-semibold">{t('update.whatsNew')}</h3>
@@ -35,7 +38,10 @@
           {#each info.notes as note (note.version)}
             <article class="grid gap-1 [&:not(:first-child)]:mt-4 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-border [&:not(:first-child)]:pt-3">
               <h4 class="flex flex-wrap items-baseline justify-between gap-x-3 font-semibold">
-                {t('update.version', { version: note.version })}
+                <span>
+                  {t('update.version', { version: note.version })}
+                  {#if note.prerelease}<span class="ml-1 rounded-full bg-accent-soft px-2 py-0.5 align-middle text-xs font-medium text-accent" data-part="prerelease-badge">{t('update.prerelease')}</span>{/if}
+                </span>
                 {#if note.url.startsWith('https://')}
                   <a class="text-sm font-normal" href={note.url} target="_blank" rel="noopener noreferrer">{t('update.github')}</a>
                 {/if}
