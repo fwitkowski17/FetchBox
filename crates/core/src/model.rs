@@ -478,7 +478,7 @@ pub struct ReleaseNote {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct VersionInfo {
-    /// Version of this program (`0.6.1`).
+    /// Version of this program (`0.8.0`).
     pub current: String,
     /// Update checks are switched on (`Settings::check_updates`). When off, nothing else is set.
     pub enabled: bool,

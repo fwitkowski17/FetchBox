@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag `v<version>` (the version in Cargo.toml, e.g. v0.6.1) and this builds the web UI and the
+# Push a tag `v<version>` (the version in Cargo.toml, e.g. v0.8.0) and this builds the web UI and the
 # binary for x86_64 and aarch64 Linux, wraps each in a DEB and an RPM (packaging/), installs every
 # package in a clean container as a test, then publishes a GitHub Release with the archives and
 # packages attached. The installers (deploy/) and the update check in the app read that release.
