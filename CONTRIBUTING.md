@@ -83,11 +83,11 @@ A test fails when `docs/openapi.json` is stale, and CI fails when the generated 
 
 Translations live in `web/src/lib/i18n/`, one typed dictionary per language, no library. To add one, say German:
 
-1. Copy `pl.ts` to `de.ts` and translate the values. Keep the `{placeholders}` as they are. A message that depends on a count is an object with the plural forms of that language (`one`, `few`, `many`, `other`, whatever it needs; see `downloads.cleared`).
+1. Copy `pl.ts` (the reference) to `de.ts` and translate the values. Keep the `{placeholders}` as they are. A message that depends on a count is an object with the plural forms of that language (`one`, `few`, `many`, `other`, whatever it needs; see `downloads.cleared`).
 2. Add one line to `locales.ts`: `{ code: 'de', name: 'Deutsch', load: async () => (await import('./de')).default }`.
 3. Run `npm run check` and `npm test`.
 
-That is all: the language appears in Settings, is loaded on demand as its own small chunk, and is picked automatically when it matches the browser language. `en.ts` is the source of truth for the keys; the compiler rejects a missing or misspelled key, and the tests reject a changed placeholder or a missing plural form. Then add the language to the table in the README.
+That is all: the language appears in Settings, is loaded on demand as its own small chunk, and is picked automatically when it matches the browser language. Polish is the reference translation (new texts are written in it first); `en.ts` is where the keys are declared in code, and the compiler rejects a missing or misspelled key, and the tests reject a changed placeholder or a missing plural form. Then add the language to the table in the README.
 
 ## Frontend notes
 

@@ -147,10 +147,10 @@ The interface is translated without a library, and a new language is one file an
 
 | Language | Code | Status | Notes |
 | --- | --- | --- | --- |
-| English | `en` | Complete, the reference | all other languages follow its keys |
-| Polski | `pl` | Complete | |
+| Polski | `pl` | Complete, the reference | written first, by the maintainer; new texts are made in Polish |
+| English | `en` | Complete | where the keys are declared in the code (`en.ts`); the other languages follow them |
 
-"Complete" is enforced by the build: a language that lacks a key does not compile, and the tests check placeholders and plural forms. Your language is welcome: [how to add one](CONTRIBUTING.md#adding-a-language) takes an evening for the roughly 400 messages. Messages that come from the backend (for example why a download could not be added) are shown as the server sent them and are not translated yet.
+"Complete" is enforced by the build: a language that lacks a key does not compile, and the tests check placeholders and plural forms. Your language is welcome: [how to add one](CONTRIBUTING.md#adding-a-language) takes an evening for the roughly 400 messages; start from the Polish file and keep its meaning. Messages that come from the backend (for example why a download could not be added) are shown as the server sent them and are not translated yet.
 
 ## Documentation
 
