@@ -27,7 +27,31 @@ const base: Settings = {
   schedule_to: 360,
   schedule_timezone: 'Europe/Warsaw',
   schedule_on_end: 'pause',
+  torrent_down_limit: 0,
+  torrent_up_limit: 0,
 };
+
+describe('torrent limits', () => {
+  it('are shown in a friendly unit and written back in bytes per second', () => {
+    const s: Settings = { ...base, torrent_down_limit: 2 * 1024 * 1024, torrent_up_limit: 512 * 1024 };
+    const d = toDraft(s);
+    expect(d.torrentDown).toEqual({ limited: true, value: 2, unit: 'MB' });
+    expect(d.torrentUp).toEqual({ limited: true, value: 512, unit: 'KB' });
+    expect(fromDraft(d)).toEqual(s);
+  });
+  it('are none for a server that does not know them', () => {
+    const { torrent_down_limit: _a, torrent_up_limit: _b, ...older } = base;
+    expect(toDraft(older).torrentUp.limited).toBe(false);
+    expect(isDirty(toDraft(older), older)).toBe(false);
+  });
+  it('count as unsaved edits and need a positive number when switched on', () => {
+    const d = toDraft(base);
+    d.torrentUp = { limited: true, value: 100, unit: 'KB' };
+    expect(isDirty(d, base)).toBe(true);
+    d.torrentUp = { limited: true, value: 0, unit: 'KB' };
+    expect(validate(d).torrentUp).toBe('speed');
+  });
+});
 
 describe('settings form', () => {
   it('round-trips the server settings', () => {

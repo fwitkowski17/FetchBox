@@ -354,7 +354,12 @@ impl TorrentEngine {
         // The filter's type is not public; it is the JSON of the engine's own HTTP API.
         let filter =
             serde_json::from_value(serde_json::json!({ "state": "all" })).map_err(engine_err)?;
-        let read = read_peers(&live.per_peer_stats_snapshot(filter));
+        let mut read = read_peers(&live.per_peer_stats_snapshot(filter));
+        // Our own port, found on the loopback address by local discovery, is not a peer.
+        if let Some(port) = self.listen_port() {
+            let me = [format!("127.0.0.1:{port}"), format!("[::1]:{port}")];
+            read.retain(|p| !me.contains(&p.address));
+        }
 
         let now = Instant::now();
         let mut samples = self.samples.lock().unwrap_or_else(|e| e.into_inner());
