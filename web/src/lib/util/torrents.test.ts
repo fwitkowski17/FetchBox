@@ -4,8 +4,11 @@ import {
   HISTORY_MS,
   applyTorrentEvent,
   chartPoints,
+  countTorrentGroups,
   filterTorrents,
   isActive,
+  isHeld,
+  isTorrentGroup,
   niceMax,
   primaryAction,
   progressOf,
@@ -35,6 +38,9 @@ function torrent(over: Partial<Torrent> = {}): Torrent {
     added_at: 0,
     finished_at: null,
     error: null,
+    hold: null,
+    starts_at: null,
+    start_now: false,
     ...over,
   };
 }
@@ -172,5 +178,50 @@ describe('speed history', () => {
     expect(niceMax(1.1)).toBe(2);
     expect(niceMax(3_400_000)).toBe(5_000_000);
     expect(niceMax(5_000_001)).toBe(10_000_000);
+  });
+});
+
+describe('torrents held by the torrent hours', () => {
+  it('offer "start now" as the main action, until the user stops them', () => {
+    expect(isHeld(torrent({ status: 'paused', hold: 'window' }))).toBe(true);
+    expect(primaryAction(torrent({ status: 'paused', hold: 'window' }))).toBe('startNow');
+    expect(primaryAction(torrent({ status: 'paused', hold: null }))).toBe('resume');
+    expect(isHeld(torrent({ status: 'downloading' }))).toBe(false);
+  });
+});
+
+describe('status groups', () => {
+  const list = [
+    torrent({ id: 1, status: 'metadata', name: 'Alpha' }),
+    torrent({ id: 2, status: 'downloading', name: 'Beta' }),
+    torrent({ id: 3, status: 'seeding', name: 'Gamma' }),
+    torrent({ id: 4, status: 'paused', name: 'Delta', hold: 'window' }),
+    torrent({ id: 5, status: 'finished', name: 'Epsilon' }),
+    torrent({ id: 6, status: 'error', name: 'Zeta' }),
+  ];
+
+  it('sort the statuses into the panel filters, a torrent waiting for the hours being paused', () => {
+    expect(filterTorrents(list, '', 'active').map((t) => t.id)).toEqual([1, 2]);
+    expect(filterTorrents(list, '', 'seeding').map((t) => t.id)).toEqual([3]);
+    expect(filterTorrents(list, '', 'paused').map((t) => t.id)).toEqual([4]);
+    expect(filterTorrents(list, '', 'finished').map((t) => t.id)).toEqual([5]);
+    expect(filterTorrents(list, '', 'error').map((t) => t.id)).toEqual([6]);
+    expect(filterTorrents(list, '', 'all')).toHaveLength(6);
+  });
+
+  it('combine with the search', () => {
+    expect(filterTorrents(list, 'beta', 'active').map((t) => t.id)).toEqual([2]);
+    expect(filterTorrents(list, 'beta', 'seeding')).toEqual([]);
+  });
+
+  it('are counted among the torrents that match the search', () => {
+    expect(countTorrentGroups(list, '')).toEqual({ all: 6, active: 2, seeding: 1, paused: 1, finished: 1, error: 1 });
+    expect(countTorrentGroups(list, 'ta')).toEqual({ all: 3, active: 1, seeding: 0, paused: 1, finished: 0, error: 1 });
+  });
+
+  it('are recognised when read back from storage', () => {
+    expect(isTorrentGroup('seeding')).toBe(true);
+    expect(isTorrentGroup('nonsense')).toBe(false);
+    expect(isTorrentGroup(3)).toBe(false);
   });
 });

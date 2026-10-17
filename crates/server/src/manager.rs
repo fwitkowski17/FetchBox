@@ -1600,6 +1600,12 @@ impl Service for Manager {
                 new.schedule_timezone
             )));
         }
+        if clock::zone(&new.torrent_schedule_timezone).is_none() {
+            return Err(Error::InvalidInput(format!(
+                "unknown time zone {:?} (use a name like Europe/Warsaw)",
+                new.torrent_schedule_timezone
+            )));
+        }
         let old = self.current_settings();
         self.with_db(|c| settings::save(c, &new))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
@@ -1610,6 +1616,11 @@ impl Service for Manager {
             tracing::info!(target: "activity", changes = %changes.join("; "), "settings changed");
             // The hours may have moved or been switched: say how they stand once more.
             *self.hours_seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            *self
+                .torrents
+                .hours_seen
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
         }
         // Live: limits touch running downloads, the slot limit only gates new ones.
         self.engine.limiter().set_global(new.speed_global);
@@ -1643,6 +1654,10 @@ impl Service for Manager {
 
     async fn resume_torrent(&self, id: Id) -> Result<Torrent> {
         self.torrent_resume(id).await
+    }
+
+    async fn start_torrent_now(&self, id: Id) -> Result<Torrent> {
+        self.torrent_start_now(id).await
     }
 
     async fn remove_torrent(&self, id: Id, delete_files: bool) -> Result<()> {

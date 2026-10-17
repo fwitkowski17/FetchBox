@@ -20,6 +20,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
   - download hours (`schedule_*`, off by default): download only between two times of the day, see 6.3.2
+  - torrent hours (`torrent_schedule_*`, off by default): the same for torrents, set apart from the download hours, see 6.3.2 and 6.13
   - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9); also announce
     pre-releases (`check_prereleases`, off by default)
   - changes apply live without restarting running downloads
@@ -210,7 +211,8 @@ the first version) is the one implementation of the trait for `http`, `ftp` and 
 
 ### 6.3.2 Download hours and start times
 
-For mobile connections with a night package, or a line that must stay free by day.
+For mobile connections with a night package, or a line that must stay free by day. These hours are for downloads; torrents have
+hours of their own (6.13).
 
 - **Download hours** (global, `Settings`): `schedule_enabled`, `schedule_from` and `schedule_to` (minutes after local midnight,
   `to` exclusive; `to` before `from` means over midnight, `22:00`-`06:00`; equal ends are refused while the hours are on) and
@@ -259,7 +261,7 @@ For mobile connections with a night package, or a line that must stay free by da
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases, torrent_down_limit, torrent_up_limit)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases, torrent_down_limit, torrent_up_limit, torrent_schedule_enabled, torrent_schedule_from, torrent_schedule_to, torrent_schedule_timezone)
 - `torrents`: see 6.13.
 
 Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`, `cancelled`.
@@ -296,7 +298,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   success nor failure.)
 - `GET /api/version` and `POST /api/version/check` (see 6.9): `{current, enabled, latest?, update_available, release_url?,
   checked_at?, check_failed, notes, install_method?}`; the `POST` looks again now, at most every 30 s
-- `GET /api/torrents`, `POST /api/torrents {magnet}`, `POST /api/torrents/file` (raw `.torrent` body), `POST /api/torrents/:id/pause|resume`,
+- `GET /api/torrents`, `POST /api/torrents {magnet}`, `POST /api/torrents/file` (raw `.torrent` body), `POST /api/torrents/:id/pause|resume|start-now`,
   `DELETE /api/torrents/:id[?delete_files=true]`, `GET /api/torrents/:id/peers|files` (6.13)
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
@@ -448,11 +450,17 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   progress bars, the space gauge and the disk ring glide to new values; buttons give a small press feedback. Everything
   respects `prefers-reduced-motion`: CSS animations and transitions are cut to nothing in `app.css`, Svelte transitions take
   their duration from `util/motion.ts`, which is 0 then.
-- Layout: side menu. From 64rem a permanent left panel (status and category filters with counts, where "All" is the way back to the list, then, pinned
-  to the bottom, speed, the Statistics and Settings links, theme switch and the disk ring last; there is no separate
-  "Downloads" link, and the filters are marked as current only while the list is shown, not on Statistics or Settings); below that the same panel is a drawer behind a top-bar button (`inert` page behind it, Esc and the
-  backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied filters.
-  Choosing a filter on another page returns to the list. Forms use a narrow column; the card list is a responsive grid.
+- Layout: side menu. From 64rem a permanent left panel; below that the same panel is a drawer behind a top-bar button (`inert` page
+  behind it, Esc and the backdrop close it, focus returns to the button) plus a floating add button on the list and tags for the applied
+  filters. At the top, under the logo, a two-part switch chooses the section: **Downloads** or **Torrents** (links to `#/` and
+  `#/torrents`, the current one marked with `aria-current`; the number of running torrents sits on the Torrents part). Under it come
+  the filters of the section that is shown: for downloads the status and category filters with counts, for torrents the status filters
+  (All, Active, Sending, Paused, Finished, Error, `util/torrents.TORRENT_GROUPS`) with counts that follow the search; "All" is the way
+  back to the list. A torrent waiting for the torrent hours counts as Paused. Statistics and Settings belong to neither section, so the
+  panel keeps showing the filters of the section that was open last and none of them is marked as current there. Pinned to the bottom:
+  the speed (of the section shown), the Statistics and Settings links, the theme switch and the disk ring last. Choosing a filter on
+  another page returns to that section's list. The status filter of the torrents is kept per browser with their sort
+  (`fetchbox.torrents`). Forms use a narrow column; the card list is a responsive grid.
 - First-run wizard (`routes/Setup.svelte`), shown while the server reports `setup_required` and until the user finishes
   it, kept as short as it can be: language, look (theme and accent colour; both applied live and stored like in
   Settings), password (setup code, password, repeat; this creates the account), and a final "All set" screen whose
@@ -619,7 +627,8 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   mirror, a fork, a test server).
 - Settings "About" card (after the password card, before the sign-out card): `FetchBox <version>`, one line of status ("Version X
   is available" with a "View the release" button, "You have the latest version", "No release has been published yet", "Could
-  not check", "switched off"), the time of the last answer, "Check now" and the switch "Check for updates automatically"
+  not check", "switched off"), the time of the last answer, "Check now", a link "Project on GitHub" (the repository the releases come from, `repoOf`: a fork links to
+  itself; opens in a new tab) and the switch "Check for updates automatically"
   (part of the settings form: saved with it, and the answer is fetched again once saved).
 - Settings "Check now" always answers with a toast: the latest version (success), a newer one (info, and the update dialog
   opens), no release published yet, switched off, or could not check (warning).
@@ -680,7 +689,7 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
 - Settings: one line listing only what changed (`connections 4 -> 8; download hours off -> 22:00-06:00 Europe/Warsaw`).
 - Download hours: they opened or closed, how many downloads were released or stopped, and what the end does.
 - Torrents (6.13): the engine started (port, DHT), a torrent added, its description received, stopped, started, finished downloading,
-  failed and removed. A torrent is named, never its peers or trackers.
+  failed and removed; the torrent hours opening and closing, and the torrents they stop and start. A torrent is named, never its peers or trackers.
 - Sign-in and sign-out; a newer version found by the update check; an SSH host key accepted or forgotten (host, port, fingerprint).
 - Never logged: passwords, tokens, setup codes, session ids, and the path and query of a URL (only its host, because an address
   may carry a token). Progress ticks and the 15 s hours check log nothing unless something changes.
@@ -825,6 +834,19 @@ no web UI of its own). It does not implement the `Downloader` trait of 6.1, whos
 - **Limits.** `Settings.torrent_down_limit` and `torrent_up_limit` (bytes/s, `0` = none, applied live through the engine) cap all torrents
   together. They are separate from the limits of downloads, and the download hours do not apply to torrents. Seeding goes on until the
   user stops the torrent, which is why the upload limit exists.
+- **Torrent hours.** Torrents have hours of their own (`Settings.torrent_schedule_enabled`, `_from`, `_to`, `_timezone`; the same rules as
+  6.3.2: minutes after local midnight, `to` exclusive and earlier than `from` means over midnight, an IANA zone, equal ends refused while
+  they are on), independent of the download hours. Receiving and sending are one thing for a torrent, so outside the hours a torrent is
+  **stopped** altogether (no "when the hours end" choice: there is no half-way) and goes on when they open. A tick once a second compares the
+  clock with the hours, so a change of the settings acts at once. The manager keeps the torrents that the hours stopped in a set (`held`, not
+  stored: the clock decides afresh at every start); a torrent the user stopped is never in it and never started by the hours, a torrent
+  added or resumed outside the hours is put in it at once (a magnet link is not even asked for its description), and one that was held is
+  started again when the hours open or are switched off. The list reports such a torrent as `paused` with `hold: "window"` and `starts_at`
+  (unix seconds of the next opening, computed, not stored); `Torrent.start_now` says it is exempt. **"Start now"**
+  (`POST /api/torrents/:id/start-now`, stored as `torrents.start_now`, `409` for a torrent the user stopped) lets one torrent run although
+  the hours are closed, and keeps it running when they close; the user's own stop ends it (the hours decide again when they start it).
+  The engine itself (its port and DHT node) comes up as before; only the transfers follow the hours. The log has a line for the hours
+  opening and closing, and one for each torrent they stop or start.
 - **Security.** Torrent metadata is untrusted: the engine refuses a name that is `..` or has a separator and a torrent without files,
   and does not create symbolic links (the torrent's `symlink` attribute is ignored), so files stay inside `<download dir>/torrents/`.
   Existing files there are overwritten when they differ (the pieces that do not match are fetched again): the folder is FetchBox's. With
@@ -850,12 +872,16 @@ no web UI of its own). It does not implement the `Downloader` trait of 6.1, whos
   button, by Escape (when no dialog is open) or by a click on the same row again) with the tabs *Overview* (all numbers, the info hash and magnet link with copy buttons, the error),
   *Peers* (table, the columns drop out as the width shrinks), *Files* (each with a progress bar) and *Speed* (`SpeedChart`: download and
   upload as step lines over the last three minutes, from the events seen since the page was opened, `util/torrents.pushSample`). The side menu
-  has a "Torrents" link with the number of running ones. `AddTorrentDialog`, `DeleteTorrentDialog` (also deletes the files when asked, off by
-  default); Settings has a "Torrents" card with the two limits. Store: `stores/torrents`, fed by the downloads store's event stream.
+  chooses the section at the top (6.6) and has the torrent status filters. A torrent held by the torrent hours shows the badge "Waiting for
+  the hours", "Starts 01:00" (or "Waiting for the torrent hours") and, as its main button, "Start now" with a pause button beside it.
+  `AddTorrentDialog`, `DeleteTorrentDialog` (also deletes the files when asked, off by
+  default); Settings has a "Torrents" card with the two limits and a "Torrent hours" card (the time fields are the component the download
+  hours use, `HoursFields`). Store: `stores/torrents`, fed by the downloads store's event stream.
 - **Tests.** Engine: two sessions on the loopback (one seeds, one downloads a magnet link or a file: bytes, statuses, peers with speeds,
   files, stop / start / remove with files, restart with the torrent restored and started again). Server: the same through the HTTP API
   (add, duplicate, list, events, peers, files, pause / resume, remove, restart, refused input, trackers at private addresses, torrents
-  not switched on). Frontend: the pure logic (`util/torrents`, `util/torrentInput`). `crates/torrent_engine/examples/seed.rs` is a seeder
+  not switched on, the torrent hours: held, started now, stopped by the user, opened and closed). Frontend: the pure logic (`util/torrents`,
+  `util/torrentInput`, `util/settingsForm`). `crates/torrent_engine/examples/seed.rs` is a seeder
   for trying the screens by hand.
 
 ## 7. Dependencies (Rust)

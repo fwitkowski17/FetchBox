@@ -31,6 +31,7 @@ pub(crate) fn routes() -> Router<Arc<dyn Service>> {
         .route("/torrents/{id}", axum::routing::delete(remove))
         .route("/torrents/{id}/pause", post(pause))
         .route("/torrents/{id}/resume", post(resume))
+        .route("/torrents/{id}/start-now", post(start_now))
         .route("/torrents/{id}/peers", get(peers))
         .route("/torrents/{id}/files", get(files))
 }
@@ -140,6 +141,25 @@ pub(crate) async fn pause(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<Json
 )]
 pub(crate) async fn resume(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<Json<Torrent>> {
     Ok(Json(svc.resume_torrent(id).await?))
+}
+
+/// Let a torrent run although the torrent hours are closed (or keep running when they close). The
+/// exemption ends when the user stops the torrent.
+#[utoipa::path(
+    post,
+    path = "/api/torrents/{id}/start-now",
+    tag = "torrents",
+    security(("session" = []), ("bearer" = [])),
+    params(("id" = i64, Path, description = "Torrent id")),
+    responses(
+        (status = 200, body = Torrent),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "Unknown id", body = ErrorBody),
+        (status = 409, description = "The torrent is stopped", body = ErrorBody),
+    )
+)]
+pub(crate) async fn start_now(State(svc): Svc, Path(id): Path<Id>) -> ApiResult<Json<Torrent>> {
+    Ok(Json(svc.start_torrent_now(id).await?))
 }
 
 /// Query of `DELETE /torrents/{id}`.

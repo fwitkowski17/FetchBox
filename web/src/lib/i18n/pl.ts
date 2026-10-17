@@ -358,6 +358,7 @@ const pl: Messages = {
   'settings.speedUnit.hint':
     'Jak prędkości są pokazywane w aplikacji, np. {example}. Wpisywane limity zachowują jednostkę swojego pola.',
   'settings.about': 'O aplikacji',
+  'settings.about.github': 'Projekt na GitHubie',
   'settings.update.checking': 'Sprawdzam aktualizacje…',
   'settings.update.checkingShort': 'Sprawdzam…',
   'settings.update.check': 'Sprawdź teraz',
@@ -803,6 +804,23 @@ const pl: Messages = {
     'Limity dla wszystkich torrentów razem. Wysyłanie trwa też, gdy torrent jest kompletny, więc limit wysyłania zostawia wolne łącze wychodzące.',
   'settings.torrents.down': 'Limit prędkości odbierania',
   'settings.torrents.up': 'Limit prędkości wysyłania',
+  'settings.torrentSchedule': 'Godziny torrentów',
+  'settings.torrentSchedule.toggle': 'Uruchamiaj torrenty tylko w wybranych godzinach',
+  'settings.torrentSchedule.hint':
+    'Osobno od godzin pobierania. Poza tymi godzinami torrenty są zatrzymane, więc nic nie jest odbierane ani wysyłane, a gdy godziny się zaczną, wracają do pracy. Pojedynczy torrent możesz od razu uruchomić przyciskiem „Uruchom teraz”.',
+  'settings.torrentSchedule.summary': 'Torrenty działają od {from} do {to}.',
+  'settings.torrentSchedule.summaryOvernight': 'Torrenty działają od {from} do {to} następnego dnia.',
+  'settings.torrentSchedule.note':
+    'Torrent zatrzymany przez Ciebie pozostaje zatrzymany, gdy zaczną się godziny. „Uruchom teraz” działa do momentu, gdy zatrzymasz dany torrent.',
+  'nav.sections': 'Sekcje',
+  'torrentGroup.all': 'Wszystkie',
+  'torrentGroup.active': 'Aktywne',
+  'torrentGroup.seeding': 'Wysyłane',
+  'torrentGroup.paused': 'Wstrzymane',
+  'torrentGroup.finished': 'Ukończone',
+  'torrentGroup.error': 'Błąd',
+  'torrent.startNow': 'Uruchom teraz',
+  'torrent.waitingHours': 'Czeka na godziny torrentów',
 
   // ---- errors shown to the user
   'error.network': 'Nie można połączyć się z serwerem.',

@@ -521,6 +521,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrents/{id}/start-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let a torrent run although the torrent hours are closed (or keep running when they close). The
+         *     exemption ends when the user stops the torrent.
+         */
+        post: operations["start_now"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/version": {
         parameters: {
             query?: never;
@@ -1049,6 +1069,24 @@ export interface components {
              */
             torrent_down_limit?: number;
             /**
+             * @description Let torrents run only during set hours (SPEC 6.3.2). Separate from the download hours: a
+             *     swarm is often wanted at other times than a download from a server. Outside the hours a
+             *     torrent is stopped, receiving and sending alike, and goes on when they open.
+             */
+            torrent_schedule_enabled?: boolean;
+            /**
+             * Format: int32
+             * @description Start of the torrent hours, minutes after local midnight.
+             */
+            torrent_schedule_from?: number;
+            /** @description IANA time zone the torrent hours are in. */
+            torrent_schedule_timezone?: string;
+            /**
+             * Format: int32
+             * @description End of the torrent hours (exclusive); earlier than the start means over midnight.
+             */
+            torrent_schedule_to?: number;
+            /**
              * Format: int64
              * @description Speed limit of all torrents together, sending, bytes/s (`0` = none). Seeding goes on until
              *     the user stops a torrent, so this is what keeps the upload line free.
@@ -1189,6 +1227,7 @@ export interface components {
              * @description Unix seconds; set when the last byte arrived.
              */
             finished_at?: number | null;
+            hold?: null | components["schemas"]["Hold"];
             /** Format: int64 */
             id: number;
             /** @description The identity of the torrent: 40 hexadecimal characters (SHA-1 of its `info` dictionary). */
@@ -1220,6 +1259,13 @@ export interface components {
              * @description Total size of the files that are wanted; `None` until the description is known.
              */
             size?: number | null;
+            /** @description The torrent hours do not apply to this torrent ("Start now"). */
+            start_now: boolean;
+            /**
+             * Format: int64
+             * @description Unix seconds when the torrent hours open next (only with `hold`).
+             */
+            starts_at?: number | null;
             status: components["schemas"]["TorrentStatus"];
             /**
              * Format: int64
@@ -2727,6 +2773,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpaceBody"];
+                };
+            };
+        };
+    };
+    start_now: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Torrent id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Torrent"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The torrent is stopped */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };

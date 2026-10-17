@@ -197,6 +197,7 @@ export const api = {
     upload<Torrent>('/torrents/file', bytes, 'application/x-bittorrent'),
   pauseTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/pause`),
   resumeTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/resume`),
+  startTorrentNow: (id: number) => request<Torrent>('POST', `/torrents/${id}/start-now`),
   removeTorrent: (id: number, deleteFiles = false) =>
     request<void>('DELETE', `/torrents/${id}${deleteFiles ? '?delete_files=true' : ''}`),
   torrentPeers: (id: number, signal?: AbortSignal) =>

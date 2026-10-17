@@ -1863,6 +1863,77 @@
         ]
       }
     },
+    "/api/torrents/{id}/start-now": {
+      "post": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "Let a torrent run although the torrent hours are closed (or keep running when they close). The\nexemption ends when the user stops the torrent.",
+        "operationId": "start_now",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Torrent id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Torrent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The torrent is stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/version": {
       "get": {
         "tags": [
@@ -2996,6 +3067,26 @@
             "description": "Speed limit of all torrents together, receiving, bytes/s (`0` = none). Separate from the\nlimits of downloads: a swarm and a server are different things to cap.",
             "minimum": 0
           },
+          "torrent_schedule_enabled": {
+            "type": "boolean",
+            "description": "Let torrents run only during set hours (SPEC 6.3.2). Separate from the download hours: a\nswarm is often wanted at other times than a download from a server. Outside the hours a\ntorrent is stopped, receiving and sending alike, and goes on when they open."
+          },
+          "torrent_schedule_from": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Start of the torrent hours, minutes after local midnight.",
+            "minimum": 0
+          },
+          "torrent_schedule_timezone": {
+            "type": "string",
+            "description": "IANA time zone the torrent hours are in."
+          },
+          "torrent_schedule_to": {
+            "type": "integer",
+            "format": "int32",
+            "description": "End of the torrent hours (exclusive); earlier than the start means over midnight.",
+            "minimum": 0
+          },
           "torrent_up_limit": {
             "type": "integer",
             "format": "int64",
@@ -3207,7 +3298,8 @@
           "peers_connecting",
           "peers_known",
           "file_count",
-          "added_at"
+          "added_at",
+          "start_now"
         ],
         "properties": {
           "added_at": {
@@ -3257,6 +3349,17 @@
             "format": "int64",
             "description": "Unix seconds; set when the last byte arrived."
           },
+          "hold": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Hold",
+                "description": "Why a torrent that should be running waits: the torrent hours are closed (SPEC 6.3.2).\nComputed, not stored; the status is `paused` meanwhile."
+              }
+            ]
+          },
           "id": {
             "type": "integer",
             "format": "int64"
@@ -3302,6 +3405,18 @@
             "format": "int64",
             "description": "Total size of the files that are wanted; `None` until the description is known.",
             "minimum": 0
+          },
+          "start_now": {
+            "type": "boolean",
+            "description": "The torrent hours do not apply to this torrent (\"Start now\")."
+          },
+          "starts_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix seconds when the torrent hours open next (only with `hold`)."
           },
           "status": {
             "$ref": "#/components/schemas/TorrentStatus"

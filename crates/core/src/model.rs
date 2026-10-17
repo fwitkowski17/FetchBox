@@ -239,7 +239,8 @@ pub struct Download {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Hold {
-    /// The download hours are closed (`Settings::schedule_enabled`).
+    /// The hours are closed (`Settings::schedule_enabled` for downloads,
+    /// `Settings::torrent_schedule_enabled` for torrents).
     Window,
     /// It was set to begin at a later time (`Download::start_at`).
     Time,
@@ -319,6 +320,20 @@ pub struct Settings {
     /// the user stops a torrent, so this is what keeps the upload line free.
     #[serde(default)]
     pub torrent_up_limit: u64,
+    /// Let torrents run only during set hours (SPEC 6.3.2). Separate from the download hours: a
+    /// swarm is often wanted at other times than a download from a server. Outside the hours a
+    /// torrent is stopped, receiving and sending alike, and goes on when they open.
+    #[serde(default)]
+    pub torrent_schedule_enabled: bool,
+    /// Start of the torrent hours, minutes after local midnight.
+    #[serde(default)]
+    pub torrent_schedule_from: u16,
+    /// End of the torrent hours (exclusive); earlier than the start means over midnight.
+    #[serde(default = "default_schedule_to")]
+    pub torrent_schedule_to: u16,
+    /// IANA time zone the torrent hours are in.
+    #[serde(default = "default_schedule_timezone")]
+    pub torrent_schedule_timezone: String,
 }
 
 /// What happens to the downloads that are running when the download hours end.
@@ -385,6 +400,10 @@ impl Default for Settings {
             schedule_on_end: OnHoursEnd::Pause,
             torrent_down_limit: 0,
             torrent_up_limit: 0,
+            torrent_schedule_enabled: false,
+            torrent_schedule_from: 0,
+            torrent_schedule_to: default_schedule_to(),
+            torrent_schedule_timezone: default_schedule_timezone(),
         }
     }
 }
@@ -398,6 +417,14 @@ impl Settings {
         crate::schedule::Window {
             from: self.schedule_from,
             to: self.schedule_to,
+        }
+    }
+
+    /// The torrent hours as a window (whether or not they are switched on).
+    pub fn torrent_schedule_window(&self) -> crate::schedule::Window {
+        crate::schedule::Window {
+            from: self.torrent_schedule_from,
+            to: self.torrent_schedule_to,
         }
     }
 
@@ -416,6 +443,11 @@ impl Settings {
         if self.schedule_enabled && !self.schedule_window().is_valid() {
             return Err(crate::Error::InvalidInput(
                 "the download hours need a start and an end that differ (minutes 0..1440)".into(),
+            ));
+        }
+        if self.torrent_schedule_enabled && !self.torrent_schedule_window().is_valid() {
+            return Err(crate::Error::InvalidInput(
+                "the torrent hours need a start and an end that differ (minutes 0..1440)".into(),
             ));
         }
         Ok(())

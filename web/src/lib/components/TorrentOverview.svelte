@@ -4,7 +4,7 @@
   import { i18n, t } from '../i18n';
   import { toast } from '../stores/toast.svelte';
   import { copyText } from '../util/clipboard';
-  import { progressOf, ratioOf } from '../util/torrents';
+  import { isHeld, progressOf, ratioOf } from '../util/torrents';
   import Icon from './Icon.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import TorrentStatusBadge from './TorrentStatusBadge.svelte';
@@ -27,7 +27,7 @@
 <dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3" data-part="overview">
   <div class="grid gap-1">
     <dt class={LABEL}>{t('torrent.field.status')}</dt>
-    <dd><TorrentStatusBadge status={torrent.status} /></dd>
+    <dd><TorrentStatusBadge status={torrent.status} held={isHeld(torrent)} /></dd>
   </div>
   <div class="grid gap-1 sm:col-span-1 lg:col-span-2">
     <dt class={LABEL}>{t('torrent.field.progress')}</dt>

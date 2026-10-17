@@ -342,6 +342,7 @@ export const en = {
   'settings.speedUnit.hint':
     'How speeds are shown in the app, for example {example}. Limits you type keep the unit of their own field.',
   'settings.about': 'About',
+  'settings.about.github': 'Project on GitHub',
   'settings.update.checking': 'Checking for updates…',
   'settings.update.checkingShort': 'Checking…',
   'settings.update.check': 'Check now',
@@ -737,6 +738,23 @@ export const en = {
     'Limits for all torrents together. Sending goes on while a torrent is complete, so a limit on sending keeps your upload line free.',
   'settings.torrents.down': 'Receiving speed limit',
   'settings.torrents.up': 'Sending speed limit',
+  'settings.torrentSchedule': 'Torrent hours',
+  'settings.torrentSchedule.toggle': 'Run torrents only at set hours',
+  'settings.torrentSchedule.hint':
+    'Separate from the download hours. Outside these hours torrents are stopped, so nothing is received or sent, and they go on when the hours open. A single torrent can skip the wait with “Start now”.',
+  'settings.torrentSchedule.summary': 'Torrents run from {from} to {to}.',
+  'settings.torrentSchedule.summaryOvernight': 'Torrents run from {from} until {to} the next day.',
+  'settings.torrentSchedule.note':
+    'A torrent you stopped yourself stays stopped when the hours open. “Start now” lasts until you stop that torrent.',
+  'nav.sections': 'Sections',
+  'torrentGroup.all': 'All',
+  'torrentGroup.active': 'Active',
+  'torrentGroup.seeding': 'Sending',
+  'torrentGroup.paused': 'Paused',
+  'torrentGroup.finished': 'Finished',
+  'torrentGroup.error': 'Error',
+  'torrent.startNow': 'Start now',
+  'torrent.waitingHours': 'Waiting for the torrent hours',
 
   // ---- errors shown to the user
   'error.network': 'Cannot reach the server.',

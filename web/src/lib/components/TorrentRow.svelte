@@ -6,7 +6,8 @@
   import { i18n, t } from '../i18n';
   import { deleteTorrentDialog } from '../stores/deleteTorrentDialog.svelte';
   import { torrents } from '../stores/torrents.svelte';
-  import { primaryAction, progressOf, ratioOf } from '../util/torrents';
+  import { formatWhen } from '../util/schedule';
+  import { isHeld, primaryAction, progressOf, ratioOf } from '../util/torrents';
   import Icon from './Icon.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import TorrentStatusBadge from './TorrentStatusBadge.svelte';
@@ -18,6 +19,7 @@
   const percent = $derived(progress === null ? null : Math.floor(progress * 1000) / 10);
   const action = $derived(primaryAction(torrent));
   const ratio = $derived(ratioOf(torrent));
+  const held = $derived(isHeld(torrent));
   const moving = $derived(torrent.status === 'downloading' || torrent.status === 'seeding');
 
   /** The bar's colours come from the downloads' statuses. */
@@ -35,6 +37,7 @@
 
   function primary(): void {
     if (action === 'pause') void torrents.pause(torrent.id);
+    else if (action === 'startNow') void torrents.startNow(torrent.id);
     else void torrents.resume(torrent.id);
   }
 </script>
@@ -48,8 +51,8 @@
   data-status={torrent.status}
   data-selected={selected ? '' : undefined}
 >
-  <div class="flex items-center gap-2">
-    <h3 class="min-w-0 flex-1 font-semibold">
+  <div class="flex flex-wrap items-center gap-2">
+    <h3 class="min-w-[9rem] flex-1 font-semibold">
       <!-- Stretched over the whole row; the buttons below are raised above it. -->
       <button
         type="button"
@@ -63,7 +66,7 @@
         {torrent.name}
       </button>
     </h3>
-    <TorrentStatusBadge status={torrent.status} />
+    <TorrentStatusBadge status={torrent.status} {held} />
     <button
       type="button"
       class="btn icon ghost relative z-10"
@@ -75,6 +78,19 @@
     >
       <Icon name={action === 'pause' ? 'pause' : action === 'retry' ? 'retry' : 'play'} />
     </button>
+    {#if held}
+      <!-- Waiting for the hours: the main button starts it now, this one stops it for good. -->
+      <button
+        type="button"
+        class="btn icon ghost relative z-10"
+        onclick={() => void torrents.pause(torrent.id)}
+        aria-label={t('torrent.pause')}
+        title={t('torrent.pause')}
+        data-part="torrent-pause"
+      >
+        <Icon name="pause" />
+      </button>
+    {/if}
     <button
       type="button"
       class="btn icon ghost danger relative z-10"
@@ -86,6 +102,14 @@
       <Icon name="trash" />
     </button>
   </div>
+
+  {#if held}
+    <p class="text-sm text-muted" data-part="torrent-starts-at">
+      {torrent.starts_at != null
+        ? t('card.startsAt', { when: formatWhen(torrent.starts_at, i18n.locale) })
+        : t('torrent.waitingHours')}
+    </p>
+  {/if}
 
   {#if torrent.status === 'metadata'}
     <p class="text-sm text-muted">{t('torrent.metadataPending')}</p>
