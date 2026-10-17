@@ -745,6 +745,13 @@ export const en = {
   'settings.torrentSchedule.summaryOvernight': 'Torrents run from {from} until {to} the next day.',
   'settings.torrentSchedule.note':
     'A torrent you stopped yourself stays stopped when the hours open. “Start now” lasts until you stop that torrent.',
+  'nav.sections': 'Sections',
+  'torrentGroup.all': 'All',
+  'torrentGroup.active': 'Active',
+  'torrentGroup.seeding': 'Sending',
+  'torrentGroup.paused': 'Paused',
+  'torrentGroup.finished': 'Finished',
+  'torrentGroup.error': 'Error',
   'torrent.startNow': 'Start now',
   'torrent.waitingHours': 'Waiting for the torrent hours',
 

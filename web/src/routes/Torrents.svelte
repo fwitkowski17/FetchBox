@@ -18,7 +18,12 @@
   } from '../lib/util/torrents';
 
   const visible = $derived(
-    sortTorrents(filterTorrents(torrents.items, torrents.query), torrents.sort, torrents.dir, i18n.locale),
+    sortTorrents(
+      filterTorrents(torrents.items, torrents.query, torrents.group),
+      torrents.sort,
+      torrents.dir,
+      i18n.locale,
+    ),
   );
   const summary = $derived(summarizeTorrents(torrents.items));
   const sortLabel = $derived(t(`sort.${torrents.dir}`));
@@ -103,7 +108,7 @@
 {:else if visible.length === 0}
   <p class="mt-12 text-center text-muted">{t('torrents.noMatch')}</p>
 {:else}
-  <ul class="mt-4 grid gap-2" aria-label={t('torrents.list.label')} data-part="torrent-list">
+  <ul class="mt-4 grid grid-cols-[minmax(0,1fr)] gap-2" aria-label={t('torrents.list.label')} data-part="torrent-list">
     {#each visible as torrent (torrent.id)}
       <li in:fly={{ y: 10, duration: motion(220) }}><TorrentRow {torrent} /></li>
     {/each}

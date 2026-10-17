@@ -228,7 +228,7 @@ Besides `http://` and `https://`, FetchBox downloads from FTP and SFTP servers: 
 
 ## 🧲 Torrents
 
-Open **Torrents** in the side menu and add a magnet link or a `.torrent` file (chosen, or dropped on the dialog; one magnet link per line adds several). Torrents are a list of their own, apart from the downloads: they go to `torrents/` inside the download folder, and the queue, the download hours and the download speed limits do not apply to them. A click on a torrent opens a panel at the bottom with its overview, **peers** (address, client, link, speed of each direction, bytes), **files** and a **speed chart**.
+Open **Torrents** in the side menu and add a magnet link or a `.torrent` file (chosen, or dropped on the dialog; one magnet link per line adds several). Torrents are a list of their own, apart from the downloads: they go to `torrents/` inside the download folder, and the queue, the download hours and the download speed limits do not apply to them (torrents have hours and limits of their own, below). **Downloads** and **Torrents** are chosen at the top of the side menu. A click on a torrent opens a panel at the bottom with its overview, **peers** (address, client, link, speed of each direction, bytes), **files** and a **speed chart**.
 
 | Status | Meaning |
 | --- | --- |
@@ -238,7 +238,7 @@ Open **Torrents** in the side menu and add a magnet link or a `.torrent` file (c
 | Downloading / Sending | receiving data / complete and sending to others (it goes on until you stop the torrent) |
 | Paused / Finished | stopped by you / complete and stopped |
 
-Speed limits for all torrents together (receiving and sending) are in **Settings**. A completed torrent keeps sending, so a limit on sending keeps your upload line free; stop a torrent when you are done with it.
+Speed limits for all torrents together (receiving and sending) and the **torrent hours** are in **Settings**. Outside the torrent hours torrents are stopped (nothing is received or sent) and go on by themselves when the hours open; a torrent you stopped yourself stays stopped, and **Start now** lets one torrent run regardless. A completed torrent keeps sending, so a limit on sending keeps your upload line free; stop a torrent when you are done with it.
 
 - **Open the port** for the best speeds: forward `6881` (TCP and UDP) on your router and allow it in the firewall; with Docker the compose file already publishes it. Without it torrents still work, only fewer peers can reach you.
 - **Seeds are not counted separately.** The BitTorrent library behind FetchBox does not tell which peers have the whole file, so the numbers are peers: connected, connecting, known.

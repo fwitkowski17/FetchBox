@@ -11,6 +11,8 @@ import {
   type SpeedSample,
   type TorrentSortKey,
   TORRENT_SORT_KEYS,
+  isTorrentGroup,
+  type TorrentGroup,
 } from '../util/torrents';
 import { readJson, writeJson } from '../util/storage';
 import { toast } from './toast.svelte';
@@ -20,6 +22,8 @@ const KEY = 'fetchbox.torrents';
 interface Stored {
   sort: TorrentSortKey;
   dir: SortDir;
+  /** The status filter of the side panel. */
+  group: TorrentGroup;
 }
 
 function isStored(v: unknown): v is Stored {
@@ -28,7 +32,9 @@ function isStored(v: unknown): v is Stored {
   return (
     typeof s.sort === 'string' &&
     (TORRENT_SORT_KEYS as readonly string[]).includes(s.sort) &&
-    (s.dir === 'asc' || s.dir === 'desc')
+    (s.dir === 'asc' || s.dir === 'desc') &&
+    // A save from before the filter has none.
+    (s.group === undefined || isTorrentGroup(s.group))
   );
 }
 
@@ -39,7 +45,7 @@ class TorrentsStore {
   /** The torrent whose details are open (the panel at the bottom), if any. */
   selectedId = $state<number | null>(null);
   query = $state('');
-  #stored = $state<Stored>(readJson<Stored>(KEY, { sort: 'added', dir: 'desc' }, isStored));
+  #stored = $state<Stored>(readJson<Stored>(KEY, { sort: 'added', dir: 'desc', group: 'all' }, isStored));
   /** Speed samples by torrent id, from the events seen since the page was opened. */
   history = $state.raw<Record<number, readonly SpeedSample[]>>({});
 
@@ -50,12 +56,21 @@ class TorrentsStore {
     return this.#stored.dir;
   }
 
+  get group(): TorrentGroup {
+    return this.#stored.group ?? 'all';
+  }
+
+  setGroup(group: TorrentGroup): void {
+    this.#stored = { ...this.#stored, group };
+    writeJson(KEY, this.#stored);
+  }
+
   get selected(): Torrent | null {
     return this.items.find((t) => t.id === this.selectedId) ?? null;
   }
 
   setSort(sort: TorrentSortKey): void {
-    this.#stored = { sort, dir: sort === 'name' ? 'asc' : 'desc' };
+    this.#stored = { ...this.#stored, sort, dir: sort === 'name' ? 'asc' : 'desc' };
     writeJson(KEY, this.#stored);
   }
 

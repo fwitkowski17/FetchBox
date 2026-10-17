@@ -811,6 +811,13 @@ const pl: Messages = {
   'settings.torrentSchedule.summaryOvernight': 'Torrenty działają od {from} do {to} następnego dnia.',
   'settings.torrentSchedule.note':
     'Torrent zatrzymany przez Ciebie pozostaje zatrzymany, gdy zaczną się godziny. „Uruchom teraz” działa do momentu, gdy zatrzymasz dany torrent.',
+  'nav.sections': 'Sekcje',
+  'torrentGroup.all': 'Wszystkie',
+  'torrentGroup.active': 'Aktywne',
+  'torrentGroup.seeding': 'Wysyłane',
+  'torrentGroup.paused': 'Wstrzymane',
+  'torrentGroup.finished': 'Ukończone',
+  'torrentGroup.error': 'Błąd',
   'torrent.startNow': 'Uruchom teraz',
   'torrent.waitingHours': 'Czeka na godziny torrentów',
 

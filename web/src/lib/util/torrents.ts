@@ -45,10 +45,60 @@ export function primaryAction(t: Pick<Torrent, 'status' | 'hold'>): TorrentActio
   return 'pause';
 }
 
-export function filterTorrents(items: readonly Torrent[], query: string): Torrent[] {
+/** The status filters of the side panel on the torrents page. */
+export type TorrentGroup = 'all' | 'active' | 'seeding' | 'paused' | 'finished' | 'error';
+
+export const TORRENT_GROUPS: readonly TorrentGroup[] = [
+  'all',
+  'active',
+  'seeding',
+  'paused',
+  'finished',
+  'error',
+];
+
+export function isTorrentGroup(v: unknown): v is TorrentGroup {
+  return typeof v === 'string' && (TORRENT_GROUPS as readonly string[]).includes(v);
+}
+
+/**
+ * Does the torrent belong to the group? "Active" is everything on its way to completion (looking
+ * for peers or receiving), "sending" a complete torrent that is still sending. A torrent waiting for
+ * the torrent hours is "paused" (its status already says so).
+ */
+export function inTorrentGroup(t: Pick<Torrent, 'status'>, group: TorrentGroup): boolean {
+  switch (group) {
+    case 'all':
+      return true;
+    case 'active':
+      return (
+        t.status === 'metadata' ||
+        t.status === 'checking' ||
+        t.status === 'connecting' ||
+        t.status === 'downloading'
+      );
+    default:
+      return t.status === group;
+  }
+}
+
+function matches(t: Torrent, query: string): boolean {
   const q = query.trim().toLowerCase();
-  if (q === '') return items.slice();
-  return items.filter((t) => t.name.toLowerCase().includes(q) || t.info_hash.startsWith(q));
+  return q === '' || t.name.toLowerCase().includes(q) || t.info_hash.startsWith(q);
+}
+
+export function filterTorrents(items: readonly Torrent[], query: string, group: TorrentGroup = 'all'): Torrent[] {
+  return items.filter((t) => matches(t, query) && inTorrentGroup(t, group));
+}
+
+/** How many torrents each group has, among those matching the search (like the downloads' counts). */
+export function countTorrentGroups(items: readonly Torrent[], query: string): Record<TorrentGroup, number> {
+  const counts: Record<TorrentGroup, number> = { all: 0, active: 0, seeding: 0, paused: 0, finished: 0, error: 0 };
+  for (const t of items) {
+    if (!matches(t, query)) continue;
+    for (const g of TORRENT_GROUPS) if (inTorrentGroup(t, g)) counts[g]++;
+  }
+  return counts;
 }
 
 export type TorrentSortKey = 'added' | 'name' | 'size' | 'progress' | 'down' | 'up' | 'status';

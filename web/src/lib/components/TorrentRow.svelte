@@ -51,8 +51,8 @@
   data-status={torrent.status}
   data-selected={selected ? '' : undefined}
 >
-  <div class="flex items-center gap-2">
-    <h3 class="min-w-0 flex-1 font-semibold">
+  <div class="flex flex-wrap items-center gap-2">
+    <h3 class="min-w-[9rem] flex-1 font-semibold">
       <!-- Stretched over the whole row; the buttons below are raised above it. -->
       <button
         type="button"

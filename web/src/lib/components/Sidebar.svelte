@@ -4,11 +4,11 @@
   import { downloads } from '../stores/downloads.svelte';
   import { prefs } from '../stores/prefs.svelte';
   import { torrents } from '../stores/torrents.svelte';
-  import { summarizeTorrents } from '../util/torrents';
+  import { TORRENT_GROUPS, countTorrentGroups, summarizeTorrents, type TorrentGroup } from '../util/torrents';
   import { route, routes, type Route } from '../stores/route';
   import { theme, type ThemePref } from '../stores/theme.svelte';
   import { GROUPS, countCategories, countGroups, summarize, type Group } from '../util/downloads';
-  import { GROUP_COLOR, GROUP_ICON } from '../util/groupStyle';
+  import { GROUP_COLOR, GROUP_ICON, TORRENT_GROUP_COLOR, TORRENT_GROUP_ICON } from '../util/groupStyle';
   import CategoryIcon from './CategoryIcon.svelte';
   import DiskRing from './DiskRing.svelte';
   import Icon, { type IconName } from './Icon.svelte';
@@ -30,9 +30,10 @@
     'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left font-medium text-text no-underline transition-colors hover:bg-surface-2 aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:text-accent aria-[current=page]:bg-accent-soft aria-[current=page]:font-semibold aria-[current=page]:text-accent';
   const COUNT = 'ml-auto text-sm font-normal tabular-nums opacity-60';
   const HEADING = 'mb-1 px-3 text-[0.7rem] font-bold tracking-widest text-muted uppercase';
-  // The list itself is reached through the status filters ("All"), so only the other pages are links;
-  // they sit above the disk ring, next to the other controls.
-  const pageRoutes = routes.filter((r) => r.id !== 'downloads');
+  // Downloads and torrents are the two sections, chosen at the top; the lists are reached through
+  // their status filters ("All"). Only the other pages are links down here, above the disk ring.
+  const pageRoutes = routes.filter((r) => r.id !== 'downloads' && r.id !== 'torrents');
+  const SECTIONS = routes.filter((r) => r.id === 'downloads' || r.id === 'torrents');
   const NAV_ICONS: Record<Route, IconName> = {
     downloads: 'list',
     torrents: 'magnet',
@@ -46,13 +47,22 @@
     black: 'contrast',
   };
 
-  /** The filters belong to the list: on the other pages none of them is marked as current. */
+  /** The filters belong to a list: on the other pages none of them is marked as current. */
   const onList = $derived($route === 'downloads');
+  const onTorrents = $derived($route === 'torrents');
+  // Statistics and Settings belong to neither list: the panel keeps showing the filters of the
+  // section that was open last, so the way back is one click.
+  let lastSection = $state<'downloads' | 'torrents'>($route === 'torrents' ? 'torrents' : 'downloads');
+  $effect(() => {
+    if ($route === 'downloads' || $route === 'torrents') lastSection = $route;
+  });
+  const section = $derived(lastSection);
   const filter = $derived({ group: prefs.group, category: prefs.category, query: prefs.query });
   const groupCounts = $derived(countGroups(downloads.items, filter));
   const categoryCounts = $derived(countCategories(downloads.items, filter));
   const summary = $derived(summarize(downloads.items));
   const torrentSummary = $derived(summarizeTorrents(torrents.items));
+  const torrentCounts = $derived(countTorrentGroups(torrents.items, torrents.query));
 
   /** Filters apply to the list, so choosing one from another page goes back to the list. */
   function showList(): void {
@@ -63,6 +73,12 @@
   function pickGroup(group: Group): void {
     prefs.setGroup(group);
     showList();
+  }
+
+  function pickTorrentGroup(group: TorrentGroup): void {
+    torrents.setGroup(group);
+    if ($route !== 'torrents') location.hash = '#/torrents';
+    onclose();
   }
 
   function pickCategory(category: Category | 'all'): void {
@@ -98,6 +114,44 @@
     </button>
   </div>
 
+  <!-- The two sections come first: what the panel filters below depends on the choice. -->
+  <nav aria-label={t('nav.sections')}>
+    <ul class="grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1" data-part="sections">
+      {#each SECTIONS as r (r.id)}
+        <li>
+          <a
+            class="flex min-h-9 items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-muted no-underline transition-colors hover:text-text aria-[current=page]:bg-surface aria-[current=page]:text-accent aria-[current=page]:shadow-card"
+            href={'#' + r.path}
+            aria-current={$route === r.id ? 'page' : undefined}
+            data-section={r.id}
+            data-last={section === r.id ? '' : undefined}
+            onclick={onclose}
+          >
+            <Icon name={NAV_ICONS[r.id]} size={18} />{t(`nav.${r.id}`)}
+            {#if r.id === 'torrents' && torrentSummary.active > 0}
+              <span class="text-xs font-normal tabular-nums opacity-70" data-part="torrent-count">{torrentSummary.active}</span>
+            {/if}
+          </a>
+        </li>
+      {/each}
+    </ul>
+  </nav>
+
+  {#if section === 'torrents'}
+    <section aria-labelledby="filters-status" data-part="torrent-filters">
+      <h2 id="filters-status" class={HEADING}>{t('filters.status')}</h2>
+      <ul class="grid gap-0.5">
+        {#each TORRENT_GROUPS as g (g)}
+          <li>
+            <button class={ITEM} aria-pressed={onTorrents && torrents.group === g} onclick={() => pickTorrentGroup(g)}>
+              <span class={TORRENT_GROUP_COLOR[g]}><Icon name={TORRENT_GROUP_ICON[g]} size={18} /></span>
+              {t(`torrentGroup.${g}`)}<span class={COUNT}>{torrentCounts[g]}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {:else}
   <section aria-labelledby="filters-status">
     <h2 id="filters-status" class={HEADING}>{t('filters.status')}</h2>
     <ul class="grid gap-0.5">
@@ -129,10 +183,16 @@
       {/each}
     </ul>
   </section>
+  {/if}
 
   <!-- Stays in view while the lists above scroll (short windows, phones). -->
   <div class="sticky -bottom-4 mt-auto -mb-4 -mx-3 grid gap-1 border-t border-border bg-surface px-3 pt-3 pb-4">
-    {#if summary.active > 0}
+    {#if section === 'torrents' && torrentSummary.active > 0}
+      <p class="flex gap-3 px-3 text-sm font-semibold tabular-nums" title={t('app.totalSpeed')}>
+        <span class="text-accent">↓ {i18n.speed(torrentSummary.down)}</span>
+        <span class="text-success">↑ {i18n.speed(torrentSummary.up)}</span>
+      </p>
+    {:else if section === 'downloads' && summary.active > 0}
       <p class="px-3 text-sm font-semibold text-accent tabular-nums" title={t('app.totalSpeed')}>
         ↓ {i18n.speed(summary.speed)}
       </p>
@@ -148,9 +208,6 @@
               onclick={onclose}
             >
               <Icon name={NAV_ICONS[r.id]} size={20} />{t(`nav.${r.id}`)}
-              {#if r.id === 'torrents' && torrentSummary.active > 0}
-                <span class={COUNT} data-part="torrent-count">{torrentSummary.active}</span>
-              {/if}
             </a>
           </li>
         {/each}
