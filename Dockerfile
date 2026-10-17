@@ -22,6 +22,11 @@ FROM gcr.io/distroless/cc-debian13:nonroot
 COPY --from=build /app/target/release/fetchbox /usr/local/bin/fetchbox
 # Tells the app how it was installed, so its update notice shows the Docker Compose steps.
 ENV FETCHBOX_INSTALL_METHOD=docker
-EXPOSE 8080 6881/tcp 6881/udp
+# Inside the container the web interface is on port 80; docker-compose.yml publishes it as 8080 on
+# the host. It is an environment variable, not a flag, so that `-e FETCHBOX_PORT=...` changes it. (A
+# normal user listens below 1024 because Docker sets net.ipv4.ip_unprivileged_port_start=0 in
+# containers; docker-compose.yml says so explicitly.)
+ENV FETCHBOX_PORT=80
+EXPOSE 80 6881/tcp 6881/udp
 VOLUME ["/data", "/downloads"]
-ENTRYPOINT ["/usr/local/bin/fetchbox", "--data-dir", "/data", "--download-dir", "/downloads", "--port", "8080"]
+ENTRYPOINT ["/usr/local/bin/fetchbox", "--data-dir", "/data", "--download-dir", "/downloads"]

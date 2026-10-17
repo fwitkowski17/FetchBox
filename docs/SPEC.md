@@ -695,11 +695,13 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
   manager. A pre-release `0.7.0-rc.1` is `0.7.0~rc.1` inside the package (sorts below `0.7.0`) while the file names keep the tag's
   spelling.
 - **Layout and defaults**: the service runs as the system user `fetchbox`; database and working directory `/var/lib/fetchbox`,
-  downloads `/var/lib/fetchbox/downloads`, port 8080. The unit sets these through `FETCHBOX_DATA_DIR`, `FETCHBOX_DOWNLOAD_DIR` and
+  downloads `/var/lib/fetchbox/downloads`, port 8080 (the Docker image listens on 80 inside, published as 8080 by `docker-compose.yml`
+  through `FETCHBOX_HTTP_PORT`; the Proxmox container on 80, through a drop-in). The unit sets these through `FETCHBOX_DATA_DIR`, `FETCHBOX_DOWNLOAD_DIR` and
   `FETCHBOX_PORT` (the options `--data-dir`, `--download-dir` and `--port` read the same variables; `--block-private-urls` reads
   `FETCHBOX_BLOCK_PRIVATE_URLS`, `--log-activity` `FETCHBOX_LOG_ACTIVITY`), and `/etc/fetchbox/fetchbox.env`, loaded after them,
   overrides them, so changing the port or the download folder needs no edit of the unit. A variable must not be empty. The unit
-  hardens the service (`NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `ProtectSystem=full`, kernel protections) but leaves the
+  hardens the service (`NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `ProtectSystem=full`, kernel protections; the capability bounding
+  set is `CAP_NET_BIND_SERVICE` alone, also ambient, so that the unprivileged user can listen on a port below 1024) but leaves the
   rest of the file system writable, because the download folder can be anywhere.
 - **Maintainer scripts** (POSIX `sh`, the same file for both formats; they tell a first install from an upgrade by the arguments of
   `dpkg` and `rpm`): after installing, create the user `fetchbox` if it does not exist (the Proxmox installer makes it first with

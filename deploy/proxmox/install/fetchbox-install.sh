@@ -15,6 +15,7 @@ update_os
 
 FB_REPO="fwitkowski17/WebDownloadManager"
 FB_UID=1000 # keep in step with ct/fetchbox.sh
+FB_PORT=80  # keep in step with ct/fetchbox.sh
 
 # The program comes as a DEB from the latest GitHub release (built and tested by the release
 # workflow). It brings the systemd unit, /etc/fetchbox/fetchbox.env and the data folder; nothing is
@@ -30,6 +31,13 @@ install -d /etc/systemd/system/fetchbox.service.d
 cat <<'EOT' >/etc/systemd/system/fetchbox.service.d/10-downloads.conf
 [Service]
 Environment=FETCHBOX_DOWNLOAD_DIR=/downloads
+EOT
+# The web interface of this container is on port 80 (the package's default is 8080). The service may
+# listen on it without being root: the package's unit grants that one capability. A drop-in is not a
+# file of the package, and /etc/fetchbox/fetchbox.env (FETCHBOX_PORT=...) overrides it.
+cat <<EOT >/etc/systemd/system/fetchbox.service.d/30-port.conf
+[Service]
+Environment=FETCHBOX_PORT=${FB_PORT}
 EOT
 # Tells the app it runs in this container, so its update notice says to run `update` here.
 cat <<'EOT' >/etc/systemd/system/fetchbox.service.d/20-install-method.conf

@@ -45,7 +45,8 @@ Usage: install.sh [install|update|uninstall|help] [options]
 
 install (default)
   --version X.Y.Z      release to install (default: the latest)
-  --port N             port to listen on (default: 8080)
+  --port N             port of the web interface (default: 8080); it can be changed later with
+                       FETCHBOX_PORT in /etc/fetchbox/fetchbox.env
   --download-dir DIR   where downloads go (default: /var/lib/fetchbox/downloads)
   --user NAME          run as this existing user instead of a new "fetchbox" user, e.g. the
                        owner of a NAS folder
@@ -192,6 +193,13 @@ EOT
 # cannot be changed in the web interface.
 #FETCHBOX_PASSWORD=
 #
+# Port of the web interface (the one given at install time, 8080 unless --port said otherwise). Any
+# port works, also one below 1024: the service is allowed to listen on one.
+#FETCHBOX_PORT=8080
+#
+# Port that BitTorrent peers connect to (TCP and uTP; default 6881).
+#FETCHBOX_TORRENT_PORT=6881
+#
 # Log every download, settings change and sign-in to the journal.
 #FETCHBOX_LOG_ACTIVITY=true
 #
@@ -217,12 +225,17 @@ Group=${svc_group}
 WorkingDirectory=${DATA_DIR}
 # Tells the app how it was installed, so its update notice shows the steps of this script.
 Environment=FETCHBOX_INSTALL_METHOD=script
+# The port is a variable, not a flag, so that ${ENV_FILE} (read next) can change it.
+Environment=FETCHBOX_PORT=${port}
 EnvironmentFile=-${ENV_FILE}
-ExecStart=${BIN} --data-dir ${DATA_DIR} --download-dir ${download_dir} --port ${port}
+ExecStart=${BIN} --data-dir ${DATA_DIR} --download-dir ${download_dir}
 Restart=on-failure
 RestartSec=3
 
-# The service may write to its database and to the downloads, nothing else.
+# The service may write to its database and to the downloads, nothing else. The one privilege it has
+# is listening on a port below 1024 (--port 80, or FETCHBOX_PORT=80 in ${ENV_FILE}) without being root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

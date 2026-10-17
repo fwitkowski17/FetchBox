@@ -89,7 +89,7 @@ docker compose up -d --build
 docker compose logs fetchbox     # the line with the one-time "setup code"
 ```
 
-Open <http://localhost:8080> and create your account with the setup code ([details](#-signing-in)). The database goes to `./data` and the downloads to `./downloads`; change the `volumes:` in `docker-compose.yml` to put the downloads elsewhere (for example `/mnt/nas/downloads:/downloads`). The image is Debian 13 based and runs as the unprivileged user 65532 without a shell, so give it the two folders before the first start (otherwise Docker creates them for root and FetchBox cannot write to them):
+Open <http://localhost:8080> and create your account with the setup code ([details](#-signing-in)). The database goes to `./data` and the downloads to `./downloads`; change the `volumes:` in `docker-compose.yml` to put the downloads elsewhere (for example `/mnt/nas/downloads:/downloads`). Inside the container FetchBox listens on port **80**, and the compose file publishes it as **8080** on the host. For another port on the host put `FETCHBOX_HTTP_PORT=9000` in a `.env` file next to `docker-compose.yml`; `FETCHBOX_PORT` (default `80`) changes the port inside, and the mapping follows it. Running the image without compose, map the container's port 80: `docker run -p 8080:80 ...` (older versions of the image listened on 8080 inside). The image is Debian 13 based and runs as the unprivileged user 65532 without a shell, so give it the two folders before the first start (otherwise Docker creates them for root and FetchBox cannot write to them):
 
 ```bash
 mkdir -p data downloads && sudo chown 65532:65532 data downloads
@@ -104,7 +104,7 @@ export COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/fwitkowski17/WebD
 bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 ```
 
-It creates a small Debian 13 container, installs the `.deb` package from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
+It creates a small Debian 13 container (the web interface is on port **80**, so the address is just `http://<ip>`), installs the `.deb` package from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
 
 ### DEB / RPM package
 
@@ -120,7 +120,7 @@ url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/WebDownloadManager/r
 curl -fsSLO "$url" && sudo dnf install "./$(basename "$url")"
 ```
 
-(Or download the file from the Releases page and give it to `apt install` / `dnf install`. Each file has a `.sha256` next to it.) The installation prints the address, `http://<host>:8080`, and the one-time **setup code** for creating the account (later: `journalctl -u fetchbox | grep 'setup code'`).
+(Or download the file from the Releases page and give it to `apt install` / `dnf install`. Each file has a `.sha256` next to it.) The installation prints the port (**8080**; change it with `FETCHBOX_PORT` in `/etc/fetchbox/fetchbox.env`, then `systemctl restart fetchbox`: the service may listen on a port below 1024, such as 80, without being root) and the one-time **setup code** for creating the account (later: `journalctl -u fetchbox | grep 'setup code'`).
 
 | What | Where |
 | --- | --- |
@@ -189,7 +189,7 @@ Everything day to day (connections, limits, category folders, theme, language, u
 | --- | --- |
 | `--data-dir <dir>` / `FETCHBOX_DATA_DIR` | where the database lives (default `./data`) |
 | `--download-dir <dir>` / `FETCHBOX_DOWNLOAD_DIR` | where files are saved (default `./downloads`) |
-| `--port <port>` / `FETCHBOX_PORT` | TCP port (default `8080`) |
+| `--port <port>` / `FETCHBOX_PORT` | TCP port of the web interface (default `8080`; the Docker image listens on `80` inside, published as `8080`, and a new Proxmox container uses `80`). For the packages and the host script put it in `/etc/fetchbox/fetchbox.env`; a port below 1024 works there too |
 | `--password-file <file>` | read the password from a file, e.g. a Docker secret |
 | `--no-auth` | no password at all: see the caution below |
 | `--block-private-urls` / `FETCHBOX_BLOCK_PRIVATE_URLS` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
