@@ -1,6 +1,6 @@
 //! Server-sent events: progress and status changes (SPEC 6.6).
 //!
-//! Event names: `download`, `progress`, `removed`, `settings`, plus `resync` when this
+//! Event names: `download`, `progress`, `removed`, `settings`, `torrent`, `torrent_removed`, plus `resync` when this
 //! client fell behind and must reload the list. Data is the JSON of [`fetchbox_core::Event`].
 
 use std::convert::Infallible;
@@ -27,12 +27,15 @@ fn event_name(e: &Event) -> &'static str {
         Event::Progress { .. } => "progress",
         Event::Removed { .. } => "removed",
         Event::Settings { .. } => "settings",
+        Event::Torrent { .. } => "torrent",
+        Event::TorrentRemoved { .. } => "torrent_removed",
     }
 }
 
 /// Live updates as server-sent events.
 ///
-/// Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, or
+/// Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, `torrent`,
+/// `torrent_removed`, or
 /// `resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`
 /// (this client fell behind) reload the list with `GET /api/downloads`. Subscribe before
 /// fetching the list so nothing in between is lost.

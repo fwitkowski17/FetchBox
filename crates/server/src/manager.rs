@@ -11,6 +11,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+mod torrents;
+
+pub use torrents::TorrentSetup;
+
 use crate::clock;
 use crate::hostkeys::HostKeyCache;
 use crate::logfmt;
@@ -24,9 +28,10 @@ use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::schedule::Gate;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
-    AddRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace, Download, Downloader,
-    Error, Event, Hold, Id, InstallMethod, Job, KnownHost, OnConflict, OnHoursEnd, Result,
-    Settings, SourceKind, Stats, StatsRange, Status, TrustHost, UrlInfo, UrlKind, VersionInfo,
+    AddRequest, AddTorrentRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace,
+    Download, Downloader, Error, Event, Hold, Id, InstallMethod, Job, KnownHost, OnConflict,
+    OnHoursEnd, Result, Settings, SourceKind, Stats, StatsRange, Status, Torrent, TorrentFile,
+    TorrentPeers, TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
 use fetchbox_http_engine::{
     candidates, source, verify::hash_file, EngineError, HttpDownloader, UrlPolicy,
@@ -95,6 +100,10 @@ pub struct Manager {
     host_keys: Arc<HostKeyCache>,
     /// How this copy was installed, as the installer stated it; picks the update steps the UI shows.
     install_method: Option<InstallMethod>,
+    /// Which destinations downloads (and the trackers of torrents) may use.
+    url_policy: UrlPolicy,
+    /// BitTorrent: the engine and what is kept about it between ticks (see `torrents`).
+    torrents: torrents::Torrents,
 }
 
 impl Manager {
@@ -160,6 +169,8 @@ impl Manager {
             peak_speed: AtomicU64::new(peak_speed),
             updates: UpdateChecker::new(update_source)?,
             install_method,
+            url_policy: policy,
+            torrents: torrents::Torrents::default(),
             held: Mutex::new(HashSet::new()),
             suspended: Mutex::new(HashSet::new()),
             hours_seen: Mutex::new(None),
@@ -1589,6 +1600,12 @@ impl Service for Manager {
                 new.schedule_timezone
             )));
         }
+        if clock::zone(&new.torrent_schedule_timezone).is_none() {
+            return Err(Error::InvalidInput(format!(
+                "unknown time zone {:?} (use a name like Europe/Warsaw)",
+                new.torrent_schedule_timezone
+            )));
+        }
         let old = self.current_settings();
         self.with_db(|c| settings::save(c, &new))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
@@ -1599,10 +1616,16 @@ impl Service for Manager {
             tracing::info!(target: "activity", changes = %changes.join("; "), "settings changed");
             // The hours may have moved or been switched: say how they stand once more.
             *self.hours_seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            *self
+                .torrents
+                .hours_seen
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
         }
         // Live: limits touch running downloads, the slot limit only gates new ones.
         self.engine.limiter().set_global(new.speed_global);
         self.engine.set_default_speed(new.speed_per_download);
+        self.apply_torrent_limits(&new);
         let start = self.sched().set_max_concurrent(new.max_concurrent);
         self.publish(Event::Settings {
             settings: new.clone(),
@@ -1611,6 +1634,42 @@ impl Service for Manager {
         // New download hours (or none) may let waiting downloads go, or stop running ones.
         self.reevaluate().await;
         Ok(new)
+    }
+
+    async fn torrents(&self) -> Result<Vec<Torrent>> {
+        self.torrents_list().await
+    }
+
+    async fn add_torrent_magnet(&self, req: AddTorrentRequest) -> Result<Torrent> {
+        self.torrent_add_magnet(req).await
+    }
+
+    async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<Torrent> {
+        self.torrent_add_file(bytes).await
+    }
+
+    async fn pause_torrent(&self, id: Id) -> Result<Torrent> {
+        self.torrent_pause(id).await
+    }
+
+    async fn resume_torrent(&self, id: Id) -> Result<Torrent> {
+        self.torrent_resume(id).await
+    }
+
+    async fn start_torrent_now(&self, id: Id) -> Result<Torrent> {
+        self.torrent_start_now(id).await
+    }
+
+    async fn remove_torrent(&self, id: Id, delete_files: bool) -> Result<()> {
+        self.torrent_remove(id, delete_files).await
+    }
+
+    async fn torrent_peers(&self, id: Id) -> Result<TorrentPeers> {
+        self.torrent_peers_of(id).await
+    }
+
+    async fn torrent_files(&self, id: Id) -> Result<Vec<TorrentFile>> {
+        self.torrent_files_of(id).await
     }
 
     fn subscribe(&self) -> broadcast::Receiver<Event> {

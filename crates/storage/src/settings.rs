@@ -17,6 +17,12 @@ const SCHEDULE_FROM: &str = "schedule_from";
 const SCHEDULE_TO: &str = "schedule_to";
 const SCHEDULE_TIMEZONE: &str = "schedule_timezone";
 const SCHEDULE_ON_END: &str = "schedule_on_end";
+const TORRENT_DOWN_LIMIT: &str = "torrent_down_limit";
+const TORRENT_UP_LIMIT: &str = "torrent_up_limit";
+const TORRENT_SCHEDULE_ENABLED: &str = "torrent_schedule_enabled";
+const TORRENT_SCHEDULE_FROM: &str = "torrent_schedule_from";
+const TORRENT_SCHEDULE_TO: &str = "torrent_schedule_to";
+const TORRENT_SCHEDULE_TIMEZONE: &str = "torrent_schedule_timezone";
 
 /// Key of the Argon2 hash of the password created in the first-run setup. It lives in the
 /// same table as the settings but is not part of `Settings`, so it never reaches the API.
@@ -66,6 +72,15 @@ pub fn load(conn: &Connection) -> Result<Settings> {
         schedule_to: get_num(conn, SCHEDULE_TO)?.unwrap_or(d.schedule_to),
         schedule_timezone: get_num(conn, SCHEDULE_TIMEZONE)?.unwrap_or(d.schedule_timezone),
         schedule_on_end: get_num(conn, SCHEDULE_ON_END)?.unwrap_or(d.schedule_on_end),
+        torrent_down_limit: get_num(conn, TORRENT_DOWN_LIMIT)?.unwrap_or(d.torrent_down_limit),
+        torrent_up_limit: get_num(conn, TORRENT_UP_LIMIT)?.unwrap_or(d.torrent_up_limit),
+        torrent_schedule_enabled: get_num(conn, TORRENT_SCHEDULE_ENABLED)?
+            .unwrap_or(d.torrent_schedule_enabled),
+        torrent_schedule_from: get_num(conn, TORRENT_SCHEDULE_FROM)?
+            .unwrap_or(d.torrent_schedule_from),
+        torrent_schedule_to: get_num(conn, TORRENT_SCHEDULE_TO)?.unwrap_or(d.torrent_schedule_to),
+        torrent_schedule_timezone: get_num(conn, TORRENT_SCHEDULE_TIMEZONE)?
+            .unwrap_or(d.torrent_schedule_timezone),
     })
 }
 
@@ -92,6 +107,27 @@ pub fn save(conn: &mut Connection, s: &Settings) -> Result<()> {
         stmt.execute(params![SCHEDULE_TO, s.schedule_to.to_string()])?;
         stmt.execute(params![SCHEDULE_TIMEZONE, s.schedule_timezone])?;
         stmt.execute(params![SCHEDULE_ON_END, s.schedule_on_end.as_str()])?;
+        stmt.execute(params![
+            TORRENT_DOWN_LIMIT,
+            s.torrent_down_limit.to_string()
+        ])?;
+        stmt.execute(params![TORRENT_UP_LIMIT, s.torrent_up_limit.to_string()])?;
+        stmt.execute(params![
+            TORRENT_SCHEDULE_ENABLED,
+            s.torrent_schedule_enabled.to_string()
+        ])?;
+        stmt.execute(params![
+            TORRENT_SCHEDULE_FROM,
+            s.torrent_schedule_from.to_string()
+        ])?;
+        stmt.execute(params![
+            TORRENT_SCHEDULE_TO,
+            s.torrent_schedule_to.to_string()
+        ])?;
+        stmt.execute(params![
+            TORRENT_SCHEDULE_TIMEZONE,
+            s.torrent_schedule_timezone
+        ])?;
     }
     tx.commit()?;
     Ok(())
@@ -133,6 +169,12 @@ mod tests {
             schedule_to: 6 * 60,
             schedule_timezone: "Europe/Warsaw".to_owned(),
             schedule_on_end: fetchbox_core::OnHoursEnd::Finish,
+            torrent_down_limit: 2_000_000,
+            torrent_up_limit: 500_000,
+            torrent_schedule_enabled: true,
+            torrent_schedule_from: 23 * 60,
+            torrent_schedule_to: 7 * 60,
+            torrent_schedule_timezone: "Europe/Berlin".to_owned(),
         };
         save(&mut conn, &s).expect("save");
         assert_eq!(load(&conn).expect("load"), s);

@@ -28,6 +28,13 @@ export type Stats = Schemas['Stats'];
 export type StatsRange = Schemas['StatsRange'];
 export type DayStat = Schemas['DayStat'];
 export type CategoryStat = Schemas['CategoryStat'];
+export type Torrent = Schemas['Torrent'];
+export type TorrentStatus = Schemas['TorrentStatus'];
+export type TorrentPeer = Schemas['TorrentPeer'];
+export type TorrentPeers = Schemas['TorrentPeers'];
+export type TorrentFile = Schemas['TorrentFile'];
+export type PeerState = Schemas['PeerState'];
+export type PeerTransport = Schemas['PeerTransport'];
 
 export const CATEGORIES: readonly Category[] = [
   'photo',

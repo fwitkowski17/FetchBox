@@ -19,6 +19,9 @@ export interface Draft {
   maxConcurrent: number;
   perDownload: SpeedDraft;
   global: SpeedDraft;
+  /** Speed limits of all torrents together: receiving and sending. */
+  torrentDown: SpeedDraft;
+  torrentUp: SpeedDraft;
   categorySubdirs: boolean;
   checkUpdates: boolean;
   /** Also announce pre-releases as updates. */
@@ -32,6 +35,11 @@ export interface Draft {
   scheduleTimezone: string;
   /** What running downloads do when the hours end. */
   scheduleOnEnd: 'pause' | 'finish';
+  /** Let torrents run only during their own set hours (independent of the download hours). */
+  torrentScheduleEnabled: boolean;
+  torrentScheduleFrom: string;
+  torrentScheduleTo: string;
+  torrentScheduleTimezone: string;
 }
 
 export function speedToDraft(bytesPerSecond: number): SpeedDraft {
@@ -48,12 +56,20 @@ function scheduleZone(s: Settings): string {
   return !s.schedule_enabled && zone === 'UTC' ? browserZone() : zone;
 }
 
+function torrentScheduleZone(s: Settings): string {
+  const zone = s.torrent_schedule_timezone ?? 'UTC';
+  return !s.torrent_schedule_enabled && zone === 'UTC' ? browserZone() : zone;
+}
+
 export function toDraft(s: Settings): Draft {
   return {
     connections: s.connections,
     maxConcurrent: s.max_concurrent,
     perDownload: speedToDraft(s.speed_per_download),
     global: speedToDraft(s.speed_global),
+    // Older servers do not know the torrent limits: none.
+    torrentDown: speedToDraft(s.torrent_down_limit ?? 0),
+    torrentUp: speedToDraft(s.torrent_up_limit ?? 0),
     categorySubdirs: s.category_subdirs ?? false,
     // Older servers do not know the field; checks are on unless switched off.
     checkUpdates: s.check_updates ?? true,
@@ -65,6 +81,11 @@ export function toDraft(s: Settings): Draft {
     // instead, which is what a person who switches them on means.
     scheduleTimezone: scheduleZone(s),
     scheduleOnEnd: s.schedule_on_end ?? 'pause',
+    // Older servers do not know the torrent hours: off.
+    torrentScheduleEnabled: s.torrent_schedule_enabled ?? false,
+    torrentScheduleFrom: minutesToTime(s.torrent_schedule_from ?? 0),
+    torrentScheduleTo: minutesToTime(s.torrent_schedule_to ?? 360),
+    torrentScheduleTimezone: torrentScheduleZone(s),
   };
 }
 
@@ -74,6 +95,8 @@ export function fromDraft(d: Draft): Settings {
     max_concurrent: d.maxConcurrent,
     speed_per_download: speedFromDraft(d.perDownload),
     speed_global: speedFromDraft(d.global),
+    torrent_down_limit: speedFromDraft(d.torrentDown),
+    torrent_up_limit: speedFromDraft(d.torrentUp),
     category_subdirs: d.categorySubdirs,
     check_updates: d.checkUpdates,
     check_prereleases: d.checkPrereleases,
@@ -82,10 +105,24 @@ export function fromDraft(d: Draft): Settings {
     schedule_to: timeToMinutes(d.scheduleTo) ?? 360,
     schedule_timezone: d.scheduleTimezone.trim(),
     schedule_on_end: d.scheduleOnEnd,
+    torrent_schedule_enabled: d.torrentScheduleEnabled,
+    torrent_schedule_from: timeToMinutes(d.torrentScheduleFrom) ?? 0,
+    torrent_schedule_to: timeToMinutes(d.torrentScheduleTo) ?? 360,
+    torrent_schedule_timezone: d.torrentScheduleTimezone.trim(),
   };
 }
 
-export type Field = 'connections' | 'maxConcurrent' | 'perDownload' | 'global' | 'schedule' | 'timezone';
+export type Field =
+  | 'connections'
+  | 'maxConcurrent'
+  | 'perDownload'
+  | 'global'
+  | 'torrentDown'
+  | 'torrentUp'
+  | 'schedule'
+  | 'timezone'
+  | 'torrentSchedule'
+  | 'torrentTimezone';
 
 /** Which message to show for a field (`settings.error.<code>`); the UI supplies the wording. */
 export type ErrorCode = 'connections' | 'concurrent' | 'speed' | 'schedule' | 'timezone';
@@ -107,11 +144,19 @@ export function validate(d: Draft): Errors {
   }
   if (!isValidSpeed(d.perDownload)) errors.perDownload = 'speed';
   if (!isValidSpeed(d.global)) errors.global = 'speed';
+  if (!isValidSpeed(d.torrentDown)) errors.torrentDown = 'speed';
+  if (!isValidSpeed(d.torrentUp)) errors.torrentUp = 'speed';
   if (d.scheduleEnabled) {
     const from = timeToMinutes(d.scheduleFrom);
     const to = timeToMinutes(d.scheduleTo);
     if (from === null || to === null || from === to) errors.schedule = 'schedule';
     if (!isZone(d.scheduleTimezone)) errors.timezone = 'timezone';
+  }
+  if (d.torrentScheduleEnabled) {
+    const from = timeToMinutes(d.torrentScheduleFrom);
+    const to = timeToMinutes(d.torrentScheduleTo);
+    if (from === null || to === null || from === to) errors.torrentSchedule = 'schedule';
+    if (!isZone(d.torrentScheduleTimezone)) errors.torrentTimezone = 'timezone';
   }
   return errors;
 }
@@ -122,6 +167,8 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.max_concurrent === b.max_concurrent &&
     a.speed_per_download === b.speed_per_download &&
     a.speed_global === b.speed_global &&
+    (a.torrent_down_limit ?? 0) === (b.torrent_down_limit ?? 0) &&
+    (a.torrent_up_limit ?? 0) === (b.torrent_up_limit ?? 0) &&
     (a.category_subdirs ?? false) === (b.category_subdirs ?? false) &&
     (a.check_updates ?? true) === (b.check_updates ?? true) &&
     (a.check_prereleases ?? false) === (b.check_prereleases ?? false) &&
@@ -129,7 +176,11 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     (a.schedule_from ?? 0) === (b.schedule_from ?? 0) &&
     (a.schedule_to ?? 360) === (b.schedule_to ?? 360) &&
     (a.schedule_timezone ?? 'UTC') === (b.schedule_timezone ?? 'UTC') &&
-    (a.schedule_on_end ?? 'pause') === (b.schedule_on_end ?? 'pause')
+    (a.schedule_on_end ?? 'pause') === (b.schedule_on_end ?? 'pause') &&
+    (a.torrent_schedule_enabled ?? false) === (b.torrent_schedule_enabled ?? false) &&
+    (a.torrent_schedule_from ?? 0) === (b.torrent_schedule_from ?? 0) &&
+    (a.torrent_schedule_to ?? 360) === (b.torrent_schedule_to ?? 360) &&
+    (a.torrent_schedule_timezone ?? 'UTC') === (b.torrent_schedule_timezone ?? 'UTC')
   );
 }
 

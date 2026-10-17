@@ -3,6 +3,8 @@
   import { fade, fly, scale } from 'svelte/transition';
   import { setUnauthorizedHandler } from './lib/api/client';
   import AddDownloadDialog from './lib/components/AddDownloadDialog.svelte';
+  import AddTorrentDialog from './lib/components/AddTorrentDialog.svelte';
+  import DeleteTorrentDialog from './lib/components/DeleteTorrentDialog.svelte';
   import ConfirmHost from './lib/components/ConfirmHost.svelte';
   import ConnectionOverlay from './lib/components/ConnectionOverlay.svelte';
   import DeleteDownloadDialog from './lib/components/DeleteDownloadDialog.svelte';
@@ -14,6 +16,7 @@
   import UpdateDialog from './lib/components/UpdateDialog.svelte';
   import { i18n, t } from './lib/i18n';
   import { addDialog } from './lib/stores/addDialog.svelte';
+  import { addTorrentDialog } from './lib/stores/addTorrentDialog.svelte';
   import { auth } from './lib/stores/auth.svelte';
   import { updateNotice } from './lib/stores/updateNotice.svelte';
   import { version } from './lib/stores/version.svelte';
@@ -24,12 +27,14 @@
   import { selection } from './lib/stores/selection.svelte';
   import { settings } from './lib/stores/settings.svelte';
   import { theme } from './lib/stores/theme.svelte';
+  import { torrents } from './lib/stores/torrents.svelte';
   import { summarize } from './lib/util/downloads';
   import { motion } from './lib/util/motion';
   import Downloads from './routes/Downloads.svelte';
   import Login from './routes/Login.svelte';
   import Settings from './routes/Settings.svelte';
   import Stats from './routes/Stats.svelte';
+  import Torrents from './routes/Torrents.svelte';
   import Setup from './routes/Setup.svelte';
 
   /** Old links and bookmarks to `#/add` now open the dialog over the list. */
@@ -185,6 +190,8 @@
           <div in:fly={{ y: 8, duration: motion(180) }}>
             {#if $route === 'downloads'}
               <Downloads />
+            {:else if $route === 'torrents'}
+              <Torrents />
             {:else if $route === 'stats'}
               <Stats />
             {:else}
@@ -195,15 +202,15 @@
       </main>
     </div>
 
-    {#if !media.desktop && $route === 'downloads' && !selection.active}
+    {#if !media.desktop && ($route === 'downloads' || ($route === 'torrents' && torrents.selectedId === null)) && !selection.active}
       <button
         in:scale={{ start: 0.6, duration: motion(200) }}
         out:fade={{ duration: motion(120) }}
         class="fixed right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-10 grid size-14 place-items-center rounded-full bg-accent text-accent-contrast shadow-lg transition-transform active:scale-90"
-        aria-label={t('nav.add')}
-        title={t('nav.add')}
+        aria-label={t($route === 'torrents' ? 'torrents.add' : 'nav.add')}
+        title={t($route === 'torrents' ? 'torrents.add' : 'nav.add')}
         data-part="fab"
-        onclick={() => addDialog.show()}
+        onclick={() => ($route === 'torrents' ? addTorrentDialog.show() : addDialog.show())}
       >
         <Icon name="plus" size={26} />
       </button>
@@ -211,6 +218,8 @@
   </div>
 
   <AddDownloadDialog />
+  <AddTorrentDialog />
+  <DeleteTorrentDialog />
   <DeleteDownloadDialog />
   <SpeedLimitDialog />
   <UpdateDialog />

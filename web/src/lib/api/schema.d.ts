@@ -243,7 +243,8 @@ export interface paths {
         };
         /**
          * Live updates as server-sent events.
-         * @description Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, or
+         * @description Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, `torrent`,
+         *     `torrent_removed`, or
          *     `resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`
          *     (this client fell behind) reload the list with `GET /api/downloads`. Subscribe before
          *     fetching the list so nothing in between is lost.
@@ -384,6 +385,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * All torrents, newest first. Live numbers (speed, peers, progress) come as `torrent` events on
+         *     `/api/events`; this is the state to start from.
+         */
+        get: operations["list"];
+        put?: never;
+        /**
+         * Add a torrent by magnet link.
+         * @description The torrent shows up at once with the status `metadata`; its name and files arrive from the
+         *     swarm, which can take a while (or never happen when nobody has it).
+         */
+        post: operations["add_magnet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a torrent from a `.torrent` file: the raw bytes of the file as the request body
+         *     (`Content-Type: application/x-bittorrent`), at most 8 MiB.
+         */
+        post: operations["add_file"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a torrent from the list; with `delete_files=true` its data goes too. */
+        delete: operations["remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The files of a torrent and how much of each is on disk. Empty until the description of the
+         *     torrent has arrived.
+         */
+        get: operations["files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a torrent. What it has stays on disk; it stops sending to others too. */
+        post: operations["pause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{id}/peers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The peers of a torrent, with the speed of each. Poll it while a panel is open; it is not part
+         *     of the event stream. The list is empty while the torrent is stopped.
+         */
+        get: operations["peers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a stopped torrent (or try again after an error). */
+        post: operations["resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{id}/start-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let a torrent run although the torrent hours are closed (or keep running when they close). The
+         *     exemption ends when the user stops the torrent.
+         */
+        post: operations["start_now"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/version": {
         parameters: {
             query?: never;
@@ -448,6 +605,14 @@ export interface components {
             /** @description "Download now": do not wait for the download hours, which apply to this download otherwise. */
             start_now?: boolean;
             url: string;
+        };
+        /**
+         * @description Add a torrent by magnet link. A `.torrent` file is sent as the raw body of
+         *     `POST /api/torrents/file` instead.
+         */
+        AddTorrentRequest: {
+            /** @description A `magnet:?xt=urn:btih:...` link. */
+            magnet: string;
         };
         /** @description What the UI needs to decide whether to show the login screen. */
         AuthStatus: {
@@ -689,6 +854,15 @@ export interface components {
             settings: components["schemas"]["Settings"];
             /** @enum {string} */
             type: "settings";
+        } | {
+            torrent: components["schemas"]["Torrent"];
+            /** @enum {string} */
+            type: "torrent";
+        } | {
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            type: "torrent_removed";
         };
         /** @description Liveness probe. */
         Health: {
@@ -807,6 +981,10 @@ export interface components {
          * @enum {string}
          */
         OnHoursEnd: "pause" | "finish";
+        /** @enum {string} */
+        PeerState: "queued" | "connecting" | "connected" | "idle" | "dead";
+        /** @enum {string} */
+        PeerTransport: "tcp" | "utp" | "socks";
         /** @description Request to look at a URL before adding it. */
         ProbeRequest: {
             credentials?: null | components["schemas"]["Credentials"];
@@ -884,6 +1062,36 @@ export interface components {
              *     (`Download::speed_limit`) ignores it.
              */
             speed_per_download: number;
+            /**
+             * Format: int64
+             * @description Speed limit of all torrents together, receiving, bytes/s (`0` = none). Separate from the
+             *     limits of downloads: a swarm and a server are different things to cap.
+             */
+            torrent_down_limit?: number;
+            /**
+             * @description Let torrents run only during set hours (SPEC 6.3.2). Separate from the download hours: a
+             *     swarm is often wanted at other times than a download from a server. Outside the hours a
+             *     torrent is stopped, receiving and sending alike, and goes on when they open.
+             */
+            torrent_schedule_enabled?: boolean;
+            /**
+             * Format: int32
+             * @description Start of the torrent hours, minutes after local midnight.
+             */
+            torrent_schedule_from?: number;
+            /** @description IANA time zone the torrent hours are in. */
+            torrent_schedule_timezone?: string;
+            /**
+             * Format: int32
+             * @description End of the torrent hours (exclusive); earlier than the start means over midnight.
+             */
+            torrent_schedule_to?: number;
+            /**
+             * Format: int64
+             * @description Speed limit of all torrents together, sending, bytes/s (`0` = none). Seeding goes on until
+             *     the user stops a torrent, so this is what keeps the upload line free.
+             */
+            torrent_up_limit?: number;
         };
         /** @description First-run account creation. */
         SetupRequest: {
@@ -985,6 +1193,165 @@ export interface components {
          * @enum {string}
          */
         Status: "queued" | "downloading" | "paused" | "verifying" | "completed" | "failed" | "cancelled";
+        /** @description One torrent as the UI shows it. */
+        Torrent: {
+            /**
+             * Format: int64
+             * @description Unix seconds.
+             */
+            added_at: number;
+            /**
+             * Format: int64
+             * @description Bytes per second from the swarm now.
+             */
+            down_speed: number;
+            /**
+             * Format: int64
+             * @description Bytes of those files that are on disk and checked.
+             */
+            downloaded: number;
+            /** @description Why the torrent stopped (`status` is `error`), or a note such as a full disk. */
+            error?: string | null;
+            /**
+             * Format: int64
+             * @description Seconds left at the current speed.
+             */
+            eta?: number | null;
+            /**
+             * Format: int32
+             * @description Number of files in the torrent; `0` until the description is known.
+             */
+            file_count: number;
+            /**
+             * Format: int64
+             * @description Unix seconds; set when the last byte arrived.
+             */
+            finished_at?: number | null;
+            hold?: null | components["schemas"]["Hold"];
+            /** Format: int64 */
+            id: number;
+            /** @description The identity of the torrent: 40 hexadecimal characters (SHA-1 of its `info` dictionary). */
+            info_hash: string;
+            /** @description The magnet link the torrent was added with; none for a `.torrent` file. */
+            magnet?: string | null;
+            /**
+             * @description The name inside the torrent; the name from the magnet link (or the hash) until the
+             *     description has arrived.
+             */
+            name: string;
+            /**
+             * Format: int32
+             * @description Peers we are connected to.
+             */
+            peers_connected: number;
+            /**
+             * Format: int32
+             * @description Peers we are trying to connect to.
+             */
+            peers_connecting: number;
+            /**
+             * Format: int32
+             * @description Peers heard of (from trackers, DHT, other peers), connected or not.
+             */
+            peers_known: number;
+            /**
+             * Format: int64
+             * @description Total size of the files that are wanted; `None` until the description is known.
+             */
+            size?: number | null;
+            /** @description The torrent hours do not apply to this torrent ("Start now"). */
+            start_now: boolean;
+            /**
+             * Format: int64
+             * @description Unix seconds when the torrent hours open next (only with `hold`).
+             */
+            starts_at?: number | null;
+            status: components["schemas"]["TorrentStatus"];
+            /**
+             * Format: int64
+             * @description Bytes per second to the swarm now.
+             */
+            up_speed: number;
+            /**
+             * Format: int64
+             * @description Bytes sent to other peers, over all runs of the program.
+             */
+            uploaded: number;
+        };
+        /** @description A file inside a torrent. */
+        TorrentFile: {
+            /**
+             * Format: int64
+             * @description Bytes of this file that are on disk and checked.
+             */
+            downloaded: number;
+            /** @description Path inside the torrent, `/` separated. */
+            path: string;
+            /** Format: int64 */
+            size: number;
+        };
+        /** @description A peer we know about. */
+        TorrentPeer: {
+            /** @description `ip:port`. */
+            address: string;
+            /** @description The program the peer runs, as it names itself (`qBittorrent 5.0`). */
+            client?: string | null;
+            /**
+             * Format: int64
+             * @description Bytes per second from this peer now.
+             */
+            down_speed: number;
+            /**
+             * Format: int64
+             * @description Bytes received from this peer since it was first connected.
+             */
+            downloaded: number;
+            state: components["schemas"]["PeerState"];
+            transport?: null | components["schemas"]["PeerTransport"];
+            /**
+             * Format: int64
+             * @description Bytes per second to this peer now.
+             */
+            up_speed: number;
+            /**
+             * Format: int64
+             * @description Bytes sent to this peer.
+             */
+            uploaded: number;
+        };
+        /** @description The peers of a torrent, with the counts of every state. */
+        TorrentPeers: {
+            /** Format: int32 */
+            connected: number;
+            /** Format: int32 */
+            connecting: number;
+            /** Format: int32 */
+            dead: number;
+            /** Format: int32 */
+            idle: number;
+            /**
+             * Format: int32
+             * @description Peers heard of in total.
+             */
+            known: number;
+            /**
+             * @description Connected peers first (fastest first), then those being connected, then the rest; at most
+             *     [`MAX_PEERS_LISTED`].
+             */
+            peers: components["schemas"]["TorrentPeer"][];
+            /** Format: int32 */
+            queued: number;
+            /** @description The list was cut at the limit. */
+            truncated: boolean;
+        };
+        /**
+         * @description What a torrent is doing now, in the words a BitTorrent client uses.
+         *
+         *     The engine only knows "initialising", "live", "paused" and "error"; the rest is read from the
+         *     numbers (peers, progress) by [`TorrentStatus::derive`].
+         * @enum {string}
+         */
+        TorrentStatus: "metadata" | "checking" | "connecting" | "downloading" | "seeding" | "paused" | "finished" | "error";
         /** @description Request to accept the host key of an SSH server: send back what a refused add showed. */
         TrustHost: {
             fingerprint: string;
@@ -1049,7 +1416,7 @@ export interface components {
              * @description When the answer was obtained (unix seconds); `None` if no check has succeeded yet.
              */
             checked_at?: number | null;
-            /** @description Version of this program (`0.8.1`). */
+            /** @description Version of this program (`0.9.0`). */
             current: string;
             /** @description Update checks are switched on (`Settings::check_updates`). When off, nothing else is set. */
             enabled: boolean;
@@ -2027,6 +2394,429 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Torrent"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    add_magnet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTorrentRequest"];
+            };
+        };
+        responses: {
+            /** @description Added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Torrent"];
+                };
+            };
+            /** @description Not a magnet link, or a tracker at a private address while those are blocked */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The torrent has been added already */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The BitTorrent engine could not start (the port is in use, ...) */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    add_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-bittorrent": number[];
+            };
+        };
+        responses: {
+            /** @description Added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Torrent"];
+                };
+            };
+            /** @description Not a usable .torrent file, or a tracker at a private address while those are blocked */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The torrent has been added already */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The file is too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The BitTorrent engine could not start */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The files of the torrent do not fit into the free disk space */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceBody"];
+                };
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Torrent id */
+                id: number;
+                /** @description Also delete the downloaded files from the disk. */
+                delete_files: boolean;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    files: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Torrent id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentFile"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pause: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Torrent id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Torrent"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    peers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Torrent id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentPeers"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Torrent id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Torrent"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description What is left does not fit into the free disk space */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceBody"];
+                };
+            };
+        };
+    };
+    start_now: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Torrent id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Torrent"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The torrent is stopped */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

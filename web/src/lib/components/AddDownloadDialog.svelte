@@ -21,6 +21,8 @@
   import NoSpaceDialog from './NoSpaceDialog.svelte';
   import { i18n, t } from '../i18n';
   import { addDialog } from '../stores/addDialog.svelte';
+  import { addTorrentDialog } from '../stores/addTorrentDialog.svelte';
+  import { isMagnet } from '../util/torrentInput';
   import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
   import { ALGOS, algoLabel, checkChecksum, detectAlgo } from '../util/checksum';
@@ -55,7 +57,17 @@
   }
 
   const urlOk = $derived(isSourceUrl(url));
-  const showUrlHint = $derived(url.trim() !== '' && !urlOk);
+  /** A magnet link is not an address to download from: it belongs in the torrents. */
+  const magnet = $derived(isMagnet(url));
+  const showUrlHint = $derived(url.trim() !== '' && !urlOk && !magnet);
+
+  function openAsTorrent(): void {
+    const link = url.trim();
+    url = '';
+    addDialog.hide();
+    addTorrentDialog.show(link);
+    if (location.hash !== '#/torrents') location.hash = '#/torrents';
+  }
 
   /** What the server says about the address, shown under the field. Failing to look is never a
    *  reason to block the add (the add itself reports a real problem). */
@@ -410,6 +422,13 @@
       <p id="url-hint" class={['hint', showUrlHint && 'text-warning']}>
         {showUrlHint ? t('add.address.invalid') : listing ? t('add.listing.title') : t('add.address.hint')}
       </p>
+      {#if magnet}
+        <p class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-accent-soft px-3 py-2 text-sm" data-part="magnet-hint">
+          <Icon name="magnet" size={18} />
+          <span class="min-w-0 flex-1">{t('torrent.add.magnetHint')}</span>
+          <button type="button" class="btn primary" onclick={openAsTorrent}>{t('torrent.add.asTorrent')}</button>
+        </p>
+      {/if}
       <div id="url-probe" class={['text-sm', !listing && 'min-h-6']} aria-live="polite" data-part="probe" data-state={probe.state}>
         {#if probe.state === 'checking'}
           <p class="text-muted">{t('add.probe.checking')}</p>

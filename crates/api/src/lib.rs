@@ -6,6 +6,7 @@ pub mod openapi;
 pub mod routes;
 pub mod service;
 pub mod sse;
+mod torrents;
 
 use std::sync::Arc;
 

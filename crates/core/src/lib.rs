@@ -10,6 +10,7 @@ pub mod model;
 pub mod schedule;
 pub mod scheduler;
 pub mod stats;
+pub mod torrent;
 
 use async_trait::async_trait;
 
@@ -22,6 +23,10 @@ pub use model::{
     SourceKind, Status, TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
 pub use stats::{CategoryStat, DayStat, LargestFile, Stats, StatsRange};
+pub use torrent::{
+    AddTorrentRequest, PeerState, PeerTransport, Torrent, TorrentFile, TorrentPeer, TorrentPeers,
+    TorrentStatus, MAX_MAGNET_LEN, MAX_PEERS_LISTED, MAX_TORRENT_FILE,
+};
 
 /// Backend that actually moves bytes (HTTP now, BitTorrent later).
 #[async_trait]

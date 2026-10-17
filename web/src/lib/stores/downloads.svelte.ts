@@ -7,6 +7,7 @@ import { applyEvent } from '../util/downloads';
 import { retryDelay } from '../util/retry';
 import { i18n } from '../i18n';
 import { toast } from './toast.svelte';
+import { torrents } from './torrents.svelte';
 
 export type Connection = 'connecting' | 'live' | 'offline';
 
@@ -17,7 +18,14 @@ interface Hooks {
   onSettings: (s: Settings) => void;
 }
 
-const EVENT_NAMES = ['download', 'progress', 'removed', 'settings'] as const;
+const EVENT_NAMES = [
+  'download',
+  'progress',
+  'removed',
+  'settings',
+  'torrent',
+  'torrent_removed',
+] as const;
 
 class DownloadsStore {
   items = $state.raw<Download[]>([]);
@@ -50,6 +58,7 @@ class DownloadsStore {
     // The list does not wait for the stream to open: both travel at once, and the reload on open
     // below still closes any gap between them.
     if (!this.loaded) void this.reload();
+    if (!torrents.loaded) void torrents.reload();
 
     es.onopen = () => {
       this.connection = 'live';
@@ -57,6 +66,7 @@ class DownloadsStore {
       this.#attempt = 0;
       // Also after a reconnect: events sent while we were away are gone, the list is not.
       void this.reload();
+      void torrents.reload();
     };
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) {
@@ -72,7 +82,10 @@ class DownloadsStore {
     for (const name of EVENT_NAMES) {
       es.addEventListener(name, (e) => this.#onMessage((e as MessageEvent<string>).data));
     }
-    es.addEventListener('resync', () => void this.reload());
+    es.addEventListener('resync', () => {
+      void this.reload();
+      void torrents.reload();
+    });
   }
 
   /** Close the stream and forget everything (logout). */
@@ -83,6 +96,7 @@ class DownloadsStore {
     if (this.#retry) clearTimeout(this.#retry);
     this.#retry = null;
     this.items = [];
+    torrents.clear();
     this.noSpaceFor = null;
     this.loaded = false;
     this.everLive = false;
@@ -170,6 +184,10 @@ class DownloadsStore {
       this.#hooks?.onSettings(ev.settings);
       return;
     }
+    if (ev.type === 'torrent' || ev.type === 'torrent_removed') {
+      torrents.received(ev);
+      return;
+    }
     this.items = applyEvent(this.items, ev);
   }
 
@@ -212,6 +230,7 @@ class DownloadsStore {
     if (!this.#hooks) return;
     if (this.connection === 'live') {
       void this.reload();
+      void torrents.reload();
       return;
     }
     this.#close();
