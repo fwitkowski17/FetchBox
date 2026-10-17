@@ -667,11 +667,10 @@ mod tests {
         .await;
         let first = &busy.peers[0];
         assert_eq!(first.state, PeerState::Connected);
-        assert!(
-            first.address.ends_with(&format!(":{}", seed_addr.port())),
-            "{}",
-            first.address
-        );
+        // The connection may have been made by either side (the seeder dials back once it hears of
+        // the leecher), in which case the peer's port is the seeder's ephemeral one, not its
+        // listening port. The only other peer on the loopback is ourselves, which is left out.
+        assert!(first.address.starts_with("127.0.0.1:"), "{}", first.address);
         assert!(
             first.downloaded > 0 && first.uploaded == 0,
             "bytes came from the seeder only"
