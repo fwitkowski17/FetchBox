@@ -215,6 +215,8 @@ Type=simple
 User=${svc_user}
 Group=${svc_group}
 WorkingDirectory=${DATA_DIR}
+# Tells the app how it was installed, so its update notice shows the steps of this script.
+Environment=FETCHBOX_INSTALL_METHOD=script
 EnvironmentFile=-${ENV_FILE}
 ExecStart=${BIN} --data-dir ${DATA_DIR} --download-dir ${download_dir} --port ${port}
 Restart=on-failure
@@ -319,8 +321,14 @@ EOT
       systemctl is-active --quiet fetchbox && was_active=1
       ((was_active)) && systemctl stop fetchbox
       place_binary
+      # A unit written by an earlier version of this script does not tell the app how it was
+      # installed; add that one line (nothing else of the unit is touched).
+      if ! grep -q '^Environment=FETCHBOX_INSTALL_METHOD=' "$UNIT"; then
+        sed -i '/^EnvironmentFile=/i Environment=FETCHBOX_INSTALL_METHOD=script' "$UNIT"
+        systemctl daemon-reload
+      fi
       ((was_active)) && systemctl start fetchbox
-      say "Updated ${old:-unknown} -> ${new}. The database, the settings and the unit were not touched."
+      say "Updated ${old:-unknown} -> ${new}. The database and the settings were not touched."
       ;;
 
     uninstall)

@@ -15,9 +15,9 @@ use crate::sse;
 use fetchbox_core::{
     AddRequest, Category, CategoryStat, ChecksumAlgo, ChecksumInput, ChecksumState, Conflict,
     ConflictKind, Credentials, DayStat, DiskSpace, Download, Event, Hold, HostKeyProblem,
-    HostKeyProblemKind, KnownHost, LargestFile, ListingEntry, OnConflict, OnHoursEnd, ProbeRequest,
-    ReleaseNote, Settings, SourceKind, Stats, StatsRange, Status, TrustHost, UrlInfo, UrlKind,
-    VersionInfo,
+    HostKeyProblemKind, InstallMethod, KnownHost, LargestFile, ListingEntry, OnConflict,
+    OnHoursEnd, ProbeRequest, ReleaseNote, Settings, SourceKind, Stats, StatsRange, Status,
+    TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
 
 #[derive(OpenApi)]
@@ -60,7 +60,7 @@ token as `Authorization: Bearer`.",
         Download, Status, Category, SourceKind, Settings, AddRequest, OnConflict, Conflict,
         ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, LoginRequest,
         LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest, Stats, StatsRange,
-        LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry, VersionInfo, ReleaseNote, Hold, OnHoursEnd, ChecksumAlgo, ChecksumInput, ChecksumState,
+        LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry, VersionInfo, ReleaseNote, InstallMethod, Hold, OnHoursEnd, ChecksumAlgo, ChecksumInput, ChecksumState,
         Credentials, HostKeyBody, HostKeyProblem, HostKeyProblemKind, KnownHost, TrustHost,
     )),
     modifiers(&Runtime),

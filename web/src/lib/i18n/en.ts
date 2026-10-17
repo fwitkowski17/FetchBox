@@ -359,8 +359,21 @@ export const en = {
   'update.compose': 'Docker Compose (as in the repository)',
   'update.composeSteps':
     'Run these in the folder that holds docker-compose.yml. Your downloads and settings stay in ./data and ./downloads, and unfinished downloads continue after the restart.',
-  'update.plain': 'Without Docker',
+  'update.plain': 'From the source code',
   'update.plainSteps': 'In the folder with the source code; then start the new program the way you started the old one.',
+  'update.unknownMethod': 'It is not known how FetchBox was installed here, so all the ways are listed. Use the one you installed it with.',
+  'update.package': 'DEB / RPM package (apt, dnf)',
+  'update.packageSteps':
+    'Download the package of the new version for your CPU and install it over the old one. The service restarts by itself, and the database, the settings and the downloads stay. apt and dnf do not know about GitHub releases, so apt upgrade does not update FetchBox.',
+  'update.packageDeb': 'Debian, Ubuntu',
+  'update.packageRpm': 'Fedora, RHEL and compatible',
+  'update.lxc': 'Proxmox container',
+  'update.lxcSteps':
+    'Open the console of the container (in Proxmox: the container, then Console) and run this command. It finds the newest release, checks its package and installs it; the service restarts by itself. The database, the settings and the downloads stay.',
+  'update.script': 'Linux host (install.sh)',
+  'update.scriptSteps':
+    'Run this as root on the machine that runs FetchBox. It replaces the program and restarts the service; the database and the settings stay.',
+  'update.prereleaseNotePinned': 'This is a pre-release: it may have rough edges. The commands below install exactly this version.',
   'update.noSelf':
     'FetchBox cannot update itself from inside its container: the image is read-only, and a restart would bring back the old version.',
   'update.later': 'Remind me later',
