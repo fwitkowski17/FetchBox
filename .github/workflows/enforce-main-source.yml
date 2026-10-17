@@ -1,0 +1,35 @@
+
+name: Enforce main source
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+
+permissions:
+  contents: read
+
+jobs:
+  validate-source:
+    name: validate-main-source
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Allow only develop into main
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          TARGET_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [[ "$SOURCE_BRANCH" != "develop" ||
+                "$SOURCE_REPOSITORY" != "$TARGET_REPOSITORY" ]]; then
+            echo "::error::Only develop from this repository can merge into main."
+            exit 1
+          fi
+
+          echo "Source branch validated."
