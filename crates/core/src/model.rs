@@ -474,6 +474,56 @@ pub struct ReleaseNote {
     pub prerelease: bool,
 }
 
+/// How FetchBox was installed on this machine. The program cannot find that out by itself, so the
+/// installer states it (`FETCHBOX_INSTALL_METHOD`), and the update dialog shows the steps that
+/// belong to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum InstallMethod {
+    /// The container image (Docker Compose).
+    Docker,
+    /// A DEB or RPM package (`apt`, `dnf`).
+    Package,
+    /// The Proxmox container made by `deploy/proxmox`.
+    Lxc,
+    /// `deploy/install.sh` on a Linux host.
+    Script,
+    /// Built from the source code (`scripts/build.sh`).
+    Source,
+}
+
+impl InstallMethod {
+    /// The spelling used in `FETCHBOX_INSTALL_METHOD` and in the API.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Docker => "docker",
+            Self::Package => "package",
+            Self::Lxc => "lxc",
+            Self::Script => "script",
+            Self::Source => "source",
+        }
+    }
+}
+
+impl std::str::FromStr for InstallMethod {
+    type Err = String;
+
+    /// Case-insensitive; surrounding space is ignored.
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "docker" => Ok(Self::Docker),
+            "package" => Ok(Self::Package),
+            "lxc" => Ok(Self::Lxc),
+            "script" => Ok(Self::Script),
+            "source" => Ok(Self::Source),
+            other => Err(format!(
+                "unknown install method '{other}' (expected docker, package, lxc, script or source)"
+            )),
+        }
+    }
+}
+
 /// The version of the running program and what is known about newer ones.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -496,6 +546,9 @@ pub struct VersionInfo {
     pub check_failed: bool,
     /// What changed in every release newer than `current`, newest first (at most ten).
     pub notes: Vec<ReleaseNote>,
+    /// How this copy was installed (`FETCHBOX_INSTALL_METHOD`); `None` when nobody said. Decides
+    /// which update steps the UI shows.
+    pub install_method: Option<InstallMethod>,
 }
 
 /// Request to look at a URL before adding it.

@@ -62,6 +62,15 @@ function fetchbox_install_deb() {
   rm -rf "$dir"
 }
 
+# Tells the app it runs in this container, so its update notice says to run `update`. Written by the
+# installer too; containers made before that get it on their first update. A drop-in is not a file of
+# the package, so an update never overwrites it. The package restarts the service, which reads it then.
+function fetchbox_set_install_method() {
+  install -d /etc/systemd/system/fetchbox.service.d
+  printf '[Service]\nEnvironment=FETCHBOX_INSTALL_METHOD=lxc\n' >/etc/systemd/system/fetchbox.service.d/20-install-method.conf
+  systemctl daemon-reload
+}
+
 # The first versions of this installer put the program in /opt/fetchbox with its own unit. Move it
 # to the package: data and settings are carried over, the downloads (/downloads) are not touched.
 function fetchbox_migrate_legacy() {
@@ -77,6 +86,7 @@ function fetchbox_migrate_legacy() {
   printf '[Service]\nEnvironment=FETCHBOX_DOWNLOAD_DIR=%s\n' "$FB_DOWNLOADS" >/etc/systemd/system/fetchbox.service.d/10-downloads.conf
   rm -f /etc/systemd/system/fetchbox.service
   systemctl daemon-reload
+  fetchbox_set_install_method
   fetchbox_install_deb
   # The old copy goes last: until the package is installed it is the way back.
   rm -rf "$FB_LEGACY_DIR"
@@ -114,6 +124,7 @@ function update_script() {
     # (/etc/fetchbox/fetchbox.env) and the downloads are not touched. The package's own script
     # restarts the service.
     msg_info "Updating ${APP} ${installed} -> ${FB_LATEST}"
+    fetchbox_set_install_method
     fetchbox_install_deb
     msg_ok "Updated ${APP}"
   fi

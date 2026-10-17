@@ -2862,6 +2862,7 @@ async fn the_version_endpoint_reports_a_newer_release_unless_checks_are_off() {
         dir.path().to_owned(),
         fetchbox_http_engine::UrlPolicy::default(),
         Some(source),
+        Some(fetchbox_core::InstallMethod::Lxc),
     )
     .await
     .expect("start");
@@ -2890,6 +2891,8 @@ async fn the_version_endpoint_reports_a_newer_release_unless_checks_are_off() {
     );
     assert_eq!(v["notes"][0]["version"], "99.0.0");
     assert_eq!(v["notes"][0]["body"], "- Faster");
+    // How it was installed is whatever the installer stated; the UI picks the update steps by it.
+    assert_eq!(v["install_method"], "lxc");
     let (status, v) = send(
         &c,
         reqwest::Method::POST,
@@ -2908,6 +2911,7 @@ async fn the_version_endpoint_reports_a_newer_release_unless_checks_are_off() {
     assert_eq!(v["enabled"], false);
     assert_eq!(v["latest"], serde_json::Value::Null);
     assert_eq!(v["update_available"], false);
+    assert_eq!(v["install_method"], "lxc", "known without asking anybody");
 
     // Signed-in users only.
     let locked = {

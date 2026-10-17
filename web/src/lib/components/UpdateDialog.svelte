@@ -6,6 +6,7 @@
   import { updateNotice } from '../stores/updateNotice.svelte';
   import { version } from '../stores/version.svelte';
   import { parseNotes } from '../util/notes';
+  import { INSTALL_METHODS, packageSteps, repoOf, scriptStep } from '../util/updateSteps';
   import CommandBlock from './CommandBlock.svelte';
   import Modal from './Modal.svelte';
   import ReleaseNotes from './ReleaseNotes.svelte';
@@ -17,6 +18,14 @@
   const latest = $derived(info?.latest ?? null);
   const auto = $derived(updateNotice.mode === 'auto');
   const releaseUrl = $derived(info?.release_url?.startsWith('https://') ? info.release_url : null);
+
+  // The installer states how FetchBox was installed; only those steps are shown. Without a
+  // statement every way is listed, so nobody is left without instructions.
+  const method = $derived(info?.install_method ?? null);
+  const methods = $derived(method ? [method] : INSTALL_METHODS);
+  const repo = $derived(repoOf(releaseUrl));
+  const pkg = $derived(latest ? packageSteps(repo, latest) : null);
+  const script = $derived(latest ? scriptStep(repo, latest, info?.latest_prerelease ?? false) : null);
 </script>
 
 <Modal
@@ -28,7 +37,9 @@
   <div class="grid grid-cols-[minmax(0,1fr)] gap-4" data-part="update-dialog">
     <p>{t('update.intro', { current: info?.current ?? '' })}</p>
     {#if info?.latest_prerelease}
-      <p class="hint" data-part="prerelease-note">{t('update.prereleaseNote')}</p>
+      <p class="hint" data-part="prerelease-note">
+        {t(method === 'package' || method === 'script' ? 'update.prereleaseNotePinned' : 'update.prereleaseNote')}
+      </p>
     {/if}
 
     <section class="grid grid-cols-[minmax(0,1fr)] gap-2">
@@ -61,19 +72,54 @@
       {/if}
     </section>
 
-    <section class="grid grid-cols-[minmax(0,1fr)] gap-2">
+    <section class="grid grid-cols-[minmax(0,1fr)] gap-2" data-part="update-how" data-method={method ?? 'unknown'}>
       <h3 class="font-semibold">{t('update.how')}</h3>
-      <h4 class="text-sm font-semibold">{t('update.compose')}</h4>
-      <p class="hint">{t('update.composeSteps')}</p>
-      {#each COMPOSE as command (command)}
-        <CommandBlock {command} />
+      {#if method === null}
+        <p class="hint" data-part="update-unknown-method">{t('update.unknownMethod')}</p>
+      {/if}
+      {#each methods as m (m)}
+        <div class="grid grid-cols-[minmax(0,1fr)] gap-2 [&:not(:first-of-type)]:mt-1" data-part="update-method" data-method={m}>
+          {#if m === 'docker'}
+            <h4 class="text-sm font-semibold">{t('update.compose')}</h4>
+            <p class="hint">{t('update.composeSteps')}</p>
+            {#each COMPOSE as command (command)}
+              <CommandBlock {command} />
+            {/each}
+          {:else if m === 'package'}
+            <h4 class="text-sm font-semibold">{t('update.package')}</h4>
+            <p class="hint">{t('update.packageSteps')}</p>
+            {#if pkg}
+              <p class="text-sm font-medium">{t('update.packageDeb')}</p>
+              {#each pkg.deb as command (command)}
+                <CommandBlock {command} />
+              {/each}
+              <p class="text-sm font-medium">{t('update.packageRpm')}</p>
+              {#each pkg.rpm as command (command)}
+                <CommandBlock {command} />
+              {/each}
+            {/if}
+          {:else if m === 'lxc'}
+            <h4 class="text-sm font-semibold">{t('update.lxc')}</h4>
+            <p class="hint">{t('update.lxcSteps')}</p>
+            <CommandBlock command="update" />
+          {:else if m === 'script'}
+            <h4 class="text-sm font-semibold">{t('update.script')}</h4>
+            <p class="hint">{t('update.scriptSteps')}</p>
+            {#if script}
+              <CommandBlock command={script} />
+            {/if}
+          {:else}
+            <h4 class="text-sm font-semibold">{t('update.plain')}</h4>
+            <p class="hint">{t('update.plainSteps')}</p>
+            {#each PLAIN as command (command)}
+              <CommandBlock {command} />
+            {/each}
+          {/if}
+        </div>
       {/each}
-      <h4 class="mt-1 text-sm font-semibold">{t('update.plain')}</h4>
-      <p class="hint">{t('update.plainSteps')}</p>
-      {#each PLAIN as command (command)}
-        <CommandBlock {command} />
-      {/each}
-      <p class="hint">{t('update.noSelf')}</p>
+      {#if method === null || method === 'docker' || method === 'lxc'}
+        <p class="hint">{t('update.noSelf')}</p>
+      {/if}
     </section>
   </div>
 

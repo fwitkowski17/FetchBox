@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use fetchbox_core::{ReleaseNote, VersionInfo};
+use fetchbox_core::{InstallMethod, ReleaseNote, VersionInfo};
 
 /// The latest published releases of the project (drafts are not listed for anonymous requests;
 /// pre-releases are listed and filtered by the setting when the answer is described).
@@ -14,6 +14,24 @@ pub const RELEASES_API: &str =
 
 /// Version of this program.
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
+
+/// How this copy was installed, from `FETCHBOX_INSTALL_METHOD` (set by the installers: the Docker
+/// image, the packages, the Proxmox and host scripts). Unset or empty means nobody said. A value
+/// that is not one of the known methods is only a hint gone wrong, so it is logged and ignored.
+pub fn install_method_from_env() -> Option<InstallMethod> {
+    parse_install_method(std::env::var("FETCHBOX_INSTALL_METHOD").ok().as_deref())
+}
+
+fn parse_install_method(value: Option<&str>) -> Option<InstallMethod> {
+    let value = value.filter(|v| !v.trim().is_empty())?;
+    match value.parse() {
+        Ok(method) => Some(method),
+        Err(e) => {
+            tracing::warn!("FETCHBOX_INSTALL_METHOD ignored: {e}");
+            None
+        }
+    }
+}
 
 /// A successful answer is good for this long.
 const FRESH_FOR: Duration = Duration::from_secs(6 * 60 * 60);
@@ -157,6 +175,7 @@ pub fn disabled() -> VersionInfo {
         checked_at: None,
         check_failed: false,
         notes: Vec::new(),
+        install_method: None,
     }
 }
 
@@ -328,6 +347,31 @@ mod tests {
         assert!(!is_newer("0.6.1", "0.6.1"));
         assert!(!is_newer("0.6.0", "0.6.1"));
         assert!(!is_newer("1.0.0", "1"));
+    }
+
+    #[test]
+    fn the_install_method_is_read_forgivingly_and_a_bad_value_is_ignored() {
+        assert_eq!(parse_install_method(None), None);
+        assert_eq!(parse_install_method(Some("")), None);
+        assert_eq!(parse_install_method(Some("  ")), None);
+        assert_eq!(
+            parse_install_method(Some("docker")),
+            Some(InstallMethod::Docker)
+        );
+        assert_eq!(
+            parse_install_method(Some(" LXC ")),
+            Some(InstallMethod::Lxc)
+        );
+        for m in [
+            InstallMethod::Docker,
+            InstallMethod::Package,
+            InstallMethod::Lxc,
+            InstallMethod::Script,
+            InstallMethod::Source,
+        ] {
+            assert_eq!(parse_install_method(Some(m.as_str())), Some(m));
+        }
+        assert_eq!(parse_install_method(Some("snap")), None);
     }
 
     #[test]

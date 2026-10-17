@@ -186,6 +186,7 @@ Everything day to day (connections, limits, category folders, theme, language, u
 | `--no-auth` | no password at all: see the caution below |
 | `--block-private-urls` / `FETCHBOX_BLOCK_PRIVATE_URLS` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
 | `FETCHBOX_PASSWORD` | a fixed password (8+ characters) instead of one created in the browser |
+| `FETCHBOX_INSTALL_METHOD` | how FetchBox was installed: `docker`, `package`, `lxc`, `script` or `source`. The installers set it, and the update notice shows only the steps of that method (without it, every way is listed) |
 | `FETCHBOX_UPDATE_URL` | use another releases endpoint for the update check (a mirror, a fork) |
 | `--log-activity` / `FETCHBOX_LOG_ACTIVITY` | log every added, paused, finished and removed download (with its average speed), settings changes, the download hours and sign-ins; without it the console shows start-up information, warnings and errors |
 | `RUST_LOG` | log level of everything else, e.g. `debug` (default `info`) |

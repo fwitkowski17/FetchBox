@@ -2095,6 +2095,17 @@
           "changed"
         ]
       },
+      "InstallMethod": {
+        "type": "string",
+        "description": "How FetchBox was installed on this machine. The program cannot find that out by itself, so the\ninstaller states it (`FETCHBOX_INSTALL_METHOD`), and the update dialog shows the steps that\nbelong to it.",
+        "enum": [
+          "docker",
+          "package",
+          "lxc",
+          "script",
+          "source"
+        ]
+      },
       "KnownHost": {
         "type": "object",
         "description": "An SSH server the user has accepted the host key of (SPEC 6.12). SFTP has no certificate\nauthorities: the key a server presents is only believed when it is the one that was accepted.",
@@ -2714,6 +2725,17 @@
           "enabled": {
             "type": "boolean",
             "description": "Update checks are switched on (`Settings::check_updates`). When off, nothing else is set."
+          },
+          "install_method": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InstallMethod",
+                "description": "How this copy was installed (`FETCHBOX_INSTALL_METHOD`); `None` when nobody said. Decides\nwhich update steps the UI shows."
+              }
+            ]
           },
           "latest": {
             "type": [
