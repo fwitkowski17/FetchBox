@@ -127,6 +127,13 @@ fn hash_of(info_hash: &str) -> Result<Id20, TorrentError> {
 impl TorrentEngine {
     /// Start the session: restores the torrents it had, opens the listening port and joins the DHT.
     pub async fn start(cfg: Config) -> Result<Arc<Self>, TorrentError> {
+        // The engine keeps every file of every torrent open, and each peer is a socket: a torrent of a
+        // few thousand files does not fit the 1024 descriptors a service starts with. Raise the soft
+        // limit to the hard one (no privileges needed); what is left is the system's to decide.
+        match librqbit::try_increase_nofile_limit() {
+            Ok(limit) => tracing::debug!(limit, "open files limit"),
+            Err(e) => tracing::warn!(error = %e, "could not raise the limit of open files"),
+        }
         std::fs::create_dir_all(&cfg.output_dir).map_err(engine_err)?;
         std::fs::create_dir_all(&cfg.state_dir).map_err(engine_err)?;
         let mut opts = SessionOptions {

@@ -830,6 +830,13 @@ no web UI of its own). It does not implement the `Downloader` trait of 6.1, whos
   because a tracker is a URL the server fetches for whoever adds the torrent; a name that changes its answer later is not caught. **Peers
   are not filtered**: the swarm decides who connects, so `--block-private-urls` does not cover BitTorrent traffic (peers, DHT,
   local discovery). The `.torrent` body is limited to 8 MiB by the route, a magnet link to 8 KiB.
+- **Resources.** The engine keeps every file of every torrent open (one descriptor per file) besides one socket per peer, so
+  `TorrentEngine::start` raises the soft limit of open files to the hard one (`try_increase_nofile_limit`; a service starts with a soft
+  limit of 1024). Measured (release build, x86_64, one 256 MiB torrent and one peer on the loopback): received, hashed and written in about
+  2 s with about 1.5 s of CPU time, 18 threads, 19 descriptors, a peak of 20 MB resident memory (11 MB with no torrent, and with no
+  port open before the first one). Not measured: large swarms, many torrents, slow disks and ARM boards. Pieces arrive in no particular order,
+  so the writes are scattered; the README says what that asks of the disk (SSD recommended, SMR and memory cards not advised) and of the network
+  (port 6881 forwarded for the best speeds, upload bandwidth, since seeding goes on).
 - **Where it needs care.** The engine's UDP tracker client binds `[::]` and nothing else, which fails (and with it the start of the whole
   session) on a host whose kernel has no IPv6. `vendor/librqbit-tracker-comms/` is that one upstream crate with `UdpTrackerClient::new`
   falling back to IPv4 (`[patch.crates-io]` in `Cargo.toml`; its `README.fetchbox.md` says what was changed). A torrent restored as
