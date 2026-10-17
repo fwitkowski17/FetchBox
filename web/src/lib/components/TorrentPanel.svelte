@@ -19,6 +19,13 @@
   const torrent = $derived(torrents.selected);
   const history = $derived(torrent ? (torrents.history[torrent.id] ?? []) : []);
 
+  /** Escape closes the panel, unless a dialog is open (it takes Escape for itself). */
+  function onEscape(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && torrent && !document.querySelector('dialog[open]')) {
+      torrents.closeDetails();
+    }
+  }
+
   function onKeydown(e: KeyboardEvent): void {
     const i = TABS.indexOf(tab);
     if (e.key === 'ArrowRight') tab = TABS[(i + 1) % TABS.length] ?? tab;
@@ -28,6 +35,8 @@
     document.getElementById(`torrent-tab-${tab}`)?.focus();
   }
 </script>
+
+<svelte:window onkeydown={onEscape} />
 
 {#if torrent}
   <section

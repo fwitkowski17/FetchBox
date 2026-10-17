@@ -62,6 +62,10 @@ You may also create the release by hand on GitHub first (with the tag): the work
 
 The release notes are what the update dialog in the app shows, so they are worth a look before you publish more.
 
+## Torrents
+
+The container has no port published by itself: torrents work, but few peers can reach you. For the best speeds forward `6881` (TCP and UDP) from your router to the container (`FETCHBOX_TORRENT_PORT` in `/etc/fetchbox/fetchbox.env` changes it). Torrents go to `torrents/` inside the downloads folder (`/downloads/torrents`) and the engine keeps its state in `/var/lib/fetchbox/torrents`.
+
 ## Update and everyday use
 
 In the container (the console of the CT) run `update`: it looks for a newer release, downloads its `.deb`, checks it and installs it over the old one; the package restarts the service. The database, the settings and the downloads stay. (A container made by the first versions of this installer kept the program in `/opt/fetchbox`; `update` moves it to the package once, carrying the database and the settings over.) `apt` does not know about GitHub releases, so `apt upgrade` does not update FetchBox: use `update`. If `update` cannot find the script (it uses `COMMUNITY_SCRIPTS_URL` as it was when the container was made), run it by hand: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/fwitkowski17/WebDownloadManager/main/deploy/proxmox/ct/fetchbox.sh)"` inside the container.

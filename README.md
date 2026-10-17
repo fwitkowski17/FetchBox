@@ -8,6 +8,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 ## ✨ Features
 
 - 🌍 **HTTP, HTTPS, FTP, FTPS and SFTP**: one list, queue and set of limits for all of them, with logins for the servers that need one. [Details](#-sources-and-logins).
+- 🧲 **Torrents**: magnet links and `.torrent` files on a page of their own, with the statuses of a BitTorrent client (fetching metadata, checking files, connecting to peers, downloading, sending...) and, at the bottom of the page, the details of the torrent you click: peers with their speeds, files, a speed chart. [Details](#-torrents).
 - ⬇️ **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
 - 🚦 **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
 - 🌙 **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
@@ -20,7 +21,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 - 📱 **Phone friendly**: installable web app, light / dark / black (for OLED) themes and eight accent colours, [English and Polish](#-languages).
 - 🔒 **Safe by default**: password protected (set in the browser on first run), optional blocking of private addresses, file names are sanitised and nothing is written outside the download folder. An SSH server is only used after you have compared its fingerprint and trusted it.
 - 🔔 **Update notice**: tells you when a new release is out and what changed, with the steps to update. It can be switched off.
-- 🪶 **Light**: one Rust binary of about 14 MB, around 64 MB of RAM when idle, no database server and no Node.js at runtime.
+- 🪶 **Light**: one Rust binary of about 24 MB (BitTorrent included), around 64 MB of RAM when idle (the BitTorrent engine only starts with the first torrent), no database server and no Node.js at runtime.
 
 > [!NOTE]
 > Status: usable, version 0.x. What comes next is in the [roadmap](#-roadmap).
@@ -167,7 +168,7 @@ The web app is inside the binary. It needs Debian 12 or newer, Ubuntu 22.04 or n
 
 ### From source
 
-You need the Rust toolchain (version pinned by `rust-toolchain.toml`) and Node.js 22:
+You need the Rust toolchain (version pinned by `rust-toolchain.toml`), Node.js 22 and a C compiler (`gcc` or `clang`, which the BitTorrent engine's cryptography needs; `build-essential` on Debian and Ubuntu):
 
 ```bash
 ./scripts/build.sh     # builds the web app, then target/release/fetchbox
@@ -185,6 +186,7 @@ Everything day to day (connections, limits, category folders, theme, language, u
 | `--password-file <file>` | read the password from a file, e.g. a Docker secret |
 | `--no-auth` | no password at all: see the caution below |
 | `--block-private-urls` / `FETCHBOX_BLOCK_PRIVATE_URLS` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
+| `--torrent-port <port>` / `FETCHBOX_TORRENT_PORT` | TCP and uTP port that BitTorrent peers connect to (default `6881`); nothing listens on it until the first torrent is added |
 | `FETCHBOX_PASSWORD` | a fixed password (8+ characters) instead of one created in the browser |
 | `FETCHBOX_INSTALL_METHOD` | how FetchBox was installed: `docker`, `package`, `lxc`, `script` or `source`. The installers set it, and the update notice shows only the steps of that method (without it, every way is listed) |
 | `FETCHBOX_UPDATE_URL` | use another releases endpoint for the update check (a mirror, a fork) |
@@ -216,6 +218,26 @@ Besides `http://` and `https://`, FetchBox downloads from FTP and SFTP servers: 
 
 > [!NOTE]
 > Not supported yet: SFTP with a private key (only a password), FTPS servers with a self-signed certificate, active-mode FTP, and changing the login of a download after it was added (remove it and add it again). FTP and SFTP are tested against vsftpd and OpenSSH and against test servers, but not against every server out there: if one misbehaves, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues) with its name.
+
+## 🧲 Torrents
+
+Open **Torrents** in the side menu and add a magnet link or a `.torrent` file (chosen, or dropped on the dialog; one magnet link per line adds several). Torrents are a list of their own, apart from the downloads: they go to `torrents/` inside the download folder, and the queue, the download hours and the download speed limits do not apply to them. A click on a torrent opens a panel at the bottom with its overview, **peers** (address, client, link, speed of each direction, bytes), **files** and a **speed chart**.
+
+| Status | Meaning |
+| --- | --- |
+| Fetching metadata | a magnet link: the names of the files are being fetched from other peers |
+| Checking files | files already on the disk are being checked |
+| Connecting to peers | running, no peer is connected yet |
+| Downloading / Sending | receiving data / complete and sending to others (it goes on until you stop the torrent) |
+| Paused / Finished | stopped by you / complete and stopped |
+
+Speed limits for all torrents together (receiving and sending) are in **Settings**. A completed torrent keeps sending, so a limit on sending keeps your upload line free; stop a torrent when you are done with it.
+
+- **Open the port** for the best speeds: forward `6881` (TCP and UDP) on your router and allow it in the firewall; with Docker the compose file already publishes it. Without it torrents still work, only fewer peers can reach you.
+- **Seeds are not counted separately.** The BitTorrent library behind FetchBox does not tell which peers have the whole file, so the numbers are peers: connected, connecting, known.
+- Not there yet: choosing which files of a torrent to download, a queue, stopping at a ratio, IPv6 and UPnP.
+- **`--block-private-urls` does not cover torrents.** It refuses trackers at private addresses, but peers come from the swarm and are not filtered. Do not rely on it to keep BitTorrent traffic off your LAN.
+- Only download what you have the right to download. FetchBox is a tool; what you fetch and share is up to you.
 
 ## 🔑 Signing in
 
@@ -277,7 +299,7 @@ The interface is translated without a library, and a new language is one file an
 
 Ideas in rough order, with no promised dates. The ones marked 🧭 are being designed.
 
-- 🧲 **BitTorrent**: magnet links and `.torrent` files through [`librqbit`](https://github.com/ikatson/rqbit), behind the same queue, limits, hours and statistics as the other downloads. The `torrent_engine` crate is already in place as a stub.
+- 🧲 **More for torrents**: choosing the files of a torrent, a queue, stopping at a ratio, torrents in the statistics, a count of seeds, IPv6 and UPnP (what is there now is [above](#-torrents)).
 - 🌍 **More kinds of sources**, behind the same queue, limits, hours, statistics and checksum check (FTP, FTPS and SFTP are done, see [above](#-sources-and-logins)):
   - **WebDAV** (for example a Nextcloud or a NAS), over HTTPS with the same segmented download where the server allows ranges.
   - **S3-compatible storage** (Amazon S3, Cloudflare R2, MinIO, Backblaze B2 and the like): a pre-signed link should already work as an ordinary HTTPS address; a direct `s3://bucket/key` address with your own keys is the part to be added. Providers differ in the details, so each one will be checked before it is listed as supported.

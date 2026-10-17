@@ -5,6 +5,10 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      # BitTorrent peers connect here (TCP and uTP). Without it torrents still download, only more
+      # slowly, as nobody can connect to you. The port is set with FETCHBOX_TORRENT_PORT.
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
     environment:
       # Optional (min. 8 characters). Leave it empty to create the account in the browser
       # on first run: open the UI and enter the setup code that `docker compose logs fetchbox`

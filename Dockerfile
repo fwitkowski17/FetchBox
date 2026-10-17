@@ -22,6 +22,6 @@ FROM gcr.io/distroless/cc-debian13:nonroot
 COPY --from=build /app/target/release/fetchbox /usr/local/bin/fetchbox
 # Tells the app how it was installed, so its update notice shows the Docker Compose steps.
 ENV FETCHBOX_INSTALL_METHOD=docker
-EXPOSE 8080
+EXPOSE 8080 6881/tcp 6881/udp
 VOLUME ["/data", "/downloads"]
 ENTRYPOINT ["/usr/local/bin/fetchbox", "--data-dir", "/data", "--download-dir", "/downloads", "--port", "8080"]
