@@ -24,10 +24,13 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
     pre-releases (`check_prereleases`, off by default)
   - changes apply live without restarting running downloads
 - Single-user authentication (password or token).
+- BitTorrent (6.13): magnet links and `.torrent` files, on a page of their own, with the statuses of a BitTorrent client and a
+  details panel (peers, files, speed).
 
 ## 3. Future
 
-- BitTorrent: magnet links and `.torrent` files via `librqbit`, behind the same `Downloader` abstraction.
+- BitTorrent, what 6.13 leaves out: choosing the files of a torrent, a queue of torrents, a ratio or time after which seeding stops,
+  IPv6, UPnP port forwarding, and a count of seeds (the engine does not tell).
 - More sources behind the same abstraction: WebDAV and S3-compatible storage (S3, R2, MinIO; a pre-signed link is already an HTTPS
   address). FTP, FTPS and SFTP exist (6.12); still missing there are SFTP with a private key and FTPS with a self-signed certificate.
 - More ways to authorize a download: tokens and custom headers, and changing the login of an existing download (a user name and
@@ -55,11 +58,11 @@ FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,error}.rs
+│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,error}.rs
 │   ├── http_engine/src/{lib,segments,worker,source,ftp,sftp,hostkeys,net,listing,probe}.rs   # also FTP(S) and SFTP, see 6.12
-│   ├── torrent_engine/src/lib.rs        # stub, later librqbit
-│   ├── storage/{migrations/,src/{lib,downloads,known_hosts,segments,settings,stats}.rs}
-│   ├── api/src/{lib,routes,sse,auth,openapi}.rs
+│   ├── torrent_engine/{src/{lib,parse,error}.rs,examples/seed.rs}   # BitTorrent over librqbit, see 6.13
+│   ├── storage/{migrations/,src/{lib,downloads,known_hosts,segments,settings,stats,torrents}.rs}
+│   ├── api/src/{lib,routes,torrents,sse,auth,openapi}.rs
 │   └── server/src/main.rs
 ├── web/
 │   ├── src/
@@ -69,6 +72,7 @@ FetchBox/
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
 │   └── vite.config.ts
+├── vendor/librqbit-tracker-comms/   # one upstream crate with a one-function patch, see 6.13
 ├── scripts/build.sh
 ├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
 ├── packaging/                 # DEB/RPM: nfpm.yaml, unit, env file, maintainer scripts, build.sh, smoke-test.sh
@@ -92,7 +96,7 @@ pub trait Downloader: Send + Sync {
 }
 ```
 
-DB field `source_kind`: `http` | `ftp` (also `ftps://`) | `sftp` | `magnet` | `torrent_file`. The engine of 6.2 (`HttpDownloader`, the name kept from
+DB field `source_kind`: `http` | `ftp` (also `ftps://`) | `sftp` (`magnet` and `torrent_file` are allowed by the column but unused: torrents are not downloads, see 6.13). The engine of 6.2 (`HttpDownloader`, the name kept from
 the first version) is the one implementation of the trait for `http`, `ftp` and `sftp`: the scheme of the address picks the transport (6.12).
 
 ### 6.2 HTTP engine
@@ -255,7 +259,8 @@ For mobile connections with a night package, or a line that must stay free by da
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases, torrent_down_limit, torrent_up_limit)
+- `torrents`: see 6.13.
 
 Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`, `cancelled`.
 
@@ -291,6 +296,8 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   success nor failure.)
 - `GET /api/version` and `POST /api/version/check` (see 6.9): `{current, enabled, latest?, update_available, release_url?,
   checked_at?, check_failed, notes, install_method?}`; the `POST` looks again now, at most every 30 s
+- `GET /api/torrents`, `POST /api/torrents {magnet}`, `POST /api/torrents/file` (raw `.torrent` body), `POST /api/torrents/:id/pause|resume`,
+  `DELETE /api/torrents/:id[?delete_files=true]`, `GET /api/torrents/:id/peers|files` (6.13)
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -309,7 +316,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   answered with `201` and a download that is `paused` with `waiting_space: true`; `POST .../resume` on it answers `507`
   until there is room.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
-  `removed`, `settings`, and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
+  `removed`, `settings`, `torrent` and `torrent_removed` (6.13), and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
   `docs/openapi.json`; `fetchbox --print-openapi` prints it. `utoipa` is an optional feature of `fetchbox-core`, so the core
   crate stays free of it unless the API enables it. Frontend types are generated with `openapi-typescript` into
@@ -672,6 +679,8 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
   size, bytes fetched, average speed and whether the file was deleted too). Refused adds are `warn`.
 - Settings: one line listing only what changed (`connections 4 -> 8; download hours off -> 22:00-06:00 Europe/Warsaw`).
 - Download hours: they opened or closed, how many downloads were released or stopped, and what the end does.
+- Torrents (6.13): the engine started (port, DHT), a torrent added, its description received, stopped, started, finished downloading,
+  failed and removed. A torrent is named, never its peers or trackers.
 - Sign-in and sign-out; a newer version found by the update check; an SSH host key accepted or forgotten (host, port, fingerprint).
 - Never logged: passwords, tokens, setup codes, session ids, and the path and query of a URL (only its host, because an address
   may carry a token). Progress ticks and the 15 s hours check log nothing unless something changes.
@@ -686,11 +695,13 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
   manager. A pre-release `0.7.0-rc.1` is `0.7.0~rc.1` inside the package (sorts below `0.7.0`) while the file names keep the tag's
   spelling.
 - **Layout and defaults**: the service runs as the system user `fetchbox`; database and working directory `/var/lib/fetchbox`,
-  downloads `/var/lib/fetchbox/downloads`, port 8080. The unit sets these through `FETCHBOX_DATA_DIR`, `FETCHBOX_DOWNLOAD_DIR` and
+  downloads `/var/lib/fetchbox/downloads`, port 8080 (the Docker image listens on 80 inside, published as 8080 by `docker-compose.yml`
+  through `FETCHBOX_HTTP_PORT`; the Proxmox container on 80, through a drop-in). The unit sets these through `FETCHBOX_DATA_DIR`, `FETCHBOX_DOWNLOAD_DIR` and
   `FETCHBOX_PORT` (the options `--data-dir`, `--download-dir` and `--port` read the same variables; `--block-private-urls` reads
   `FETCHBOX_BLOCK_PRIVATE_URLS`, `--log-activity` `FETCHBOX_LOG_ACTIVITY`), and `/etc/fetchbox/fetchbox.env`, loaded after them,
   overrides them, so changing the port or the download folder needs no edit of the unit. A variable must not be empty. The unit
-  hardens the service (`NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `ProtectSystem=full`, kernel protections) but leaves the
+  hardens the service (`NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `ProtectSystem=full`, kernel protections; the capability bounding
+  set is `CAP_NET_BIND_SERVICE` alone, also ambient, so that the unprivileged user can listen on a port below 1024) but leaves the
   rest of the file system writable, because the download folder can be anywhere.
 - **Maintainer scripts** (POSIX `sh`, the same file for both formats; they tell a first install from an upgrade by the arguments of
   `dpkg` and `rpm`): after installing, create the user `fetchbox` if it does not exist (the Proxmox installer makes it first with
@@ -763,11 +774,97 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
   which the `test-servers` feature also gives to the server crate's tests. Interoperability was checked by hand against vsftpd (plain
   and TLS with `require_ssl_reuse`) and OpenSSH.
 
+### 6.13 BitTorrent
+
+Torrents are **not downloads**: a swarm has no URL, no server to ask for ranges, no single file and no end (a complete torrent goes on
+sending). They get a list of their own (the page "Torrents", `#/torrents`), their own table, API and events. The engine is the
+`torrent_engine` crate, an adapter over `librqbit` 9 (Apache-2.0; `default-features = false` with `rust-tls`: no OpenSSL, no HTTP API and
+no web UI of its own). It does not implement the `Downloader` trait of 6.1, whose shape (`start(job)` of a URL) does not fit.
+
+- **Engine life.** It is started when the first torrent is added, and at start-up when torrents are stored (in the background), so
+  nobody who never adds a torrent has a port open or a DHT node running. A failed start (the port is in use) is kept and shown on every
+  torrent, and tried again with the next add or resume. It listens on TCP and uTP on `--torrent-port` (`FETCHBOX_TORRENT_PORT`, default 6881;
+  IPv4 only), joins the DHT and does local service discovery; no UPnP. Its own state lives in `<data dir>/torrents/` (`session/`: the
+  torrents it has and which pieces are done, so a restart does not check every file again; `dht.json`); the data goes to
+  `<download dir>/torrents/` (a multi-file torrent gets a folder of its name). Files that are already there are checked and kept.
+  Stopping the program pauses the torrents so that the engine writes its state; they start again with it unless they were stopped.
+- **Statuses**, in the words of a BitTorrent client: `metadata` (a magnet link whose description is being fetched), `checking` (files on
+  disk are checked), `connecting` (running, complete data not yet, no peer connected), `downloading`, `seeding` (shown as "Sending"; complete
+  and running), `paused`, `finished` (complete and stopped) and `error`. The engine itself knows initialising / live / paused / error; the
+  rest is derived (`TorrentStatus::derive_live`: complete -> seeding, else peers -> downloading, else connecting; `derive_stopped`). A note on
+  a stopped torrent (not enough disk space) shows as `error`. There is no queue: every torrent that is not stopped runs.
+- **Adding.** `POST /api/torrents {magnet}`: a `magnet:?` link of at most 8 KiB with a BitTorrent v1 info hash (`xt=urn:btih:`, hex or
+  base32). It is in the list at once as `metadata`; a background task waits for the swarm to send the description (it can take long or
+  never come: the torrent can be stopped and removed meanwhile) and then stores name, size, files and the `.torrent` file made from it.
+  `POST /api/torrents/file` takes the raw bytes of a `.torrent` file (`application/x-bittorrent`, at most 8 MiB), reads it before anything
+  starts and answers `400` for a file that is not usable (including paths with `..` or separators in a name, which the engine refuses).
+  The same info hash twice is `409`. The size of a `.torrent` file that does not fit next to what the running downloads still have to
+  write is `507` (as for a download); the size of a magnet link is only known with its description, and a torrent that does not fit then is
+  stopped with a note instead. Only magnet links and files are accepted, never an address to fetch a `.torrent` from (that would be a request
+  the server makes for whoever asks). The add dialog takes several links (one per line) and files, chosen or dropped; a magnet link typed into
+  the add-download dialog offers to go there.
+- **Data.** `torrents`: id, `info_hash` (unique, 40 hex), name, `magnet`, `metainfo` (the `.torrent` file: sent by the user, or built from the
+  description a magnet link got, so a restart does not ask the swarm again), size, file_count, `paused` (what the user last chose), `uploaded`
+  (bytes sent over all runs: the engine counts from zero at every start and every start of a torrent, so the manager adds up the runs;
+  written at most every 15 s and when a torrent is stopped or the program ends), added_at, finished_at, error. Numbers that change every second
+  (speed, peers, progress) are not stored. At engine start the manager makes the two agree: a stored torrent the engine lost is added again
+  (from the file, or by asking the swarm for the magnet link), a torrent the engine has without a record is forgotten (its files stay).
+- **List and events.** A tick once a second joins the stored list with the engine's numbers and publishes `torrent` (the whole `Torrent`)
+  for each torrent that changed, and `torrent_removed`. They travel on the same `/api/events` stream as the downloads' events; the client reloads
+  `/api/torrents` on every (re)connect and on `resync`, like the downloads. `Torrent` carries status, size, downloaded, uploaded, speeds, ETA,
+  peers connected / connecting / known, file count, magnet link, times and error. The speeds are shown only while they mean something (a
+  complete torrent receives nothing).
+- **Peers and files** are not events (a busy swarm has hundreds of peers): `GET /api/torrents/:id/peers` and `.../files` are asked every
+  2 s and 3 s while the tab is visible. A peer has address, state (`connected`, `connecting`, `queued`, `idle` = nothing to exchange,
+  `dead`), link (`tcp`, `utp`, `socks`), the client name it gave, bytes received and sent and the speed of each direction. The engine
+  keeps only byte counters, so the speeds are the bytes moved since the previous read over the time between them (reads closer than 0.7 s
+  repeat the last speeds; the first read says zero). The list is the connected peers first (the busiest on top), then those being
+  connected, then the rest, at most 500 (`truncated`); our own port found on the loopback address by local discovery is left out.
+  **Seeds are not counted apart from other peers: the engine does not expose which peers have every piece** (it keeps that bitfield to
+  itself), and a guess would be wrong. The panel says so. Counting seeds would need a tracker scrape or a patch to the engine.
+- **Limits.** `Settings.torrent_down_limit` and `torrent_up_limit` (bytes/s, `0` = none, applied live through the engine) cap all torrents
+  together. They are separate from the limits of downloads, and the download hours do not apply to torrents. Seeding goes on until the
+  user stops the torrent, which is why the upload limit exists.
+- **Security.** Torrent metadata is untrusted: the engine refuses a name that is `..` or has a separator and a torrent without files,
+  and does not create symbolic links (the torrent's `symlink` attribute is ignored), so files stay inside `<download dir>/torrents/`.
+  Existing files there are overwritten when they differ (the pieces that do not match are fetched again): the folder is FetchBox's. With
+  `--block-private-urls` a torrent that names a tracker at a private address (an IP literal, or a name that resolves to one) is refused,
+  because a tracker is a URL the server fetches for whoever adds the torrent; a name that changes its answer later is not caught. **Peers
+  are not filtered**: the swarm decides who connects, so `--block-private-urls` does not cover BitTorrent traffic (peers, DHT,
+  local discovery). The `.torrent` body is limited to 8 MiB by the route, a magnet link to 8 KiB.
+- **Resources.** The engine keeps every file of every torrent open (one descriptor per file) besides one socket per peer, so
+  `TorrentEngine::start` raises the soft limit of open files to the hard one (`try_increase_nofile_limit`; a service starts with a soft
+  limit of 1024). Measured (release build, x86_64, one 256 MiB torrent and one peer on the loopback): received, hashed and written in about
+  2 s with about 1.5 s of CPU time, 18 threads, 19 descriptors, a peak of 20 MB resident memory (11 MB with no torrent, and with no
+  port open before the first one). Not measured: large swarms, many torrents, slow disks and ARM boards. Pieces arrive in no particular order,
+  so the writes are scattered; the README says what that asks of the disk (SSD recommended, SMR and memory cards not advised) and of the network
+  (port 6881 forwarded for the best speeds, upload bandwidth, since seeding goes on).
+- **Where it needs care.** The engine's UDP tracker client binds `[::]` and nothing else, which fails (and with it the start of the whole
+  session) on a host whose kernel has no IPv6. `vendor/librqbit-tracker-comms/` is that one upstream crate with `UdpTrackerClient::new`
+  falling back to IPv4 (`[patch.crates-io]` in `Cargo.toml`; its `README.fetchbox.md` says what was changed). A torrent restored as
+  stopped that is started while its files are still being checked ends the check stopped (the engine remembers the start it got first);
+  `TorrentEngine::resume` watches for that and starts it again. Both are worth reporting upstream.
+- **Frontend.** `routes/Torrents.svelte`: header with the total speeds, search, sort, and one row per torrent (`TorrentRow`: name, status
+  badge, progress bar, size and percentage, speeds, peers, ETA, ratio, pause / start / retry and remove buttons). The row opens the
+  **panel at the bottom** (`TorrentPanel`, fixed to the bottom of the content, next to the side panel on wide screens; closed by its
+  button, by Escape (when no dialog is open) or by a click on the same row again) with the tabs *Overview* (all numbers, the info hash and magnet link with copy buttons, the error),
+  *Peers* (table, the columns drop out as the width shrinks), *Files* (each with a progress bar) and *Speed* (`SpeedChart`: download and
+  upload as step lines over the last three minutes, from the events seen since the page was opened, `util/torrents.pushSample`). The side menu
+  has a "Torrents" link with the number of running ones. `AddTorrentDialog`, `DeleteTorrentDialog` (also deletes the files when asked, off by
+  default); Settings has a "Torrents" card with the two limits. Store: `stores/torrents`, fed by the downloads store's event stream.
+- **Tests.** Engine: two sessions on the loopback (one seeds, one downloads a magnet link or a file: bytes, statuses, peers with speeds,
+  files, stop / start / remove with files, restart with the torrent restored and started again). Server: the same through the HTTP API
+  (add, duplicate, list, events, peers, files, pause / resume, remove, restart, refused input, trackers at private addresses, torrents
+  not switched on). Frontend: the pure logic (`util/torrents`, `util/torrentInput`). `crates/torrent_engine/examples/seed.rs` is a seeder
+  for trying the screens by hand.
+
 ## 7. Dependencies (Rust)
 
 `tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `jiff` (time zones for the download hours, with its tz database bundled so no `tzdata` is needed), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix), `russh` and `russh-sftp` (SFTP; pure Rust with the `ring` backend, about a hundred
 mostly RustCrypto crates, about 4 MB of the binary), `tokio-rustls`, `rustls` and `webpki-roots` (FTPS; already built for `reqwest`) and `bytes`.
-Tests: `rcgen` and `rand` (a throwaway certificate and a host key) behind the engine's `test-servers` feature. Later: `librqbit`.
+`librqbit` (BitTorrent, 6.13; `default-features = false`, `rust-tls`; with its own ~125 crates, among them `aws-lc-rs`, whose C code needs a C compiler at
+build time, which every builder of this project has).
+Tests: `rcgen` and `rand` (a throwaway certificate and a host key) behind the engine's `test-servers` feature.
 
 ## 8. Milestones
 
@@ -776,4 +873,4 @@ Tests: `rcgen` and `rand` (a throwaway certificate and a host key) behind the en
 3. Pause/resume and segmented downloads.
 4. Rate limits and settings UI.
 5. PWA and mobile polish, auth.
-6. BitTorrent via `librqbit`.
+6. BitTorrent via `librqbit` (done, 6.13).

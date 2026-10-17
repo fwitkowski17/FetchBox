@@ -40,7 +40,12 @@ for _ in 1 2 3 4 5 6 7 8; do
   [ -n "$code" ] && break
   sleep 1
 done
-echo "FetchBox is running on port 8080 (settings: /etc/fetchbox/fetchbox.env)."
+# The port is 8080 unless the settings file or a drop-in of the unit says otherwise.
+port="$(sed -n 's/^FETCHBOX_PORT=//p' /etc/fetchbox/fetchbox.env 2>/dev/null | tail -n 1 | tr -d '"' | tr -d "'")"
+if [ -z "$port" ]; then
+  port="$(systemctl show -p Environment --value fetchbox 2>/dev/null | tr ' ' '\n' | sed -n 's/^FETCHBOX_PORT=//p' | tail -n 1)"
+fi
+echo "FetchBox is running on port ${port:-8080} (settings: /etc/fetchbox/fetchbox.env)."
 if [ -n "$code" ]; then
   echo "Open it in a browser and enter the setup code: $code"
 else

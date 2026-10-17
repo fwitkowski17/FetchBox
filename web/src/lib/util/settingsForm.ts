@@ -19,6 +19,9 @@ export interface Draft {
   maxConcurrent: number;
   perDownload: SpeedDraft;
   global: SpeedDraft;
+  /** Speed limits of all torrents together: receiving and sending. */
+  torrentDown: SpeedDraft;
+  torrentUp: SpeedDraft;
   categorySubdirs: boolean;
   checkUpdates: boolean;
   /** Also announce pre-releases as updates. */
@@ -54,6 +57,9 @@ export function toDraft(s: Settings): Draft {
     maxConcurrent: s.max_concurrent,
     perDownload: speedToDraft(s.speed_per_download),
     global: speedToDraft(s.speed_global),
+    // Older servers do not know the torrent limits: none.
+    torrentDown: speedToDraft(s.torrent_down_limit ?? 0),
+    torrentUp: speedToDraft(s.torrent_up_limit ?? 0),
     categorySubdirs: s.category_subdirs ?? false,
     // Older servers do not know the field; checks are on unless switched off.
     checkUpdates: s.check_updates ?? true,
@@ -74,6 +80,8 @@ export function fromDraft(d: Draft): Settings {
     max_concurrent: d.maxConcurrent,
     speed_per_download: speedFromDraft(d.perDownload),
     speed_global: speedFromDraft(d.global),
+    torrent_down_limit: speedFromDraft(d.torrentDown),
+    torrent_up_limit: speedFromDraft(d.torrentUp),
     category_subdirs: d.categorySubdirs,
     check_updates: d.checkUpdates,
     check_prereleases: d.checkPrereleases,
@@ -85,7 +93,15 @@ export function fromDraft(d: Draft): Settings {
   };
 }
 
-export type Field = 'connections' | 'maxConcurrent' | 'perDownload' | 'global' | 'schedule' | 'timezone';
+export type Field =
+  | 'connections'
+  | 'maxConcurrent'
+  | 'perDownload'
+  | 'global'
+  | 'torrentDown'
+  | 'torrentUp'
+  | 'schedule'
+  | 'timezone';
 
 /** Which message to show for a field (`settings.error.<code>`); the UI supplies the wording. */
 export type ErrorCode = 'connections' | 'concurrent' | 'speed' | 'schedule' | 'timezone';
@@ -107,6 +123,8 @@ export function validate(d: Draft): Errors {
   }
   if (!isValidSpeed(d.perDownload)) errors.perDownload = 'speed';
   if (!isValidSpeed(d.global)) errors.global = 'speed';
+  if (!isValidSpeed(d.torrentDown)) errors.torrentDown = 'speed';
+  if (!isValidSpeed(d.torrentUp)) errors.torrentUp = 'speed';
   if (d.scheduleEnabled) {
     const from = timeToMinutes(d.scheduleFrom);
     const to = timeToMinutes(d.scheduleTo);
@@ -122,6 +140,8 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.max_concurrent === b.max_concurrent &&
     a.speed_per_download === b.speed_per_download &&
     a.speed_global === b.speed_global &&
+    (a.torrent_down_limit ?? 0) === (b.torrent_down_limit ?? 0) &&
+    (a.torrent_up_limit ?? 0) === (b.torrent_up_limit ?? 0) &&
     (a.category_subdirs ?? false) === (b.category_subdirs ?? false) &&
     (a.check_updates ?? true) === (b.check_updates ?? true) &&
     (a.check_prereleases ?? false) === (b.check_prereleases ?? false) &&

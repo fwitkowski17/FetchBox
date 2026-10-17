@@ -13,6 +13,9 @@ import type {
   Settings,
   Stats,
   StatsRange,
+  Torrent,
+  TorrentFile,
+  TorrentPeers,
   TrustHost,
   UrlInfo,
   VersionInfo,
@@ -121,7 +124,26 @@ async function request<T>(
   } catch {
     throw new ApiError(0, undefined);
   }
+  return settle<T>(res, path);
+}
 
+/** Send bytes as they are (a `.torrent` file), not JSON. */
+async function upload<T>(path: string, bytes: ArrayBuffer, contentType: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': contentType },
+      body: bytes,
+    });
+  } catch {
+    throw new ApiError(0, undefined);
+  }
+  return settle<T>(res, path);
+}
+
+async function settle<T>(res: Response, path: string): Promise<T> {
   if (res.status === 204) {
     return undefined as T;
   }
@@ -167,6 +189,20 @@ export const api = {
   startNow: (id: number) => request<Download>('PATCH', `/downloads/${id}`, { start_now: true }),
   setCategory: (id: number, category: Category) =>
     request<Download>('PATCH', `/downloads/${id}`, { category }),
+
+  listTorrents: () => request<Torrent[]>('GET', '/torrents'),
+  addTorrentMagnet: (magnet: string) => request<Torrent>('POST', '/torrents', { magnet }),
+  /** The bytes of a `.torrent` file. */
+  addTorrentFile: (bytes: ArrayBuffer) =>
+    upload<Torrent>('/torrents/file', bytes, 'application/x-bittorrent'),
+  pauseTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/pause`),
+  resumeTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/resume`),
+  removeTorrent: (id: number, deleteFiles = false) =>
+    request<void>('DELETE', `/torrents/${id}${deleteFiles ? '?delete_files=true' : ''}`),
+  torrentPeers: (id: number, signal?: AbortSignal) =>
+    request<TorrentPeers>('GET', `/torrents/${id}/peers`, undefined, signal),
+  torrentFiles: (id: number, signal?: AbortSignal) =>
+    request<TorrentFile[]>('GET', `/torrents/${id}/files`, undefined, signal),
 
   getDisk: () => request<DiskSpace>('GET', '/disk'),
   /** `offsetMinutes`: the caller's distance from UTC, east positive; it decides where a day begins. */

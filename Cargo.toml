@@ -68,6 +68,11 @@ bytes = "1"
 # `tempfile`, so it adds nothing new to the build; Unix only (Linux, macOS).
 rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 
+# BitTorrent (SPEC 6.13): the engine behind `torrent_engine`. Default features off: no native-tls /
+# OpenSSL (`rust-tls` uses the same TLS family as the rest of the program), no HTTP API of its own and
+# no bundled web UI; only the session, the peer protocol, DHT, trackers and uTP are used.
+librqbit = { version = "9", default-features = false, features = ["rust-tls"] }
+
 # Embedded frontend: serve web/dist from the binary
 rust-embed = "8"
 mime_guess = "2"
@@ -83,6 +88,11 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
+
+# One small upstream crate is patched (see vendor/librqbit-tracker-comms/README.fetchbox.md): without
+# it the BitTorrent engine cannot start on a host whose kernel has no IPv6.
+[patch.crates-io]
+librqbit-tracker-comms = { path = "vendor/librqbit-tracker-comms" }
 
 [profile.release]
 lto = "thin"

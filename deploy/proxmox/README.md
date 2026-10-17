@@ -18,7 +18,7 @@ export COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/fwitkowski17/WebD
 bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 ```
 
-(To try a branch, put its name instead of `main`.) At the end the script prints the address (`http://<ip>:8080`) and the **setup code** you need to create the account in the browser. The code is made anew whenever the service starts (and the container restarts once while a downloads folder is mapped), so the script asks the running service for it at the very end; if you restart the service before creating the account, take the new one. Forgot it? In the container: `journalctl -u fetchbox | grep 'setup code' | tail -n 1`. To use a fixed password instead, put `FETCHBOX_PASSWORD=...` into `/etc/fetchbox/fetchbox.env` and `systemctl restart fetchbox`.
+(To try a branch, put its name instead of `main`.) At the end the script prints the address (`http://<ip>`: a new container serves the web interface on port **80**) and the **setup code** you need to create the account in the browser. The code is made anew whenever the service starts (and the container restarts once while a downloads folder is mapped), so the script asks the running service for it at the very end; if you restart the service before creating the account, take the new one. Forgot it? In the container: `journalctl -u fetchbox | grep 'setup code' | tail -n 1`. To use a fixed password instead, put `FETCHBOX_PASSWORD=...` into `/etc/fetchbox/fetchbox.env` and `systemctl restart fetchbox`.
 
 The defaults are 1 CPU core, 512 MB RAM and 8 GB disk, Debian 13, unprivileged (FetchBox itself needs about 64 MB). Override them like in the other scripts (`var_cpu=2 var_ram=1024 bash -c ...`) or in the advanced dialog.
 
@@ -61,6 +61,14 @@ The release is made by the workflow `.github/workflows/release.yml`; it needs no
 You may also create the release by hand on GitHub first (with the tag): the workflow then only attaches the files.
 
 The release notes are what the update dialog in the app shows, so they are worth a look before you publish more.
+
+## The port
+
+A new container serves the web interface on port **80** (the package's own default is 8080): the installer adds a drop-in, `/etc/systemd/system/fetchbox.service.d/30-port.conf`, with `FETCHBOX_PORT=80`, and the package's unit lets the service, which is not root, listen on a port below 1024. To use another port put `FETCHBOX_PORT=8080` (or any port) into `/etc/fetchbox/fetchbox.env` and `systemctl restart fetchbox`: that file is read after the drop-in, so it wins. A container made by an earlier version of this installer keeps the port it has (8080); `update` does not change it.
+
+## Torrents
+
+The container has no port published by itself: torrents work, but few peers can reach you. For the best speeds forward `6881` (TCP and UDP) from your router to the container (`FETCHBOX_TORRENT_PORT` in `/etc/fetchbox/fetchbox.env` changes it). Torrents go to `torrents/` inside the downloads folder (`/downloads/torrents`) and the engine keeps its state in `/var/lib/fetchbox/torrents`.
 
 ## Update and everyday use
 

@@ -86,6 +86,24 @@
     />
   </section>
 
+  <section class={CARD} data-part="torrent-limits">
+    <h2 class="font-semibold tracking-tight">{t('settings.torrents.title')}</h2>
+    <p class="hint">{t('settings.torrents.hint')}</p>
+    <SpeedField
+      label={t('settings.torrents.down')}
+      hint=""
+      bind:value={draft.torrentDown}
+      error={errors.torrentDown ? errorText(errors.torrentDown) : undefined}
+    />
+    <hr class="m-0 w-full border-0 border-t border-border" />
+    <SpeedField
+      label={t('settings.torrents.up')}
+      hint=""
+      bind:value={draft.torrentUp}
+      error={errors.torrentUp ? errorText(errors.torrentUp) : undefined}
+    />
+  </section>
+
   <section class={CARD} data-part="schedule">
     <h2 class="font-semibold tracking-tight">{t('settings.schedule')}</h2>
     <Toggle bind:checked={draft.scheduleEnabled} hint={t('settings.schedule.hint')}>

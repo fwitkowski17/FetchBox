@@ -872,7 +872,7 @@
           "events"
         ],
         "summary": "Live updates as server-sent events.",
-        "description": "Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, or\n`resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`\n(this client fell behind) reload the list with `GET /api/downloads`. Subscribe before\nfetching the list so nothing in between is lost.",
+        "description": "Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, `torrent`,\n`torrent_removed`, or\n`resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`\n(this client fell behind) reload the list with `GET /api/downloads`. Subscribe before\nfetching the list so nothing in between is lost.",
         "operationId": "events",
         "responses": {
           "200": {
@@ -1326,6 +1326,543 @@
         ]
       }
     },
+    "/api/torrents": {
+      "get": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "All torrents, newest first. Live numbers (speed, peers, progress) come as `torrent` events on\n`/api/events`; this is the state to start from.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Torrent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "Add a torrent by magnet link.",
+        "description": "The torrent shows up at once with the status `metadata`; its name and files arrive from the\nswarm, which can take a while (or never happen when nobody has it).",
+        "operationId": "add_magnet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTorrentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Torrent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a magnet link, or a tracker at a private address while those are blocked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The torrent has been added already",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The BitTorrent engine could not start (the port is in use, ...)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/torrents/file": {
+      "post": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "Add a torrent from a `.torrent` file: the raw bytes of the file as the request body\n(`Content-Type: application/x-bittorrent`), at most 8 MiB.",
+        "operationId": "add_file",
+        "requestBody": {
+          "content": {
+            "application/x-bittorrent": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Torrent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable .torrent file, or a tracker at a private address while those are blocked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The torrent has been added already",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The file is too large"
+          },
+          "502": {
+            "description": "The BitTorrent engine could not start",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "The files of the torrent do not fit into the free disk space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpaceBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/torrents/{id}": {
+      "delete": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "Remove a torrent from the list; with `delete_files=true` its data goes too.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Torrent id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "delete_files",
+            "in": "path",
+            "description": "Also delete the downloaded files from the disk.",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/torrents/{id}/files": {
+      "get": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "The files of a torrent and how much of each is on disk. Empty until the description of the\ntorrent has arrived.",
+        "operationId": "files",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Torrent id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TorrentFile"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/torrents/{id}/pause": {
+      "post": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "Stop a torrent. What it has stays on disk; it stops sending to others too.",
+        "operationId": "pause",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Torrent id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Torrent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/torrents/{id}/peers": {
+      "get": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "The peers of a torrent, with the speed of each. Poll it while a panel is open; it is not part\nof the event stream. The list is empty while the torrent is stopped.",
+        "operationId": "peers",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Torrent id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TorrentPeers"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/torrents/{id}/resume": {
+      "post": {
+        "tags": [
+          "torrents"
+        ],
+        "summary": "Start a stopped torrent (or try again after an error).",
+        "operationId": "resume",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Torrent id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Torrent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "What is left does not fit into the free disk space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpaceBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/version": {
       "get": {
         "tags": [
@@ -1475,6 +2012,19 @@
           },
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "AddTorrentRequest": {
+        "type": "object",
+        "description": "Add a torrent by magnet link. A `.torrent` file is sent as the raw body of\n`POST /api/torrents/file` instead.",
+        "required": [
+          "magnet"
+        ],
+        "properties": {
+          "magnet": {
+            "type": "string",
+            "description": "A `magnet:?xt=urn:btih:...` link."
           }
         }
       },
@@ -2007,6 +2557,45 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "A torrent was added, or its status or numbers changed (about once a second while it moves).",
+            "required": [
+              "torrent",
+              "type"
+            ],
+            "properties": {
+              "torrent": {
+                "$ref": "#/components/schemas/Torrent"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "torrent"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A torrent was removed from the list.",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "torrent_removed"
+                ]
+              }
+            }
           }
         ],
         "description": "Live updates pushed to the UI (SSE)."
@@ -2262,6 +2851,24 @@
           "finish"
         ]
       },
+      "PeerState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "connecting",
+          "connected",
+          "idle",
+          "dead"
+        ]
+      },
+      "PeerTransport": {
+        "type": "string",
+        "enum": [
+          "tcp",
+          "utp",
+          "socks"
+        ]
+      },
       "ProbeRequest": {
         "type": "object",
         "description": "Request to look at a URL before adding it.",
@@ -2381,6 +2988,18 @@
             "type": "integer",
             "format": "int64",
             "description": "Default speed limit of every download, bytes/s. A download with a limit of its own\n(`Download::speed_limit`) ignores it.",
+            "minimum": 0
+          },
+          "torrent_down_limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Speed limit of all torrents together, receiving, bytes/s (`0` = none). Separate from the\nlimits of downloads: a swarm and a server are different things to cap.",
+            "minimum": 0
+          },
+          "torrent_up_limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Speed limit of all torrents together, sending, bytes/s (`0` = none). Seeding goes on until\nthe user stops a torrent, so this is what keeps the upload line free.",
             "minimum": 0
           }
         }
@@ -2570,6 +3189,296 @@
           "completed",
           "failed",
           "cancelled"
+        ]
+      },
+      "Torrent": {
+        "type": "object",
+        "description": "One torrent as the UI shows it.",
+        "required": [
+          "id",
+          "info_hash",
+          "name",
+          "status",
+          "downloaded",
+          "uploaded",
+          "down_speed",
+          "up_speed",
+          "peers_connected",
+          "peers_connecting",
+          "peers_known",
+          "file_count",
+          "added_at"
+        ],
+        "properties": {
+          "added_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix seconds."
+          },
+          "down_speed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes per second from the swarm now.",
+            "minimum": 0
+          },
+          "downloaded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes of those files that are on disk and checked.",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the torrent stopped (`status` is `error`), or a note such as a full disk."
+          },
+          "eta": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Seconds left at the current speed.",
+            "minimum": 0
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of files in the torrent; `0` until the description is known.",
+            "minimum": 0
+          },
+          "finished_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix seconds; set when the last byte arrived."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "info_hash": {
+            "type": "string",
+            "description": "The identity of the torrent: 40 hexadecimal characters (SHA-1 of its `info` dictionary)."
+          },
+          "magnet": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The magnet link the torrent was added with; none for a `.torrent` file."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name inside the torrent; the name from the magnet link (or the hash) until the\ndescription has arrived."
+          },
+          "peers_connected": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Peers we are connected to.",
+            "minimum": 0
+          },
+          "peers_connecting": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Peers we are trying to connect to.",
+            "minimum": 0
+          },
+          "peers_known": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Peers heard of (from trackers, DHT, other peers), connected or not.",
+            "minimum": 0
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Total size of the files that are wanted; `None` until the description is known.",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/TorrentStatus"
+          },
+          "up_speed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes per second to the swarm now.",
+            "minimum": 0
+          },
+          "uploaded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes sent to other peers, over all runs of the program.",
+            "minimum": 0
+          }
+        }
+      },
+      "TorrentFile": {
+        "type": "object",
+        "description": "A file inside a torrent.",
+        "required": [
+          "path",
+          "size",
+          "downloaded"
+        ],
+        "properties": {
+          "downloaded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes of this file that are on disk and checked.",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string",
+            "description": "Path inside the torrent, `/` separated."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "TorrentPeer": {
+        "type": "object",
+        "description": "A peer we know about.",
+        "required": [
+          "address",
+          "state",
+          "downloaded",
+          "uploaded",
+          "down_speed",
+          "up_speed"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "`ip:port`."
+          },
+          "client": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The program the peer runs, as it names itself (`qBittorrent 5.0`)."
+          },
+          "down_speed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes per second from this peer now.",
+            "minimum": 0
+          },
+          "downloaded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes received from this peer since it was first connected.",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/PeerState"
+          },
+          "transport": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PeerTransport",
+                "description": "How the connection is made (only for a connected peer)."
+              }
+            ]
+          },
+          "up_speed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes per second to this peer now.",
+            "minimum": 0
+          },
+          "uploaded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes sent to this peer.",
+            "minimum": 0
+          }
+        }
+      },
+      "TorrentPeers": {
+        "type": "object",
+        "description": "The peers of a torrent, with the counts of every state.",
+        "required": [
+          "peers",
+          "connected",
+          "connecting",
+          "queued",
+          "idle",
+          "dead",
+          "known",
+          "truncated"
+        ],
+        "properties": {
+          "connected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "connecting": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "dead": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "idle": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "known": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Peers heard of in total.",
+            "minimum": 0
+          },
+          "peers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TorrentPeer"
+            },
+            "description": "Connected peers first (fastest first), then those being connected, then the rest; at most\n[`MAX_PEERS_LISTED`]."
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "The list was cut at the limit."
+          }
+        }
+      },
+      "TorrentStatus": {
+        "type": "string",
+        "description": "What a torrent is doing now, in the words a BitTorrent client uses.\n\nThe engine only knows \"initialising\", \"live\", \"paused\" and \"error\"; the rest is read from the\nnumbers (peers, progress) by [`TorrentStatus::derive`].",
+        "enum": [
+          "metadata",
+          "checking",
+          "connecting",
+          "downloading",
+          "seeding",
+          "paused",
+          "finished",
+          "error"
         ]
       },
       "TrustHost": {
@@ -2789,6 +3698,10 @@
     {
       "name": "settings",
       "description": "Global settings, applied live"
+    },
+    {
+      "name": "torrents",
+      "description": "BitTorrent: magnet links and .torrent files, peers, files"
     },
     {
       "name": "sources",

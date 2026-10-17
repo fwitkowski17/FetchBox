@@ -8,6 +8,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 ## ✨ Features
 
 - 🌍 **HTTP, HTTPS, FTP, FTPS and SFTP**: one list, queue and set of limits for all of them, with logins for the servers that need one. [Details](#-sources-and-logins).
+- 🧲 **Torrents**: magnet links and `.torrent` files on a page of their own, with the statuses of a BitTorrent client (fetching metadata, checking files, connecting to peers, downloading, sending...) and, at the bottom of the page, the details of the torrent you click: peers with their speeds, files, a speed chart. [Details](#-torrents).
 - ⬇️ **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
 - 🚦 **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
 - 🌙 **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
@@ -20,7 +21,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 - 📱 **Phone friendly**: installable web app, light / dark / black (for OLED) themes and eight accent colours, [English and Polish](#-languages).
 - 🔒 **Safe by default**: password protected (set in the browser on first run), optional blocking of private addresses, file names are sanitised and nothing is written outside the download folder. An SSH server is only used after you have compared its fingerprint and trusted it.
 - 🔔 **Update notice**: tells you when a new release is out and what changed, with the steps to update. It can be switched off.
-- 🪶 **Light**: one Rust binary of about 14 MB, around 64 MB of RAM when idle, no database server and no Node.js at runtime.
+- 🪶 **Light**: one Rust binary of about 24 MB (BitTorrent included), around 64 MB of RAM when idle (the BitTorrent engine only starts with the first torrent), no database server and no Node.js at runtime.
 
 > [!NOTE]
 > Status: usable, version 0.x. What comes next is in the [roadmap](#-roadmap).
@@ -31,11 +32,12 @@ FetchBox is small, and a download manager is mostly waiting for the network and 
 
 | | Minimum | Recommended |
 | --- | --- | --- |
-| 🧠 **CPU** | 1 core, 64-bit: x86_64 or ARM64 (Raspberry Pi 3 and newer with a 64-bit OS) | 2 cores; 4 cores for a gigabit line with many files at once |
-| 🧮 **RAM** | 256 MB free (the program itself needs about 64 MB when idle) | 512 MB to 1 GB, more when the list holds many thousands of entries |
+| 🧠 **CPU** | 1 core, 64-bit: x86_64 or ARM64 (Raspberry Pi 3 and newer with a 64-bit OS) | 2 cores; 4 cores for a gigabit line with many files at once, or for torrents that move tens of MB/s (every piece is hashed) |
+| 🧮 **RAM** | 256 MB free (the program itself needs about 64 MB when idle; a running torrent adds a few tens of MB) | 512 MB to 1 GB, more when the list holds many thousands of entries or you run many torrents with many peers each |
 | 🐧 **System** | a 64-bit Linux with glibc 2.36 or newer and systemd (or Docker) | **Debian 12 or 13** (what the release is built and tested on), or Ubuntu 22.04 / 24.04 LTS, Raspberry Pi OS 64-bit, Fedora |
 | 🗄️ **Disk for the program** | 100 MB (the binary, and a database that stays small even after thousands of downloads) | the system disk; on a Raspberry Pi an SSD or a good SD card |
 | 📥 **Disk for downloads** | free space for the files that are in progress at the same time (the finished ones stay) | **a separate disk, partition or network share**. An SSD is the recommended choice, but a CMR hard disk is entirely enough, especially for lines up to 1 Gbit/s. ⚠️ Not a memory card, and not an SMR disk if your line is fast (see [below](#-disk-speed-and-memory-cards)) |
+| 📡 **Network** | outgoing access to the sources you download from | for torrents: port **6881, TCP and UDP**, reachable from the internet (forwarded on the router, open in the firewall), IPv4; and upload bandwidth you are willing to give, as a torrent keeps sending until you stop it |
 | 🌐 **Browser** | any current Chrome, Edge, Firefox or Safari | the same, over HTTPS (installing the web app and the paste button need a secure context) |
 
 A few notes behind those numbers:
@@ -44,6 +46,11 @@ A few notes behind those numbers:
 - **File system**: ext4, XFS or Btrfs are the best fit. A file is created at its full size before the first byte arrives, which costs nothing where files can be sparse (ext4, XFS, Btrfs, APFS); on exFAT, FAT or some network shares the whole size may be allocated up front, and FAT32 cannot hold files over 4 GB at all.
 - **CPU**: the work is network and disk. One core is enough for a few downloads at 100 Mbit/s; a gigabit line with HTTPS and many connections per file is where a second and third core help. The limits you set in Settings keep it below whatever the machine can do.
 - **Checksum verification** is the one step that is not just waiting: when a download has a checksum, the finished file is read back once from the disk and hashed (MD5, SHA-1, SHA-256 or SHA-512). That costs CPU time and a sequential read of the whole file, so a large file on a slow disk or a small ARM board takes a while (the SHA instructions of the CPU are used where present). It does not hold a download slot, so the next download starts meanwhile, but it competes with the running ones for the disk. Leave the checksum off for files you do not need to verify.
+- **Torrents** ask a little more than downloads, mostly of the disk and the network:
+  - **Disk.** The pieces of a torrent come from many peers in no particular order, so the writes jump around the file (a download writes it from start to end), and seeding reads pieces at random. An SSD is comfortable; a CMR hard disk copes with a few torrents; an SMR disk or a memory card does not (see [below](#-disk-speed-and-memory-cards)). Adding a torrent whose files are already on the disk reads and checks all of them once; a restart does not repeat that for torrents that were complete or are resumed (the engine saves which pieces are done).
+  - **Open files.** The engine keeps every file of every torrent open, and every peer is a connection, so a torrent of thousands of files needs thousands of file descriptors. FetchBox raises its limit to the hard limit of the system at start (no root needed); a system or container with a low hard limit (some NAS firmware, `ulimit -Hn`) needs it raised, or such a torrent will not start.
+  - **CPU and memory.** Measured with one 256 MiB torrent on the loopback (release build, x86_64): it was received, hashed and written in about 2 seconds using about 1.5 seconds of CPU time, and the whole program peaked at 20 MB of memory (it is 11 MB with no torrent). Not measured: a large swarm or dozens of torrents; both grow with the number of torrents and connected peers.
+  - **Network.** Torrents work without an open port, but only the peers you connect to can be used, so speeds and the number of peers are lower. IPv6 is not used yet. The speed limits for torrents are in **Settings** (they are separate from those of downloads).
 - **Operating systems** older than Debian 12 or Ubuntu 22.04, 32-bit systems (including 32-bit Raspberry Pi OS) and musl systems such as Alpine are not supported by the release binaries.
 
 ### 💽 Disk speed and memory cards
@@ -54,7 +61,8 @@ A few notes behind those numbers:
 **What happens when the line is faster than the disk.** FetchBox reads from the network only as fast as it can hand the data to the disk, so nothing piles up in memory (a few MB per connection) and the download does not fail: the server is simply slowed down through the connection. The data first goes into the operating system's write cache, so the first seconds, or the first gigabytes on a machine with a lot of free RAM, can run at line speed and look faster than the disk really is; once the cache is full the speed falls to what the disk sustains. The speed shown in the app is the speed at which data is accepted for writing.
 
 - **SMR hard disks** (shingled, common in cheap 2.5" and some "desktop" drives) take short bursts quickly into a small cache area and then rewrite whole bands of tracks in the background. A long download of many gigabytes can drop to a fraction of the advertised speed, and writes to several places of the file at once make it worse. If your line is faster than about 100 MB/s, or you download huge files, prefer an SSD or a CMR drive (the data sheet says which; "SMR" is often not stated, the model number tells).
-- **An SSD is the recommended choice, but a CMR hard disk is entirely enough** (especially for lines up to 1 Gbit/s), and it is rarely the bottleneck; a RAID array even less. A conventional (CMR) 3.5" disk sustains roughly 100 to 250 MB/s of sequential writes, which covers a 1 Gbit/s line (about 120 MB/s); a 2.5" one is nearer the lower end and may be the limit at 1 Gbit/s. Striped arrays (RAID 0, 5, 6, 10, ZFS or Btrfs over several disks) add the speed of their disks together, so even a 2.5 or 10 Gbit/s line is within reach, while RAID 1 writes at the speed of one disk. Downloads are large sequential writes, which arrays handle well. The one thing to check is that the drives really are CMR: the name on the box does not always tell, and not every maker states it in the product name, so look up the exact model number in the maker's CMR/SMR list or its data sheet before you rely on it. A RAID is not a backup, and arrays built from SMR drives are known for painfully slow rebuilds.
+- **An SSD is the recommended choice, but a CMR hard disk is entirely enough** (especially for lines up to 1 Gbit/s), and it is rarely the bottleneck; a RAID array even less. A conventional (CMR) 3.5" disk sustains roughly 100 to 250 MB/s of sequential writes, which covers a 1 Gbit/s line (about 120 MB/s); a 2.5" one is nearer the lower end and may be the limit at 1 Gbit/s. Striped arrays (RAID 0, 5, 6, 10, ZFS or Btrfs over several disks) add the speed of their disks together, so even a 2.5 or 10 Gbit/s line is within reach, while RAID 1 writes at the speed of one disk. Downloads are large sequential writes, which arrays handle well (torrents are scattered ones, which they handle less well). The one thing to check is that the drives really are CMR: the name on the box does not always tell, and not every maker states it in the product name, so look up the exact model number in the maker's CMR/SMR list or its data sheet before you rely on it. A RAID is not a backup, and arrays built from SMR drives are known for painfully slow rebuilds.
+- **Torrents are the harder case.** Pieces arrive from many peers in random order, so even one torrent is many scattered writes, and a torrent that is being sent is read at random places. This is where an SSD pays off and an SMR disk or a memory card gives up first. Fewer torrents at a time, and a limit on the receiving speed in Settings, are the gentle options on a hard disk.
 - **On any hard disk, fewer connections per download is gentler**: several connections write to different places of the same file, so the head has to jump between them. Try 1 to 2 in **Settings** (connections per download) and keep the number of simultaneous downloads low. A speed limit under what the disk sustains gives a steady transfer instead of bursts and stalls.
 - **A power cut or a kernel crash.** The data you have downloaded is forced to the disk every couple of seconds, and the point a download resumes from is stored only after that, so after a power cut a download continues from what is really in the file (at most a few seconds are fetched again). A finished file is synced before it gets its real name. This costs a little speed on a slow disk, because the program waits for the disk instead of hiding behind the system's cache for long.
 
@@ -81,7 +89,7 @@ docker compose up -d --build
 docker compose logs fetchbox     # the line with the one-time "setup code"
 ```
 
-Open <http://localhost:8080> and create your account with the setup code ([details](#-signing-in)). The database goes to `./data` and the downloads to `./downloads`; change the `volumes:` in `docker-compose.yml` to put the downloads elsewhere (for example `/mnt/nas/downloads:/downloads`). The image is Debian 13 based and runs as the unprivileged user 65532 without a shell, so give it the two folders before the first start (otherwise Docker creates them for root and FetchBox cannot write to them):
+Open <http://localhost:8080> and create your account with the setup code ([details](#-signing-in)). The database goes to `./data` and the downloads to `./downloads`; change the `volumes:` in `docker-compose.yml` to put the downloads elsewhere (for example `/mnt/nas/downloads:/downloads`). Inside the container FetchBox listens on port **80**, and the compose file publishes it as **8080** on the host. For another port on the host put `FETCHBOX_HTTP_PORT=9000` in a `.env` file next to `docker-compose.yml`; `FETCHBOX_PORT` (default `80`) changes the port inside, and the mapping follows it. Running the image without compose, map the container's port 80: `docker run -p 8080:80 ...` (older versions of the image listened on 8080 inside). The image is Debian 13 based and runs as the unprivileged user 65532 without a shell, so give it the two folders before the first start (otherwise Docker creates them for root and FetchBox cannot write to them):
 
 ```bash
 mkdir -p data downloads && sudo chown 65532:65532 data downloads
@@ -96,7 +104,7 @@ export COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/fwitkowski17/WebD
 bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 ```
 
-It creates a small Debian 13 container, installs the `.deb` package from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
+It creates a small Debian 13 container (the web interface is on port **80**, so the address is just `http://<ip>`), installs the `.deb` package from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
 
 ### DEB / RPM package
 
@@ -112,7 +120,7 @@ url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/WebDownloadManager/r
 curl -fsSLO "$url" && sudo dnf install "./$(basename "$url")"
 ```
 
-(Or download the file from the Releases page and give it to `apt install` / `dnf install`. Each file has a `.sha256` next to it.) The installation prints the address, `http://<host>:8080`, and the one-time **setup code** for creating the account (later: `journalctl -u fetchbox | grep 'setup code'`).
+(Or download the file from the Releases page and give it to `apt install` / `dnf install`. Each file has a `.sha256` next to it.) The installation prints the port (**8080**; change it with `FETCHBOX_PORT` in `/etc/fetchbox/fetchbox.env`, then `systemctl restart fetchbox`: the service may listen on a port below 1024, such as 80, without being root) and the one-time **setup code** for creating the account (later: `journalctl -u fetchbox | grep 'setup code'`).
 
 | What | Where |
 | --- | --- |
@@ -167,7 +175,7 @@ The web app is inside the binary. It needs Debian 12 or newer, Ubuntu 22.04 or n
 
 ### From source
 
-You need the Rust toolchain (version pinned by `rust-toolchain.toml`) and Node.js 22:
+You need the Rust toolchain (version pinned by `rust-toolchain.toml`), Node.js 22 and a C compiler (`gcc` or `clang`, which the BitTorrent engine's cryptography needs; `build-essential` on Debian and Ubuntu):
 
 ```bash
 ./scripts/build.sh     # builds the web app, then target/release/fetchbox
@@ -181,10 +189,11 @@ Everything day to day (connections, limits, category folders, theme, language, u
 | --- | --- |
 | `--data-dir <dir>` / `FETCHBOX_DATA_DIR` | where the database lives (default `./data`) |
 | `--download-dir <dir>` / `FETCHBOX_DOWNLOAD_DIR` | where files are saved (default `./downloads`) |
-| `--port <port>` / `FETCHBOX_PORT` | TCP port (default `8080`) |
+| `--port <port>` / `FETCHBOX_PORT` | TCP port of the web interface (default `8080`; the Docker image listens on `80` inside, published as `8080`, and a new Proxmox container uses `80`). For the packages and the host script put it in `/etc/fetchbox/fetchbox.env`; a port below 1024 works there too |
 | `--password-file <file>` | read the password from a file, e.g. a Docker secret |
 | `--no-auth` | no password at all: see the caution below |
 | `--block-private-urls` / `FETCHBOX_BLOCK_PRIVATE_URLS` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
+| `--torrent-port <port>` / `FETCHBOX_TORRENT_PORT` | TCP and uTP port that BitTorrent peers connect to (default `6881`); nothing listens on it until the first torrent is added |
 | `FETCHBOX_PASSWORD` | a fixed password (8+ characters) instead of one created in the browser |
 | `FETCHBOX_INSTALL_METHOD` | how FetchBox was installed: `docker`, `package`, `lxc`, `script` or `source`. The installers set it, and the update notice shows only the steps of that method (without it, every way is listed) |
 | `FETCHBOX_UPDATE_URL` | use another releases endpoint for the update check (a mirror, a fork) |
@@ -216,6 +225,26 @@ Besides `http://` and `https://`, FetchBox downloads from FTP and SFTP servers: 
 
 > [!NOTE]
 > Not supported yet: SFTP with a private key (only a password), FTPS servers with a self-signed certificate, active-mode FTP, and changing the login of a download after it was added (remove it and add it again). FTP and SFTP are tested against vsftpd and OpenSSH and against test servers, but not against every server out there: if one misbehaves, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues) with its name.
+
+## 🧲 Torrents
+
+Open **Torrents** in the side menu and add a magnet link or a `.torrent` file (chosen, or dropped on the dialog; one magnet link per line adds several). Torrents are a list of their own, apart from the downloads: they go to `torrents/` inside the download folder, and the queue, the download hours and the download speed limits do not apply to them. A click on a torrent opens a panel at the bottom with its overview, **peers** (address, client, link, speed of each direction, bytes), **files** and a **speed chart**.
+
+| Status | Meaning |
+| --- | --- |
+| Fetching metadata | a magnet link: the names of the files are being fetched from other peers |
+| Checking files | files already on the disk are being checked |
+| Connecting to peers | running, no peer is connected yet |
+| Downloading / Sending | receiving data / complete and sending to others (it goes on until you stop the torrent) |
+| Paused / Finished | stopped by you / complete and stopped |
+
+Speed limits for all torrents together (receiving and sending) are in **Settings**. A completed torrent keeps sending, so a limit on sending keeps your upload line free; stop a torrent when you are done with it.
+
+- **Open the port** for the best speeds: forward `6881` (TCP and UDP) on your router and allow it in the firewall; with Docker the compose file already publishes it. Without it torrents still work, only fewer peers can reach you.
+- **Seeds are not counted separately.** The BitTorrent library behind FetchBox does not tell which peers have the whole file, so the numbers are peers: connected, connecting, known.
+- Not there yet: choosing which files of a torrent to download, a queue, stopping at a ratio, IPv6 and UPnP.
+- **`--block-private-urls` does not cover torrents.** It refuses trackers at private addresses, but peers come from the swarm and are not filtered. Do not rely on it to keep BitTorrent traffic off your LAN.
+- Only download what you have the right to download. FetchBox is a tool; what you fetch and share is up to you.
 
 ## 🔑 Signing in
 
@@ -277,7 +306,7 @@ The interface is translated without a library, and a new language is one file an
 
 Ideas in rough order, with no promised dates. The ones marked 🧭 are being designed.
 
-- 🧲 **BitTorrent**: magnet links and `.torrent` files through [`librqbit`](https://github.com/ikatson/rqbit), behind the same queue, limits, hours and statistics as the other downloads. The `torrent_engine` crate is already in place as a stub.
+- 🧲 **More for torrents**: choosing the files of a torrent, a queue, stopping at a ratio, torrents in the statistics, a count of seeds, IPv6 and UPnP (what is there now is [above](#-torrents)).
 - 🌍 **More kinds of sources**, behind the same queue, limits, hours, statistics and checksum check (FTP, FTPS and SFTP are done, see [above](#-sources-and-logins)):
   - **WebDAV** (for example a Nextcloud or a NAS), over HTTPS with the same segmented download where the server allows ranges.
   - **S3-compatible storage** (Amazon S3, Cloudflare R2, MinIO, Backblaze B2 and the like): a pre-signed link should already work as an ordinary HTTPS address; a direct `s3://bucket/key` address with your own keys is the part to be added. Providers differ in the details, so each one will be checked before it is listed as supported.

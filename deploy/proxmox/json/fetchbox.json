@@ -6,7 +6,7 @@
   "type": "ct",
   "updateable": true,
   "privileged": false,
-  "interface_port": 8080,
+  "interface_port": 80,
   "documentation": "https://github.com/fwitkowski17/WebDownloadManager/blob/main/deploy/proxmox/README.md",
   "website": "https://github.com/fwitkowski17/WebDownloadManager",
   "logo": null,

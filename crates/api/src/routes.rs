@@ -43,6 +43,7 @@ pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
         .route("/disk", get(disk))
         .route("/stats", get(stats))
         .route("/events", get(sse::events))
+        .merge(crate::torrents::routes())
         .with_state(service)
         .route_layer(middleware::from_fn_with_state(
             Arc::clone(&auth),

@@ -3,6 +3,8 @@
   import { i18n, t } from '../i18n';
   import { downloads } from '../stores/downloads.svelte';
   import { prefs } from '../stores/prefs.svelte';
+  import { torrents } from '../stores/torrents.svelte';
+  import { summarizeTorrents } from '../util/torrents';
   import { route, routes, type Route } from '../stores/route';
   import { theme, type ThemePref } from '../stores/theme.svelte';
   import { GROUPS, countCategories, countGroups, summarize, type Group } from '../util/downloads';
@@ -31,7 +33,12 @@
   // The list itself is reached through the status filters ("All"), so only the other pages are links;
   // they sit above the disk ring, next to the other controls.
   const pageRoutes = routes.filter((r) => r.id !== 'downloads');
-  const NAV_ICONS: Record<Route, IconName> = { downloads: 'list', stats: 'chart', settings: 'sliders' };
+  const NAV_ICONS: Record<Route, IconName> = {
+    downloads: 'list',
+    torrents: 'magnet',
+    stats: 'chart',
+    settings: 'sliders',
+  };
   const THEME_ICONS: Record<ThemePref, IconName> = {
     system: 'monitor',
     light: 'sun',
@@ -45,6 +52,7 @@
   const groupCounts = $derived(countGroups(downloads.items, filter));
   const categoryCounts = $derived(countCategories(downloads.items, filter));
   const summary = $derived(summarize(downloads.items));
+  const torrentSummary = $derived(summarizeTorrents(torrents.items));
 
   /** Filters apply to the list, so choosing one from another page goes back to the list. */
   function showList(): void {
@@ -140,6 +148,9 @@
               onclick={onclose}
             >
               <Icon name={NAV_ICONS[r.id]} size={20} />{t(`nav.${r.id}`)}
+              {#if r.id === 'torrents' && torrentSummary.active > 0}
+                <span class={COUNT} data-part="torrent-count">{torrentSummary.active}</span>
+              {/if}
             </a>
           </li>
         {/each}

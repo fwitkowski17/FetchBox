@@ -33,6 +33,7 @@ FB_REPO="fwitkowski17/WebDownloadManager"
 FB_LEGACY_DIR="/opt/fetchbox" # where the first versions of this installer put the program
 FB_UID=1000 # the user the service runs as, inside the container (the install script creates it)
 FB_DOWNLOADS="/downloads"
+FB_PORT=80 # the web interface of a new container; keep in step with install/fetchbox-install.sh
 
 # The CPU in the name of the package on the GitHub release (built by .github/workflows/release.yml).
 function fetchbox_deb_arch() {
@@ -231,4 +232,8 @@ else
   echo -e "${INFO}${YW}Open it using the following URL and enter the setup code, which you get in the container with:${CL}"
   echo -e "${INFO}${YW}journalctl -u fetchbox | grep 'setup code' | tail -n 1${CL}"
 fi
-echo -e "${GATEWAY}${BGN}http://${IP}:8080${CL}"
+if [[ "$FB_PORT" == 80 ]]; then
+  echo -e "${GATEWAY}${BGN}http://${IP}${CL}"
+else
+  echo -e "${GATEWAY}${BGN}http://${IP}:${FB_PORT}${CL}"
+fi

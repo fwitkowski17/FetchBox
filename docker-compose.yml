@@ -4,8 +4,20 @@ services:
     container_name: fetchbox
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # <port on the host>:<port in the container>. The container listens on 80 (FETCHBOX_PORT) and the
+      # host publishes it as 8080. Put FETCHBOX_HTTP_PORT=... in a .env file next to this one for
+      # another port on the host; FETCHBOX_PORT changes the one inside (the mapping follows it).
+      - "${FETCHBOX_HTTP_PORT:-8080}:${FETCHBOX_PORT:-80}"
+      # BitTorrent peers connect here (TCP and uTP). Without it torrents still download, only more
+      # slowly, as nobody can connect to you. The port is set with FETCHBOX_TORRENT_PORT.
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    sysctls:
+      # The image runs as an unprivileged user, which may listen on port 80 only with this (Docker
+      # sets it by default since 20.10; saying so keeps older setups and Podman working).
+      net.ipv4.ip_unprivileged_port_start: 0
     environment:
+      FETCHBOX_PORT: ${FETCHBOX_PORT:-80}
       # Optional (min. 8 characters). Leave it empty to create the account in the browser
       # on first run: open the UI and enter the setup code that `docker compose logs fetchbox`
       # prints. A password set here wins and cannot be changed in the UI. Put it in a .env

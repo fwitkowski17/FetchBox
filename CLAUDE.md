@@ -1,6 +1,6 @@
 # FetchBox
 
-Self-hosted download manager web app for a homelab. Single Rust binary serves REST API + SSE + embedded Svelte frontend. BitTorrent support is planned later (librqbit).
+Self-hosted download manager web app for a homelab. Single Rust binary serves REST API + SSE + embedded Svelte frontend. BitTorrent is done through `librqbit` (SPEC 6.13).
 
 Full specification: @docs/SPEC.md — read it before making architectural changes.
 
@@ -15,7 +15,7 @@ The user (Filip) communicates in Polish. Reply in Polish. Code, identifiers, com
 - Cargo workspace, crates with strict responsibilities:
   - `core` — models, categories, `Downloader` trait, scheduler, rate limiter. No HTTP, no SQL, no axum.
   - `http_engine` — segmented HTTP download with `Range`, pause/resume.
-  - `torrent_engine` — LATER, adapter over `librqbit`. Keep as an empty stub crate for now.
+  - `torrent_engine` — adapter over `librqbit` (magnet + `.torrent`), see SPEC 6.13. Torrents are not downloads: own list, table, API and page.
   - `storage` — SQLite (`rusqlite` or `sqlx`), migrations, repositories.
   - `api` — axum routes, SSE, auth, OpenAPI (`utoipa`).
   - `server` — binary: wires everything, embeds frontend, CLI (`clap`).
@@ -43,7 +43,7 @@ The user (Filip) communicates in Polish. Reply in Polish. Code, identifiers, com
 ## Feature scope
 
 v1: download list, mobile support, file categories (Photo, Music, Video, Program, Archive, Other), pause/resume, settings (connections per download, max concurrent downloads, default speed per download and total speed limit; a single download can get its own speed from its menu, which replaces the default).
-Later: BitTorrent (magnet + .torrent) through `torrent_engine`.
+BitTorrent (magnet + .torrent) lives on its own page; see SPEC 6.13 for what it leaves out.
 
 ## Do not
 
