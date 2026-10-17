@@ -8,12 +8,12 @@ version: ${VERSION}
 version_schema: semver
 section: net
 priority: optional
-maintainer: fwitkowski17 <fwitkowski17@users.noreply.github.com>
+maintainer: Filip Witkowski <fwitkowski17@users.noreply.github.com>
 description: |-
   Self-hosted download manager with a web interface.
   One program that downloads in segments, pauses and resumes, sorts files into categories and limits
   speed, controlled from a browser (the web app is inside the binary). Runs as a systemd service.
-vendor: fwitkowski17
+vendor: Filip Witkowski
 homepage: https://github.com/fwitkowski17/WebDownloadManager
 license: MIT
 

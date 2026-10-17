@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2026 fwitkowski17
-# Author: fwitkowski17
+# Copyright (c) 2026 Filip Witkowski
+# Author: Filip Witkowski
 # License: MIT
 # Source: https://github.com/fwitkowski17/WebDownloadManager
 
