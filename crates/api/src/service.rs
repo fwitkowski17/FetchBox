@@ -61,6 +61,8 @@ pub trait Service: Send + Sync + 'static {
     async fn pause_torrent(&self, id: Id) -> Result<Torrent>;
     /// Start a stopped torrent again.
     async fn resume_torrent(&self, id: Id) -> Result<Torrent>;
+    /// Exempt a torrent from the torrent hours (SPEC 6.3.2) until it is stopped.
+    async fn start_torrent_now(&self, id: Id) -> Result<Torrent>;
     /// Forget a torrent; with `delete_files` its data goes too.
     async fn remove_torrent(&self, id: Id, delete_files: bool) -> Result<()>;
     /// The peers of a torrent with their speeds.

@@ -44,6 +44,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0010_checksum.sql"),
     include_str!("../migrations/0011_sources.sql"),
     include_str!("../migrations/0012_torrents.sql"),
+    include_str!("../migrations/0013_torrent_start_now.sql"),
 ];
 
 /// Open (creating if needed) the database at `path` and run pending migrations.

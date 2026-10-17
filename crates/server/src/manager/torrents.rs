@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use fetchbox_core::{
-    AddTorrentRequest, Error, Event, Id, Result, Settings, Torrent, TorrentFile, TorrentPeers,
-    TorrentStatus, MAX_MAGNET_LEN, MAX_TORRENT_FILE,
+    AddTorrentRequest, Error, Event, Hold, Id, Result, Settings, Torrent, TorrentFile,
+    TorrentPeers, TorrentStatus, MAX_MAGNET_LEN, MAX_TORRENT_FILE,
 };
 use fetchbox_storage::torrents::{self as store, NewTorrent, StoredTorrent};
 use fetchbox_torrent_engine::{
@@ -24,6 +24,7 @@ use tokio::task::AbortHandle;
 
 use super::Manager;
 use crate::clock;
+use crate::logfmt;
 use crate::update;
 
 /// Where the engine keeps its state and which port it listens on (set once at start-up).
@@ -54,6 +55,11 @@ pub(crate) struct Torrents {
     last: Mutex<HashMap<Id, Torrent>>,
     /// When the sent counters were last written to the database.
     persisted: Mutex<Option<Instant>>,
+    /// Torrents the torrent hours keep stopped (SPEC 6.3.2): the user did not stop them, so they
+    /// start again when the hours open. Not stored: the clock decides it afresh at every start.
+    held: Mutex<HashSet<Id>>,
+    /// Whether the torrent hours were last seen open (`None`: switched off), to log a change once.
+    pub(super) hours_seen: Mutex<Option<bool>>,
 }
 
 /// The engine counts what a torrent sent since it started it, and starts again from zero when a
@@ -86,6 +92,7 @@ fn view(
     fetching: bool,
     start_error: Option<&str>,
     uploaded: u64,
+    held: Option<Option<i64>>,
 ) -> Torrent {
     let stopped = |complete: bool| TorrentStatus::derive_stopped(complete);
     let status = match snap {
@@ -101,6 +108,12 @@ fn view(
         None if row.paused => stopped(row.finished_at.is_some()),
         None if fetching || !row.has_metainfo => TorrentStatus::Metadata,
         None => TorrentStatus::Checking,
+    };
+    // Stopped by the torrent hours: shown as paused, with the time the hours open.
+    let status = if held.is_some() && status != TorrentStatus::Error {
+        TorrentStatus::Paused
+    } else {
+        status
     };
     let name = snap
         .and_then(|s| s.name.clone())
@@ -152,6 +165,9 @@ fn view(
             .and_then(|s| s.error.clone())
             .or_else(|| row.error.clone())
             .or_else(|| start_error.map(str::to_owned)),
+        hold: held.map(|_| Hold::Window),
+        starts_at: held.flatten(),
+        start_now: row.start_now,
     }
 }
 
@@ -203,6 +219,166 @@ impl Manager {
             .fetching
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn torrent_held(&self) -> std::sync::MutexGuard<'_, HashSet<Id>> {
+        self.torrents.held.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    // ---- torrent hours (SPEC 6.3.2) -------------------------------------------------------------
+
+    /// Is the local time inside the torrent hours? Without hours (or with a zone nobody can read,
+    /// which `update_settings` refuses) it is always "open".
+    fn torrent_window_open(&self, s: &Settings, now: i64) -> bool {
+        if !s.torrent_schedule_enabled {
+            return true;
+        }
+        match clock::zone(&s.torrent_schedule_timezone)
+            .and_then(|tz| clock::minute_of_day(now, &tz))
+        {
+            Some(minute) => s.torrent_schedule_window().contains(minute),
+            None => {
+                tracing::warn!(zone = %s.torrent_schedule_timezone, "unknown time zone for the torrent hours");
+                true
+            }
+        }
+    }
+
+    /// The next moment the torrent hours open, as unix seconds.
+    fn torrent_next_opening(&self, s: &Settings, now: i64) -> Option<i64> {
+        if !s.torrent_schedule_enabled {
+            return None;
+        }
+        let tz = clock::zone(&s.torrent_schedule_timezone)?;
+        clock::next_at(now, &tz, s.torrent_schedule_from)
+    }
+
+    /// Do the torrent hours keep this torrent stopped right now? If so it is marked as held. A
+    /// torrent the user stopped is not held (their stop is the stronger one), nor one that was
+    /// told to start now.
+    fn torrent_hold(&self, row: &StoredTorrent) -> bool {
+        if row.paused || row.start_now {
+            return false;
+        }
+        let closed = !self.torrent_window_open(&self.current_settings(), clock::now());
+        if closed {
+            self.torrent_held().insert(row.id);
+        }
+        closed
+    }
+
+    /// Say when the torrent hours open or close (once per change, not every check).
+    fn log_torrent_hours(&self, s: &Settings, now: i64) {
+        let seen = s
+            .torrent_schedule_enabled
+            .then(|| self.torrent_window_open(s, now));
+        let mut last = self
+            .torrents
+            .hours_seen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if *last == seen {
+            return;
+        }
+        *last = seen;
+        match seen {
+            Some(true) => tracing::info!(target: "activity",
+                hours = %format!("{}-{} {}", logfmt::clock(s.torrent_schedule_from), logfmt::clock(s.torrent_schedule_to), s.torrent_schedule_timezone),
+                "torrent hours are open: torrents may run"
+            ),
+            Some(false) => tracing::info!(target: "activity",
+                opens = %self.torrent_next_opening(s, now).map_or_else(String::new, |at| clock::describe(at, &s.torrent_schedule_timezone)),
+                "torrent hours are closed: torrents are stopped"
+            ),
+            None => {}
+        }
+    }
+
+    /// Once a second: stop the torrents the hours no longer allow and start the ones they let go
+    /// again. What the user stopped stays stopped.
+    async fn torrent_hours_pass(&self, rows: &[StoredTorrent]) {
+        let s = self.current_settings();
+        let now = clock::now();
+        self.log_torrent_hours(&s, now);
+        let open = self.torrent_window_open(&s, now);
+        let (mut stop, mut release) = (Vec::new(), Vec::new());
+        {
+            let mut held = self.torrent_held();
+            held.retain(|id| rows.iter().any(|r| r.id == *id && !r.paused));
+            for row in rows.iter().filter(|r| !r.paused) {
+                let should_hold = !open && !row.start_now;
+                match (should_hold, held.contains(&row.id)) {
+                    (true, false) => {
+                        held.insert(row.id);
+                        stop.push(row);
+                    }
+                    (false, true) => {
+                        held.remove(&row.id);
+                        release.push(row);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for row in stop {
+            self.torrent_stop_engine(row).await;
+            tracing::info!(target: "activity", id = row.id, name = %row.name, "torrent stopped by the torrent hours");
+        }
+        for row in release.into_iter().filter(|r| r.error.is_none()) {
+            self.torrent_start_engine(row).await;
+            tracing::info!(target: "activity", id = row.id, name = %row.name, "torrent started: the torrent hours are open");
+        }
+    }
+
+    /// Stop a torrent in the engine without touching what the user chose (`paused`).
+    async fn torrent_stop_engine(&self, row: &StoredTorrent) {
+        if let Some(task) = self.fetching().remove(&row.id) {
+            task.abort(); // a magnet link still waiting for its description
+        }
+        if let Some(engine) = self.engine_now() {
+            if engine.contains(&row.info_hash) {
+                if let Err(e) = engine.pause(&row.info_hash).await {
+                    tracing::warn!(id = row.id, error = %e, "cannot stop a torrent");
+                }
+            }
+        }
+        self.persist_sent(true);
+    }
+
+    /// Start a stored torrent in the engine again (it is already there, or has to be added).
+    async fn torrent_start_engine(&self, row: &StoredTorrent) {
+        let engine = match self.torrent_engine().await {
+            Ok(engine) => engine,
+            Err(e) => {
+                tracing::warn!(id = row.id, error = %e, "cannot start a torrent");
+                return;
+            }
+        };
+        if engine.contains(&row.info_hash) {
+            if let Err(e) = engine.resume(&row.info_hash).await {
+                tracing::warn!(id = row.id, error = %e, "cannot start a torrent");
+            }
+        } else {
+            self.torrent_readd(&engine, row).await;
+        }
+    }
+
+    /// "Start now": the torrent hours do not apply to this torrent, until the user stops it.
+    pub(crate) async fn torrent_start_now(&self, id: Id) -> Result<Torrent> {
+        let row = self.torrent_row(id)?;
+        if row.paused {
+            return Err(Error::InvalidState(
+                "the torrent is stopped: start it first".into(),
+            ));
+        }
+        self.with_db(|c| store::set_start_now(c, id, true))?;
+        if self.torrent_held().remove(&id) {
+            let fresh = self.torrent_row(id)?;
+            self.torrent_start_engine(&fresh).await;
+        }
+        tracing::info!(target: "activity", id, name = %row.name, "torrent: start now, the torrent hours do not apply");
+        self.publish_torrent(id);
+        self.torrent_now(id)
     }
 
     fn torrent_dir(&self) -> PathBuf {
@@ -283,7 +459,7 @@ impl Manager {
         for row in &rows {
             if engine.contains(&row.info_hash) {
                 // The engine restored it; what the user last chose decides if it runs.
-                let _ = if row.paused {
+                let _ = if row.paused || self.torrent_hold(row) {
                     engine.pause(&row.info_hash).await
                 } else {
                     engine.resume(&row.info_hash).await
@@ -304,14 +480,16 @@ impl Manager {
                     return;
                 }
             };
-            if let Err(e) = engine.add_file(bytes, row.paused, vec![]).await {
+            let stopped = row.paused || self.torrent_hold(row);
+            if let Err(e) = engine.add_file(bytes, stopped, vec![]).await {
                 if !matches!(e, TorrentError::Duplicate) {
                     self.torrent_failed(row.id, e.to_string());
                 }
             }
         } else if let Some(magnet) = &row.magnet {
-            // Its description has to come from the swarm again; a stopped one waits for "resume".
-            if !row.paused {
+            // Its description has to come from the swarm again; a stopped one waits for "resume",
+            // one held by the torrent hours for the hours.
+            if !row.paused && !self.torrent_hold(row) {
                 self.fetch_magnet(row.id, magnet.clone());
             }
         } else {
@@ -467,7 +645,9 @@ impl Manager {
             });
             entry.total(snap.map_or(0, |s| s.uploaded))
         };
-        view(row, snap, fetching, start_error.as_deref(), uploaded)
+        let held = (!row.paused && self.torrent_held().contains(&row.id))
+            .then(|| self.torrent_next_opening(&self.current_settings(), clock::now()));
+        view(row, snap, fetching, start_error.as_deref(), uploaded, held)
     }
 
     fn publish_torrent(&self, id: Id) {
@@ -526,7 +706,9 @@ impl Manager {
             )
         })?;
         tracing::info!(target: "activity", id = row.id, name = %name, "torrent added (magnet link)");
-        self.fetch_magnet(row.id, uri);
+        if !self.torrent_hold(&row) {
+            self.fetch_magnet(row.id, uri);
+        }
         self.publish_torrent(row.id);
         self.torrent_now(row.id)
     }
@@ -581,7 +763,8 @@ impl Manager {
                 },
             )
         })?;
-        if let Err(e) = engine.add_file(Bytes::from(bytes), false, vec![]).await {
+        let held = self.torrent_hold(&row);
+        if let Err(e) = engine.add_file(Bytes::from(bytes), held, vec![]).await {
             let _ = self.with_db(|c| store::remove(c, row.id));
             return Err(e.into());
         }
@@ -612,7 +795,12 @@ impl Manager {
                 engine.pause(&row.info_hash).await?;
             }
         }
-        self.with_db(|c| store::set_paused(c, id, true))?;
+        // The user's stop ends a "start now" too: the hours decide again when they start it.
+        self.with_db(|c| {
+            store::set_paused(c, id, true)?;
+            store::set_start_now(c, id, false)
+        })?;
+        self.torrent_held().remove(&id);
         self.persist_sent(true);
         tracing::info!(target: "activity", id, name = %row.name, "torrent stopped");
         self.publish_torrent(id);
@@ -644,6 +832,13 @@ impl Manager {
             }
         }
         let engine = self.torrent_engine().await?;
+        // Outside the torrent hours it waits for them instead of starting.
+        let fresh = self.torrent_row(id)?;
+        if self.torrent_hold(&fresh) {
+            tracing::info!(target: "activity", id, name = %row.name, "torrent waits for the torrent hours");
+            self.publish_torrent(id);
+            return self.torrent_now(id);
+        }
         if engine.contains(&row.info_hash) {
             engine.resume(&row.info_hash).await?;
         } else {
@@ -666,6 +861,7 @@ impl Manager {
             }
         }
         self.with_db(|c| store::remove(c, id))?;
+        self.torrent_held().remove(&id);
         self.torrents
             .sent
             .lock()
@@ -743,6 +939,7 @@ impl Manager {
         if rows.is_empty() {
             return;
         }
+        self.torrent_hours_pass(&rows).await;
         let engine = self.engine_now();
         let snaps: HashMap<String, Snapshot> = engine
             .as_ref()
@@ -811,6 +1008,7 @@ mod tests {
             added_at: 100,
             finished_at: None,
             error: None,
+            start_now: false,
         }
     }
 
@@ -835,7 +1033,7 @@ mod tests {
 
     #[test]
     fn a_magnet_link_without_a_description_is_fetching_it() {
-        let t = view(&row(), None, true, None, 0);
+        let t = view(&row(), None, true, None, 0, None);
         assert_eq!(t.status, TorrentStatus::Metadata);
         assert_eq!(
             (t.name.as_str(), t.size, t.file_count),
@@ -843,14 +1041,14 @@ mod tests {
         );
         // Not in the engine and not being fetched (just stored, restart in progress): still waiting.
         assert_eq!(
-            view(&row(), None, false, None, 0).status,
+            view(&row(), None, false, None, 0, None).status,
             TorrentStatus::Metadata
         );
     }
 
     #[test]
     fn a_running_torrent_shows_the_engines_numbers_and_the_status_follows_the_peers() {
-        let t = view(&row(), Some(&snap(RunState::Live)), false, None, 55);
+        let t = view(&row(), Some(&snap(RunState::Live)), false, None, 55, None);
         assert_eq!(t.status, TorrentStatus::Downloading);
         assert_eq!(
             (
@@ -879,7 +1077,7 @@ mod tests {
             ..snap(RunState::Live)
         };
         assert_eq!(
-            view(&row(), Some(&lonely), false, None, 0).status,
+            view(&row(), Some(&lonely), false, None, 0, None).status,
             TorrentStatus::Connecting
         );
 
@@ -889,14 +1087,14 @@ mod tests {
             ..snap(RunState::Live)
         };
         assert_eq!(
-            view(&row(), Some(&done), false, None, 0).status,
+            view(&row(), Some(&done), false, None, 0, None).status,
             TorrentStatus::Seeding
         );
     }
 
     #[test]
     fn a_stopped_torrent_has_no_speed_and_is_paused_or_finished() {
-        let t = view(&row(), Some(&snap(RunState::Stopped)), false, None, 0);
+        let t = view(&row(), Some(&snap(RunState::Stopped)), false, None, 0, None);
         assert_eq!(
             (t.status, t.down_speed, t.up_speed, t.eta),
             (TorrentStatus::Paused, 0, 0, None)
@@ -906,7 +1104,7 @@ mod tests {
             ..snap(RunState::Stopped)
         };
         assert_eq!(
-            view(&row(), Some(&done), false, None, 0).status,
+            view(&row(), Some(&done), false, None, 0, None).status,
             TorrentStatus::Finished
         );
     }
@@ -914,14 +1112,22 @@ mod tests {
     #[test]
     fn checking_and_errors() {
         assert_eq!(
-            view(&row(), Some(&snap(RunState::Checking)), false, None, 0).status,
+            view(
+                &row(),
+                Some(&snap(RunState::Checking)),
+                false,
+                None,
+                0,
+                None
+            )
+            .status,
             TorrentStatus::Checking
         );
         let failed = Snapshot {
             error: Some("disk gone".into()),
             ..snap(RunState::Error)
         };
-        let t = view(&row(), Some(&failed), false, None, 0);
+        let t = view(&row(), Some(&failed), false, None, 0, None);
         assert_eq!(
             (t.status, t.error.as_deref()),
             (TorrentStatus::Error, Some("disk gone"))
@@ -932,11 +1138,11 @@ mod tests {
             paused: true,
             ..row()
         };
-        let t = view(&noted, Some(&snap(RunState::Stopped)), false, None, 0);
+        let t = view(&noted, Some(&snap(RunState::Stopped)), false, None, 0, None);
         assert_eq!(t.status, TorrentStatus::Error);
         assert_eq!(t.error.as_deref(), Some("not enough disk space"));
         // The engine did not start: every torrent says why.
-        let t = view(&row(), None, false, Some("port in use"), 0);
+        let t = view(&row(), None, false, Some("port in use"), 0, None);
         assert_eq!(
             (t.status, t.error.as_deref()),
             (TorrentStatus::Error, Some("port in use"))
@@ -952,7 +1158,7 @@ mod tests {
             has_metainfo: true,
             ..row()
         };
-        let t = view(&finished, None, false, None, 7);
+        let t = view(&finished, None, false, None, 7, None);
         assert_eq!(
             (t.status, t.downloaded, t.size, t.uploaded),
             (TorrentStatus::Finished, 900, Some(900), 7)
@@ -963,7 +1169,7 @@ mod tests {
             ..row()
         };
         assert_eq!(
-            view(&stopped, None, false, None, 0).status,
+            view(&stopped, None, false, None, 0, None).status,
             TorrentStatus::Paused
         );
         let starting = StoredTorrent {
@@ -971,7 +1177,7 @@ mod tests {
             ..row()
         };
         assert_eq!(
-            view(&starting, None, false, None, 0).status,
+            view(&starting, None, false, None, 0, None).status,
             TorrentStatus::Checking
         );
     }
@@ -989,5 +1195,46 @@ mod tests {
         assert_eq!(s.total(0), 1500);
         assert_eq!(s.total(200), 1700);
         assert_eq!(s.total(200), 1700, "no change, no growth");
+    }
+
+    #[test]
+    fn a_torrent_held_by_the_hours_shows_as_paused_with_the_opening_time() {
+        let live = snap(RunState::Live);
+        let t = view(
+            &row(),
+            Some(&live),
+            false,
+            None,
+            0,
+            Some(Some(1_700_000_000)),
+        );
+        assert_eq!(t.status, TorrentStatus::Paused);
+        assert_eq!(t.hold, Some(Hold::Window));
+        assert_eq!(t.starts_at, Some(1_700_000_000));
+        assert_eq!(
+            (t.down_speed, t.up_speed),
+            (0, 0),
+            "nothing moves while held"
+        );
+        // Without a zone to compute from, it is still held, just without a time.
+        let t = view(&row(), Some(&live), false, None, 0, Some(None));
+        assert_eq!((t.hold, t.starts_at), (Some(Hold::Window), None));
+        // Not held: no hold, and the flag of "start now" is passed on.
+        let free = StoredTorrent {
+            start_now: true,
+            ..row()
+        };
+        let t = view(&free, Some(&live), false, None, 0, None);
+        assert_eq!((t.hold, t.starts_at, t.start_now), (None, None, true));
+    }
+
+    #[test]
+    fn an_error_is_not_hidden_by_the_hours() {
+        let noted = StoredTorrent {
+            error: Some("disk full".into()),
+            ..row()
+        };
+        let t = view(&noted, None, false, None, 0, Some(None));
+        assert_eq!(t.status, TorrentStatus::Error);
     }
 }

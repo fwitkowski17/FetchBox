@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::Id;
+use crate::model::{Hold, Id};
 
 /// What a torrent is doing now, in the words a BitTorrent client uses.
 ///
@@ -134,6 +134,13 @@ pub struct Torrent {
     pub finished_at: Option<i64>,
     /// Why the torrent stopped (`status` is `error`), or a note such as a full disk.
     pub error: Option<String>,
+    /// Why a torrent that should be running waits: the torrent hours are closed (SPEC 6.3.2).
+    /// Computed, not stored; the status is `paused` meanwhile.
+    pub hold: Option<Hold>,
+    /// Unix seconds when the torrent hours open next (only with `hold`).
+    pub starts_at: Option<i64>,
+    /// The torrent hours do not apply to this torrent ("Start now").
+    pub start_now: bool,
 }
 
 /// A peer we know about.

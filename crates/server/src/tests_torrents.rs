@@ -460,6 +460,109 @@ async fn the_list_and_the_downloads_come_back_after_a_restart() {
     seed.shutdown().await;
 }
 
+/// Torrent hours that surely exclude (or include) the minute it is now, in UTC.
+fn hours_around_now(open: bool) -> (u16, u16) {
+    let minute = ((crate::clock::now() / 60) % 1440) as u16;
+    if open {
+        ((minute + 1440 - 60) % 1440, (minute + 60) % 1440)
+    } else {
+        ((minute + 120) % 1440, (minute + 180) % 1440)
+    }
+}
+
+async fn set_torrent_hours(mgr: &Arc<Manager>, enabled: bool, open: bool) {
+    let (from, to) = hours_around_now(open);
+    let mut s = Service::settings(&**mgr).await.expect("settings");
+    s.torrent_schedule_enabled = enabled;
+    s.torrent_schedule_from = from;
+    s.torrent_schedule_to = to;
+    s.torrent_schedule_timezone = "UTC".into();
+    Service::update_settings(&**mgr, s).await.expect("save");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn torrents_wait_for_their_own_hours_and_can_start_now() {
+    let rig = Rig::new().await;
+    let (seed, torrent, content) = seeder(rig.root.path(), 300 * 1024).await;
+    set_torrent_hours(&rig.mgr, true, false).await;
+
+    // Added outside the hours: it waits, shown as paused with the time the hours open.
+    let (status, t) = rig.post_file(&torrent).await;
+    assert_eq!(status, 201, "{t}");
+    let id = t["id"].as_i64().expect("id");
+    assert_eq!(t["status"], "paused", "{t}");
+    assert_eq!(t["hold"], "window");
+    assert!(t["starts_at"].is_i64(), "{t}");
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let waiting = rig.torrent(id).await;
+    assert_eq!(waiting["status"], "paused", "{waiting}");
+    assert_eq!(waiting["downloaded"], 0, "nothing moves outside the hours");
+
+    // "Start now" lets this one run although the hours are closed.
+    let (status, started) = rig.post(&format!("/torrents/{id}/start-now"), "").await;
+    assert_eq!(status, 200, "{started}");
+    assert_eq!(started["start_now"], true);
+    // The seeder dials in only now: a stopped torrent does not take connections.
+    seed.add_file(torrent.clone(), false, vec![rig.mine()])
+        .await
+        .expect("seed");
+    let done = rig.wait_status(id, "seeding").await;
+    assert!(done["hold"].is_null() && done["downloaded"] == content.len());
+
+    // Stopping it by hand ends the exemption: started again outside the hours it waits.
+    let (_, stopped) = rig.post(&format!("/torrents/{id}/pause"), "").await;
+    assert_eq!(stopped["status"], "finished", "{stopped}");
+    assert_eq!(stopped["start_now"], false);
+    assert_eq!(
+        rig.post(&format!("/torrents/{id}/start-now"), "").await.0,
+        409,
+        "a stopped torrent has to be started first"
+    );
+    let (_, again) = rig.post(&format!("/torrents/{id}/resume"), "").await;
+    assert_eq!(again["status"], "paused", "{again}");
+    assert_eq!(again["hold"], "window");
+
+    // The hours open: it goes on by itself; they close: it is stopped again.
+    set_torrent_hours(&rig.mgr, true, true).await;
+    rig.wait_status(id, "seeding").await;
+    set_torrent_hours(&rig.mgr, true, false).await;
+    let closed = rig.wait_status(id, "paused").await;
+    assert_eq!(closed["hold"], "window");
+    // Switching the hours off releases it.
+    set_torrent_hours(&rig.mgr, false, false).await;
+    let free = rig.wait_status(id, "seeding").await;
+    assert!(free["hold"].is_null());
+
+    // A torrent the user stopped is not started by the hours opening.
+    rig.post(&format!("/torrents/{id}/pause"), "").await;
+    set_torrent_hours(&rig.mgr, true, false).await;
+    set_torrent_hours(&rig.mgr, true, true).await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(rig.torrent(id).await["status"], "finished");
+
+    seed.shutdown().await;
+    rig.mgr.stop_torrents().await;
+}
+
+#[test]
+fn the_torrent_hours_need_a_start_and_an_end_that_differ() {
+    let bad = fetchbox_core::Settings {
+        torrent_schedule_enabled: true,
+        torrent_schedule_from: 600,
+        torrent_schedule_to: 600,
+        ..fetchbox_core::Settings::default()
+    };
+    assert!(bad.validate().is_err());
+    let off = fetchbox_core::Settings {
+        torrent_schedule_enabled: false,
+        ..bad
+    };
+    assert!(
+        off.validate().is_ok(),
+        "switched off, the values do not matter"
+    );
+}
+
 async fn wait_until(
     mgr: &Arc<Manager>,
     id: i64,

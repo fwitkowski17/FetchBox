@@ -25,6 +25,8 @@ pub struct StoredTorrent {
     pub added_at: i64,
     pub finished_at: Option<i64>,
     pub error: Option<String>,
+    /// The torrent hours do not apply to it ("Start now").
+    pub start_now: bool,
 }
 
 /// What is needed to add a torrent.
@@ -39,7 +41,7 @@ pub struct NewTorrent<'a> {
 }
 
 const COLUMNS: &str = "id, info_hash, name, magnet, metainfo IS NOT NULL, size, file_count, \
-                       paused, uploaded, added_at, finished_at, error";
+                       paused, uploaded, added_at, finished_at, error, start_now";
 
 fn count(v: i64) -> u64 {
     u64::try_from(v).unwrap_or(0)
@@ -61,6 +63,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<StoredTorrent> {
         added_at: row.get(9)?,
         finished_at: row.get(10)?,
         error: row.get(11)?,
+        start_now: row.get(12)?,
     })
 }
 
@@ -168,6 +171,15 @@ pub fn set_progress(
     Ok(())
 }
 
+/// Exempt a torrent from the torrent hours, or put it back under them.
+pub fn set_start_now(conn: &Connection, id: Id, start_now: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE torrents SET start_now = ?2 WHERE id = ?1",
+        params![id, start_now],
+    )?;
+    Ok(())
+}
+
 pub fn clear_finished(conn: &Connection, id: Id) -> Result<()> {
     conn.execute("UPDATE torrents SET finished_at = NULL WHERE id = ?1", [id])?;
     Ok(())
@@ -211,6 +223,10 @@ mod tests {
         let t = insert(&conn, &magnet_row()).expect("insert");
         assert_eq!((t.size, t.file_count, t.has_metainfo), (None, 0, false));
         assert!(!t.paused && t.finished_at.is_none() && t.error.is_none());
+        assert!(!t.start_now);
+        set_start_now(&conn, t.id, true).expect("start now");
+        assert!(get(&conn, t.id).expect("get").expect("there").start_now);
+        set_start_now(&conn, t.id, false).expect("back under the hours");
 
         set_description(
             &conn,
