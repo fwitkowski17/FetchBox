@@ -1416,7 +1416,7 @@ export interface components {
              * @description When the answer was obtained (unix seconds); `None` if no check has succeeded yet.
              */
             checked_at?: number | null;
-            /** @description Version of this program (`0.8.1`). */
+            /** @description Version of this program (`0.9.0`). */
             current: string;
             /** @description Update checks are switched on (`Settings::check_updates`). When off, nothing else is set. */
             enabled: boolean;

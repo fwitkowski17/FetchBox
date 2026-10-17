@@ -1,5 +1,5 @@
 # DEB and RPM packages of the release binary, built by .github/workflows/release.yml (and checked by
-# ci.yml). The environment supplies VERSION (0.8.1, 0.9.0-rc.1), ARCH (amd64 | arm64) and BINARY
+# ci.yml). The environment supplies VERSION (0.9.0, 0.10.0-rc.1), ARCH (amd64 | arm64) and BINARY
 # (the path of the release binary for that architecture).
 name: fetchbox
 arch: ${ARCH}
