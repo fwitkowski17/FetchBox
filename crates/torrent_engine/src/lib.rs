@@ -99,6 +99,10 @@ struct Sample {
     rates: HashMap<String, (u64, u64)>,
 }
 
+/// How long, and how often, a resumed torrent is watched for the check described in `resume`.
+const RESUME_WATCH: Duration = Duration::from_secs(30 * 60);
+const RESUME_POLL: Duration = Duration::from_millis(300);
+
 /// Two reads closer than this give the rates of the first one: a speed over a few milliseconds is
 /// noise, and several browser tabs polling must not disturb each other.
 const MIN_SAMPLE_GAP: Duration = Duration::from_millis(700);
@@ -260,7 +264,25 @@ impl TorrentEngine {
         if !handle.is_paused() {
             return Ok(());
         }
-        self.session.unpause(&handle).await.map_err(engine_err)
+        self.session.unpause(&handle).await.map_err(engine_err)?;
+        // A torrent that came back stopped from the last run is still checking its files when it is
+        // started: the engine finishes that check with the start it was given then ("stay paused"),
+        // and the request just made is lost. Once the check is over, start it again.
+        let session = self.session.clone();
+        tokio::spawn(async move {
+            for _ in 0..(RESUME_WATCH.as_millis() / RESUME_POLL.as_millis()) {
+                tokio::time::sleep(RESUME_POLL).await;
+                match handle.stats().state {
+                    TorrentStatsState::Initializing { .. } => {}
+                    TorrentStatsState::Paused if !handle.is_paused() => {
+                        let _ = session.unpause(&handle).await;
+                        return;
+                    }
+                    _ => return,
+                }
+            }
+        });
+        Ok(())
     }
 
     /// Forget a torrent; with `delete_files` its data goes too.
@@ -784,6 +806,12 @@ mod tests {
             "paused stays paused"
         );
         assert!(again.metainfo(&hash).is_some());
+        // A torrent that came back stopped can be started like any other.
+        again.resume(&hash).await.expect("resume");
+        wait_for("the restored torrent to run", || {
+            again.snapshot(&hash).filter(|s| s.state == RunState::Live)
+        })
+        .await;
         again.shutdown().await;
     }
 

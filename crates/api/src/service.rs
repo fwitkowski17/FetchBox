@@ -3,8 +3,9 @@
 
 use async_trait::async_trait;
 use fetchbox_core::{
-    AddRequest, Category, Credentials, DiskSpace, Download, Event, Id, KnownHost, Result, Settings,
-    Stats, StatsRange, TrustHost, UrlInfo, VersionInfo,
+    AddRequest, AddTorrentRequest, Category, Credentials, DiskSpace, Download, Event, Id,
+    KnownHost, Result, Settings, Stats, StatsRange, Torrent, TorrentFile, TorrentPeers, TrustHost,
+    UrlInfo, VersionInfo,
 };
 use tokio::sync::{broadcast, watch};
 
@@ -50,6 +51,22 @@ pub trait Service: Send + Sync + 'static {
     /// A summary of the downloads of a period. `offset_minutes` is the caller's distance from UTC
     /// (east is positive), which decides where a day begins.
     async fn stats(&self, range: StatsRange, offset_minutes: i32) -> Result<Stats>;
+    /// All torrents, newest first (SPEC 6.13).
+    async fn torrents(&self) -> Result<Vec<Torrent>>;
+    /// Add a torrent by magnet link. The description (name, files) arrives later from the swarm.
+    async fn add_torrent_magnet(&self, req: AddTorrentRequest) -> Result<Torrent>;
+    /// Add a torrent from the bytes of a `.torrent` file.
+    async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<Torrent>;
+    /// Stop a torrent; what it has stays on disk.
+    async fn pause_torrent(&self, id: Id) -> Result<Torrent>;
+    /// Start a stopped torrent again.
+    async fn resume_torrent(&self, id: Id) -> Result<Torrent>;
+    /// Forget a torrent; with `delete_files` its data goes too.
+    async fn remove_torrent(&self, id: Id, delete_files: bool) -> Result<()>;
+    /// The peers of a torrent with their speeds.
+    async fn torrent_peers(&self, id: Id) -> Result<TorrentPeers>;
+    /// The files of a torrent with their progress.
+    async fn torrent_files(&self, id: Id) -> Result<Vec<TorrentFile>>;
     /// Live updates for SSE.
     fn subscribe(&self) -> broadcast::Receiver<Event>;
     /// Turns `true` when the server is shutting down: long-lived responses (the event stream) must

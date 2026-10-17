@@ -11,13 +11,15 @@ use crate::auth::{
 use crate::error::{ConflictBody, ErrorBody, HostKeyBody, SpaceBody};
 use crate::routes::{self, Health, UpdateDownload};
 use crate::sse;
+use crate::torrents;
 
 use fetchbox_core::{
-    AddRequest, Category, CategoryStat, ChecksumAlgo, ChecksumInput, ChecksumState, Conflict,
-    ConflictKind, Credentials, DayStat, DiskSpace, Download, Event, Hold, HostKeyProblem,
-    HostKeyProblemKind, InstallMethod, KnownHost, LargestFile, ListingEntry, OnConflict,
-    OnHoursEnd, ProbeRequest, ReleaseNote, Settings, SourceKind, Stats, StatsRange, Status,
-    TrustHost, UrlInfo, UrlKind, VersionInfo,
+    AddRequest, AddTorrentRequest, Category, CategoryStat, ChecksumAlgo, ChecksumInput,
+    ChecksumState, Conflict, ConflictKind, Credentials, DayStat, DiskSpace, Download, Event, Hold,
+    HostKeyProblem, HostKeyProblemKind, InstallMethod, KnownHost, LargestFile, ListingEntry,
+    OnConflict, OnHoursEnd, PeerState, PeerTransport, ProbeRequest, ReleaseNote, Settings,
+    SourceKind, Stats, StatsRange, Status, Torrent, TorrentFile, TorrentPeer, TorrentPeers,
+    TorrentStatus, TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
 
 #[derive(OpenApi)]
@@ -49,6 +51,14 @@ token as `Authorization: Bearer`.",
         routes::stats,
         routes::version,
         routes::check_version,
+        torrents::list,
+        torrents::add_magnet,
+        torrents::add_file,
+        torrents::pause,
+        torrents::resume,
+        torrents::remove,
+        torrents::peers,
+        torrents::files,
         sse::events,
         auth::login,
         auth::logout,
@@ -61,12 +71,14 @@ token as `Authorization: Bearer`.",
         ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, LoginRequest,
         LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest, Stats, StatsRange,
         LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry, VersionInfo, ReleaseNote, InstallMethod, Hold, OnHoursEnd, ChecksumAlgo, ChecksumInput, ChecksumState,
+        Torrent, TorrentStatus, TorrentPeer, TorrentPeers, TorrentFile, PeerState, PeerTransport, AddTorrentRequest,
         Credentials, HostKeyBody, HostKeyProblem, HostKeyProblemKind, KnownHost, TrustHost,
     )),
     modifiers(&Runtime),
     tags(
         (name = "downloads", description = "Download list and per-download commands"),
         (name = "settings", description = "Global settings, applied live"),
+        (name = "torrents", description = "BitTorrent: magnet links and .torrent files, peers, files"),
         (name = "sources", description = "Remote servers: the SSH servers that are trusted"),
         (name = "events", description = "Server-sent events"),
         (name = "auth", description = "Single-user login, first-run setup, password change"),

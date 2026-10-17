@@ -7,6 +7,8 @@ mod logfmt;
 mod manager;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_torrents;
 mod update;
 
 use std::net::SocketAddr;
@@ -36,6 +38,11 @@ struct Args {
     /// TCP port to listen on.
     #[arg(long, env = "FETCHBOX_PORT", default_value_t = 8080)]
     port: u16,
+    /// TCP and uTP port that BitTorrent peers connect to (forward it on the router for the best
+    /// speeds; with Docker publish it too). The BitTorrent engine only starts when the first torrent
+    /// is added, so nothing listens on it before that.
+    #[arg(long, env = "FETCHBOX_TORRENT_PORT", default_value_t = 6881)]
+    torrent_port: u16,
     /// Read the login password from this file (e.g. a Docker secret).
     /// Without it the `FETCHBOX_PASSWORD` environment variable is used.
     #[arg(long)]
@@ -245,6 +252,13 @@ async fn run() -> anyhow::Result<()> {
     )
     .await
     .context("start download manager")?;
+    manager
+        .enable_torrents(manager::TorrentSetup {
+            state_dir: args.data_dir.clone(),
+            listen_port: args.torrent_port,
+            dht: true,
+        })
+        .await;
     let auth = resolve_auth(&args, manager.clone())?;
     let app: Router = fetchbox_api::router(manager.clone(), auth).fallback(assets::handler);
 
@@ -277,6 +291,7 @@ async fn run() -> anyhow::Result<()> {
             tokio::time::sleep(SHUTDOWN_GRACE).await;
         } => tracing::warn!("closing connections that did not finish in time"),
     }
+    manager.stop_torrents().await;
     tracing::info!("stopped");
     Ok(())
 }
@@ -319,6 +334,7 @@ mod auth_config_tests {
             data_dir: "d".into(),
             download_dir: "dl".into(),
             port: 0,
+            torrent_port: 0,
             password_file,
             print_openapi: false,
             block_private_urls: false,
