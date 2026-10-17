@@ -10,6 +10,7 @@
   import { version } from '../stores/version.svelte';
   import { CARD } from '../util/classes';
   import type { Draft } from '../util/settingsForm';
+  import { repoOf } from '../util/updateSteps';
   import Icon from './Icon.svelte';
   import Toggle from './Toggle.svelte';
 
@@ -44,6 +45,8 @@
   const info = $derived(version.info);
   /** Only a web address is offered as a link. */
   const releaseUrl = $derived(info?.release_url?.startsWith('https://') ? info.release_url : null);
+  /** The project's page: the repository the releases come from (a fork has its own). */
+  const repoUrl = $derived(`https://github.com/${repoOf(releaseUrl)}`);
 </script>
 
 <section class={CARD} data-part="about">
@@ -88,6 +91,9 @@
         </a>
       {/if}
     {/if}
+    <a class="btn" href={repoUrl} target="_blank" rel="noopener noreferrer" data-part="github-link">
+      <Icon name="external" size={18} />{t('settings.about.github')}
+    </a>
     <button
       type="button"
       class="btn"

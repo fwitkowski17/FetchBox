@@ -358,6 +358,7 @@ const pl: Messages = {
   'settings.speedUnit.hint':
     'Jak prędkości są pokazywane w aplikacji, np. {example}. Wpisywane limity zachowują jednostkę swojego pola.',
   'settings.about': 'O aplikacji',
+  'settings.about.github': 'Projekt na GitHubie',
   'settings.update.checking': 'Sprawdzam aktualizacje…',
   'settings.update.checkingShort': 'Sprawdzam…',
   'settings.update.check': 'Sprawdź teraz',

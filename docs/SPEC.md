@@ -627,7 +627,8 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   mirror, a fork, a test server).
 - Settings "About" card (after the password card, before the sign-out card): `FetchBox <version>`, one line of status ("Version X
   is available" with a "View the release" button, "You have the latest version", "No release has been published yet", "Could
-  not check", "switched off"), the time of the last answer, "Check now" and the switch "Check for updates automatically"
+  not check", "switched off"), the time of the last answer, "Check now", a link "Project on GitHub" (the repository the releases come from, `repoOf`: a fork links to
+  itself; opens in a new tab) and the switch "Check for updates automatically"
   (part of the settings form: saved with it, and the answer is fetched again once saved).
 - Settings "Check now" always answers with a toast: the latest version (success), a newer one (info, and the update dialog
   opens), no release published yet, switched off, or could not check (warning).

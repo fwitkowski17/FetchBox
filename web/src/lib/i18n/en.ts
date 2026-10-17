@@ -342,6 +342,7 @@ export const en = {
   'settings.speedUnit.hint':
     'How speeds are shown in the app, for example {example}. Limits you type keep the unit of their own field.',
   'settings.about': 'About',
+  'settings.about.github': 'Project on GitHub',
   'settings.update.checking': 'Checking for updates…',
   'settings.update.checkingShort': 'Checking…',
   'settings.update.check': 'Check now',
