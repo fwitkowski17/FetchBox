@@ -311,6 +311,14 @@ pub struct Settings {
     /// What running downloads do when the download hours end.
     #[serde(default)]
     pub schedule_on_end: OnHoursEnd,
+    /// Speed limit of all torrents together, receiving, bytes/s (`0` = none). Separate from the
+    /// limits of downloads: a swarm and a server are different things to cap.
+    #[serde(default)]
+    pub torrent_down_limit: u64,
+    /// Speed limit of all torrents together, sending, bytes/s (`0` = none). Seeding goes on until
+    /// the user stops a torrent, so this is what keeps the upload line free.
+    #[serde(default)]
+    pub torrent_up_limit: u64,
 }
 
 /// What happens to the downloads that are running when the download hours end.
@@ -375,6 +383,8 @@ impl Default for Settings {
             schedule_to: default_schedule_to(),
             schedule_timezone: default_schedule_timezone(),
             schedule_on_end: OnHoursEnd::Pause,
+            torrent_down_limit: 0,
+            torrent_up_limit: 0,
         }
     }
 }
@@ -733,6 +743,15 @@ pub enum Event {
     },
     /// Settings changed.
     Settings { settings: Settings },
+    /// A torrent was added, or its status or numbers changed (about once a second while it moves).
+    Torrent {
+        torrent: Box<crate::torrent::Torrent>,
+    },
+    /// A torrent was removed from the list.
+    TorrentRemoved {
+        #[cfg_attr(feature = "openapi", schema(value_type = i64))]
+        id: Id,
+    },
 }
 
 /// One byte range `[start, end]` (inclusive) of a file and how much of it is on disk.

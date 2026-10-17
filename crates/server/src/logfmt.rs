@@ -120,6 +120,16 @@ pub fn settings_changes(old: &Settings, new: &Settings) -> Vec<String> {
         limit(new.speed_global),
     );
     change(
+        "torrent download speed",
+        limit(old.torrent_down_limit),
+        limit(new.torrent_down_limit),
+    );
+    change(
+        "torrent upload speed",
+        limit(old.torrent_up_limit),
+        limit(new.torrent_up_limit),
+    );
+    change(
         "category folders",
         on_off(old.category_subdirs).to_owned(),
         on_off(new.category_subdirs).to_owned(),
@@ -146,11 +156,13 @@ pub fn settings_changes(old: &Settings, new: &Settings) -> Vec<String> {
 /// The settings in one line, for the start-up log.
 pub fn settings_summary(s: &Settings) -> String {
     format!(
-        "connections {}, simultaneous downloads {}, speed of each download {}, total speed {}, category folders {}, download hours {}, update check {}, pre-releases {}",
+        "connections {}, simultaneous downloads {}, speed of each download {}, total speed {}, torrent speed {} down / {} up, category folders {}, download hours {}, update check {}, pre-releases {}",
         s.connections,
         s.max_concurrent,
         limit(s.speed_per_download),
         limit(s.speed_global),
+        limit(s.torrent_down_limit),
+        limit(s.torrent_up_limit),
         on_off(s.category_subdirs),
         hours(s),
         on_off(s.check_updates),
@@ -221,6 +233,7 @@ mod tests {
             schedule_on_end: OnHoursEnd::Finish,
             check_updates: false,
             check_prereleases: true,
+            torrent_up_limit: 1024 * 1024,
             ..Settings::default()
         };
         assert_eq!(
@@ -228,6 +241,7 @@ mod tests {
             vec![
                 "connections 4 -> 8",
                 "total speed unlimited -> 5.0 MiB/s",
+                "torrent upload speed unlimited -> 1.0 MiB/s",
                 "download hours off -> 22:00-06:00 Europe/Warsaw",
                 "when the hours end pause running downloads -> let running downloads finish",
                 "update check on -> off",
