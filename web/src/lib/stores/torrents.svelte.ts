@@ -109,6 +109,7 @@ class TorrentsStore {
 
   pause = (id: number) => this.#run(() => api.pauseTorrent(id));
   resume = (id: number) => this.#run(() => api.resumeTorrent(id));
+  startNow = (id: number) => this.#run(() => api.startTorrentNow(id));
   remove = (id: number, deleteFiles: boolean) => this.#run(() => api.removeTorrent(id, deleteFiles));
 
   /** Add by magnet link. Throws: the dialog shows what went wrong next to the field. */

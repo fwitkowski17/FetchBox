@@ -35,6 +35,11 @@ export interface Draft {
   scheduleTimezone: string;
   /** What running downloads do when the hours end. */
   scheduleOnEnd: 'pause' | 'finish';
+  /** Let torrents run only during their own set hours (independent of the download hours). */
+  torrentScheduleEnabled: boolean;
+  torrentScheduleFrom: string;
+  torrentScheduleTo: string;
+  torrentScheduleTimezone: string;
 }
 
 export function speedToDraft(bytesPerSecond: number): SpeedDraft {
@@ -49,6 +54,11 @@ export function speedFromDraft(d: SpeedDraft): number {
 function scheduleZone(s: Settings): string {
   const zone = s.schedule_timezone ?? 'UTC';
   return !s.schedule_enabled && zone === 'UTC' ? browserZone() : zone;
+}
+
+function torrentScheduleZone(s: Settings): string {
+  const zone = s.torrent_schedule_timezone ?? 'UTC';
+  return !s.torrent_schedule_enabled && zone === 'UTC' ? browserZone() : zone;
 }
 
 export function toDraft(s: Settings): Draft {
@@ -71,6 +81,11 @@ export function toDraft(s: Settings): Draft {
     // instead, which is what a person who switches them on means.
     scheduleTimezone: scheduleZone(s),
     scheduleOnEnd: s.schedule_on_end ?? 'pause',
+    // Older servers do not know the torrent hours: off.
+    torrentScheduleEnabled: s.torrent_schedule_enabled ?? false,
+    torrentScheduleFrom: minutesToTime(s.torrent_schedule_from ?? 0),
+    torrentScheduleTo: minutesToTime(s.torrent_schedule_to ?? 360),
+    torrentScheduleTimezone: torrentScheduleZone(s),
   };
 }
 
@@ -90,6 +105,10 @@ export function fromDraft(d: Draft): Settings {
     schedule_to: timeToMinutes(d.scheduleTo) ?? 360,
     schedule_timezone: d.scheduleTimezone.trim(),
     schedule_on_end: d.scheduleOnEnd,
+    torrent_schedule_enabled: d.torrentScheduleEnabled,
+    torrent_schedule_from: timeToMinutes(d.torrentScheduleFrom) ?? 0,
+    torrent_schedule_to: timeToMinutes(d.torrentScheduleTo) ?? 360,
+    torrent_schedule_timezone: d.torrentScheduleTimezone.trim(),
   };
 }
 
@@ -101,7 +120,9 @@ export type Field =
   | 'torrentDown'
   | 'torrentUp'
   | 'schedule'
-  | 'timezone';
+  | 'timezone'
+  | 'torrentSchedule'
+  | 'torrentTimezone';
 
 /** Which message to show for a field (`settings.error.<code>`); the UI supplies the wording. */
 export type ErrorCode = 'connections' | 'concurrent' | 'speed' | 'schedule' | 'timezone';
@@ -131,6 +152,12 @@ export function validate(d: Draft): Errors {
     if (from === null || to === null || from === to) errors.schedule = 'schedule';
     if (!isZone(d.scheduleTimezone)) errors.timezone = 'timezone';
   }
+  if (d.torrentScheduleEnabled) {
+    const from = timeToMinutes(d.torrentScheduleFrom);
+    const to = timeToMinutes(d.torrentScheduleTo);
+    if (from === null || to === null || from === to) errors.torrentSchedule = 'schedule';
+    if (!isZone(d.torrentScheduleTimezone)) errors.torrentTimezone = 'timezone';
+  }
   return errors;
 }
 
@@ -149,7 +176,11 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     (a.schedule_from ?? 0) === (b.schedule_from ?? 0) &&
     (a.schedule_to ?? 360) === (b.schedule_to ?? 360) &&
     (a.schedule_timezone ?? 'UTC') === (b.schedule_timezone ?? 'UTC') &&
-    (a.schedule_on_end ?? 'pause') === (b.schedule_on_end ?? 'pause')
+    (a.schedule_on_end ?? 'pause') === (b.schedule_on_end ?? 'pause') &&
+    (a.torrent_schedule_enabled ?? false) === (b.torrent_schedule_enabled ?? false) &&
+    (a.torrent_schedule_from ?? 0) === (b.torrent_schedule_from ?? 0) &&
+    (a.torrent_schedule_to ?? 360) === (b.torrent_schedule_to ?? 360) &&
+    (a.torrent_schedule_timezone ?? 'UTC') === (b.torrent_schedule_timezone ?? 'UTC')
   );
 }
 

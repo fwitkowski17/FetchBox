@@ -30,10 +30,16 @@ export function ratioOf(t: Pick<Torrent, 'uploaded' | 'downloaded'>): number | n
   return t.uploaded / t.downloaded;
 }
 
-/** What the main button of a torrent does. */
-export type TorrentAction = 'pause' | 'resume' | 'retry';
+/** The torrent hours keep this torrent stopped; it starts by itself when they open. */
+export function isHeld(t: Pick<Torrent, 'hold'>): boolean {
+  return t.hold === 'window';
+}
 
-export function primaryAction(t: Pick<Torrent, 'status'>): TorrentAction {
+/** What the main button of a torrent does. A held torrent offers "start now" (a pause button sits next to it). */
+export type TorrentAction = 'pause' | 'resume' | 'retry' | 'startNow';
+
+export function primaryAction(t: Pick<Torrent, 'status' | 'hold'>): TorrentAction {
+  if (isHeld(t)) return 'startNow';
   if (t.status === 'paused' || t.status === 'finished') return 'resume';
   if (t.status === 'error') return 'retry';
   return 'pause';

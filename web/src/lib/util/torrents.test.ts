@@ -6,6 +6,7 @@ import {
   chartPoints,
   filterTorrents,
   isActive,
+  isHeld,
   niceMax,
   primaryAction,
   progressOf,
@@ -35,6 +36,9 @@ function torrent(over: Partial<Torrent> = {}): Torrent {
     added_at: 0,
     finished_at: null,
     error: null,
+    hold: null,
+    starts_at: null,
+    start_now: false,
     ...over,
   };
 }
@@ -172,5 +176,14 @@ describe('speed history', () => {
     expect(niceMax(1.1)).toBe(2);
     expect(niceMax(3_400_000)).toBe(5_000_000);
     expect(niceMax(5_000_001)).toBe(10_000_000);
+  });
+});
+
+describe('torrents held by the torrent hours', () => {
+  it('offer "start now" as the main action, until the user stops them', () => {
+    expect(isHeld(torrent({ status: 'paused', hold: 'window' }))).toBe(true);
+    expect(primaryAction(torrent({ status: 'paused', hold: 'window' }))).toBe('startNow');
+    expect(primaryAction(torrent({ status: 'paused', hold: null }))).toBe('resume');
+    expect(isHeld(torrent({ status: 'downloading' }))).toBe(false);
   });
 });

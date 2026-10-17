@@ -5,6 +5,7 @@
   import { t } from '../i18n';
   import { torrents } from '../stores/torrents.svelte';
   import { motion } from '../util/motion';
+  import { isHeld } from '../util/torrents';
   import Icon from './Icon.svelte';
   import SpeedChart from './SpeedChart.svelte';
   import TorrentFilesTab from './TorrentFilesTab.svelte';
@@ -48,7 +49,7 @@
     <header class="flex items-center gap-2 border-b border-border px-3 pt-2 sm:px-4">
       <div class="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
         <h2 class="min-w-0 truncate font-semibold" title={torrent.name}>{torrent.name}</h2>
-        <span class="hidden sm:inline"><TorrentStatusBadge status={torrent.status} /></span>
+        <span class="hidden sm:inline"><TorrentStatusBadge status={torrent.status} held={isHeld(torrent)} /></span>
       </div>
       <button
         type="button"

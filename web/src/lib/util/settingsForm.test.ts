@@ -29,6 +29,10 @@ const base: Settings = {
   schedule_on_end: 'pause',
   torrent_down_limit: 0,
   torrent_up_limit: 0,
+  torrent_schedule_enabled: false,
+  torrent_schedule_from: 0,
+  torrent_schedule_to: 360,
+  torrent_schedule_timezone: 'Europe/Warsaw',
 };
 
 describe('torrent limits', () => {
@@ -223,3 +227,56 @@ describe('isUntouched', () => {
   });
 });
 
+
+describe('torrent hours', () => {
+  it('round-trip independently of the download hours', () => {
+    const s: Settings = {
+      ...base,
+      schedule_enabled: true,
+      schedule_from: 22 * 60,
+      schedule_to: 6 * 60,
+      torrent_schedule_enabled: true,
+      torrent_schedule_from: 60,
+      torrent_schedule_to: 7 * 60,
+      torrent_schedule_timezone: 'Europe/Berlin',
+    };
+    const d = toDraft(s);
+    expect(d.torrentScheduleFrom).toBe('01:00');
+    expect(d.torrentScheduleTo).toBe('07:00');
+    expect(d.scheduleFrom).toBe('22:00');
+    expect(fromDraft(d)).toEqual(s);
+  });
+
+  it('are off for a server that does not know them, offering the browser zone', () => {
+    const {
+      torrent_schedule_enabled: _a,
+      torrent_schedule_from: _b,
+      torrent_schedule_to: _c,
+      torrent_schedule_timezone: _d,
+      ...older
+    } = base;
+    const d = toDraft(older);
+    expect(d.torrentScheduleEnabled).toBe(false);
+    expect(d.torrentScheduleTimezone).toBe(browserZone());
+  });
+
+  it('are only checked while switched on, and have their own error fields', () => {
+    const d = toDraft(base);
+    d.torrentScheduleFrom = '08:00';
+    d.torrentScheduleTo = '08:00';
+    expect(validate(d).torrentSchedule).toBeUndefined();
+    d.torrentScheduleEnabled = true;
+    expect(validate(d).torrentSchedule).toBe('schedule');
+    expect(validate(d).schedule).toBeUndefined();
+    d.torrentScheduleTo = '09:00';
+    d.torrentScheduleTimezone = 'Nowhere/Land';
+    expect(validate(d).torrentTimezone).toBe('timezone');
+  });
+
+  it('count as a change of the form', () => {
+    const d = toDraft(base);
+    expect(isDirty(d, base)).toBe(false);
+    d.torrentScheduleEnabled = true;
+    expect(isDirty(d, base)).toBe(true);
+  });
+});
