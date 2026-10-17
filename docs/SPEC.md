@@ -290,7 +290,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   first, and `days`: the last 14 days oldest first with the empty ones, whatever the period. Cancelling counts as neither
   success nor failure.)
 - `GET /api/version` and `POST /api/version/check` (see 6.9): `{current, enabled, latest?, update_available, release_url?,
-  checked_at?, check_failed, notes}`; the `POST` looks again now, at most every 30 s
+  checked_at?, check_failed, notes, install_method?}`; the `POST` looks again now, at most every 30 s
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -620,7 +620,11 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   notes of every newer release in a scrolling box, each with a link to GitHub) and "How to update": Docker Compose (as in the
   repository: `git pull`, `docker compose up -d --build fetchbox`; data in `./data` and `./downloads` stays, unfinished
   downloads continue after the restart) and without Docker (`git pull`, `./scripts/build.sh`, start the new binary), each
-  command with a copy button. Notes are drawn as text nodes from a small Markdown reading (headings, lists, paragraphs, `**bold**`,
+  command with a copy button. The "How to update" part follows `install_method`: `docker` shows the Compose steps; `package` the `curl`
+  and `apt install` / `dnf install` of the new version's DEB and RPM (the CPU is picked by `dpkg --print-architecture` / `uname -m`, the
+  repository is read from the release link, so a fork gets its own addresses); `lxc` the command `update` for the container's console;
+  `script` the `install.sh update` line (pinned with `--version` for a pre-release); `source` the build steps. With no method stated,
+  all of them are listed under a line that says so. The hint that the app cannot update itself is shown for `docker`, `lxc` and when unknown. Notes are drawn as text nodes from a small Markdown reading (headings, lists, paragraphs, `**bold**`,
   `code`; link targets dropped), never as HTML (`util/notes`). After signing in the app looks once and, if an update is known,
   opens the dialog with "Remind me later" (hides it for that version for 24 hours; Escape and the backdrop mean the same) and
   "Skip this version" (never announces that version again; a later one is announced); both are kept per browser in
@@ -628,6 +632,13 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   with a plain "Close". It does not open while update checks are off. The About card has a second switch, "Also announce
   pre-releases" (disabled while checks are off; saved with the form; Settings and the update dialog use "Pre-release X" and a
   "pre-release" badge, and the dialog says that the commands below install the stable version).
+- How it was installed: `FETCHBOX_INSTALL_METHOD` (`docker` | `package` | `lxc` | `script` | `source`; case-insensitive; unset or empty
+  means nobody said, an unknown value is logged as a warning and ignored) is reported as `VersionInfo.install_method`, also when update
+  checks are off, and logged once at start-up. Each installer states it, in the place that survives its own update: the Dockerfile
+  (`ENV`, `docker`), the unit of the DEB and RPM (`Environment=`, `package`), a drop-in of the Proxmox container
+  (`20-install-method.conf`, `lxc`, written by the installer and again by `update`, which also covers containers made before) and the
+  unit written by `deploy/install.sh` (`script`; `install.sh update` adds the line to a unit that lacks it). `/etc/fetchbox/fetchbox.env`
+  is read after them and can override it. A build from source has no installer and states nothing unless the user sets it.
 - The app does not update itself. In the container the image is read-only (distroless, no shell, no package manager) and a
   restart or `docker compose up` brings back the image's version, so a self-replaced binary would not survive; updating the
   container from inside would also need access to the Docker socket, which is root on the host. A user who wants unattended

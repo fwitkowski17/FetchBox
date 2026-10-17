@@ -31,6 +31,11 @@ cat <<'EOT' >/etc/systemd/system/fetchbox.service.d/10-downloads.conf
 [Service]
 Environment=FETCHBOX_DOWNLOAD_DIR=/downloads
 EOT
+# Tells the app it runs in this container, so its update notice says to run `update` here.
+cat <<'EOT' >/etc/systemd/system/fetchbox.service.d/20-install-method.conf
+[Service]
+Environment=FETCHBOX_INSTALL_METHOD=lxc
+EOT
 msg_ok "Created the user and the downloads folder"
 
 msg_info "Installing FetchBox"

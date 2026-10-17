@@ -25,8 +25,8 @@ use fetchbox_core::schedule::Gate;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
     AddRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace, Download, Downloader,
-    Error, Event, Hold, Id, Job, KnownHost, OnConflict, OnHoursEnd, Result, Settings, SourceKind,
-    Stats, StatsRange, Status, TrustHost, UrlInfo, UrlKind, VersionInfo,
+    Error, Event, Hold, Id, InstallMethod, Job, KnownHost, OnConflict, OnHoursEnd, Result,
+    Settings, SourceKind, Stats, StatsRange, Status, TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
 use fetchbox_http_engine::{
     candidates, source, verify::hash_file, EngineError, HttpDownloader, UrlPolicy,
@@ -93,6 +93,8 @@ pub struct Manager {
     verifying: Mutex<HashMap<Id, Arc<VerifyJob>>>,
     /// The SSH servers whose host key the user accepted (the engine asks this at every connection).
     host_keys: Arc<HostKeyCache>,
+    /// How this copy was installed, as the installer stated it; picks the update steps the UI shows.
+    install_method: Option<InstallMethod>,
 }
 
 impl Manager {
@@ -106,7 +108,7 @@ impl Manager {
         let source = std::env::var("FETCHBOX_UPDATE_URL")
             .ok()
             .filter(|u| !u.is_empty());
-        Self::start_with(conn, dir, policy, source).await
+        Self::start_with(conn, dir, policy, source, update::install_method_from_env()).await
     }
 
     /// Like `start`, with the address of the releases API given (`None`: GitHub).
@@ -115,6 +117,7 @@ impl Manager {
         dir: PathBuf,
         policy: UrlPolicy,
         update_source: Option<String>,
+        install_method: Option<InstallMethod>,
     ) -> anyhow::Result<Arc<Self>> {
         let current = settings::load(&conn)?;
         let peak_speed = stats::peak_speed(&conn)?;
@@ -129,6 +132,9 @@ impl Manager {
         }
         let queued = downloads::list_by_status(&conn, Status::Queued)?;
         let (bus, _) = broadcast::channel(BUS_CAPACITY);
+        if let Some(method) = install_method {
+            tracing::info!(install_method = method.as_str(), "installation");
+        }
         tracing::info!("settings: {}", logfmt::settings_summary(&current));
         let all = downloads::list(&conn)?;
         let count = |s: Status| all.iter().filter(|d| d.status == s).count();
@@ -153,6 +159,7 @@ impl Manager {
             active: Mutex::new(HashMap::new()),
             peak_speed: AtomicU64::new(peak_speed),
             updates: UpdateChecker::new(update_source)?,
+            install_method,
             held: Mutex::new(HashSet::new()),
             suspended: Mutex::new(HashSet::new()),
             hours_seen: Mutex::new(None),
@@ -1121,10 +1128,13 @@ impl Service for Manager {
 
     async fn version(&self, refresh: bool) -> Result<VersionInfo> {
         let settings = self.current_settings();
-        if !settings.check_updates {
-            return Ok(update::disabled());
-        }
-        Ok(self.updates.info(refresh, settings.check_prereleases).await)
+        let mut info = if settings.check_updates {
+            self.updates.info(refresh, settings.check_prereleases).await
+        } else {
+            update::disabled()
+        };
+        info.install_method = self.install_method;
+        Ok(info)
     }
 
     async fn probe(&self, url: &str, credentials: Option<Credentials>) -> Result<UrlInfo> {

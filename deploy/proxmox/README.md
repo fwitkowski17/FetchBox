@@ -30,7 +30,7 @@ FetchBox is a normal glibc program (the release binaries are built on Debian 12,
 
 ### What ends up in the container
 
-The `fetchbox` package: one binary, `/usr/bin/fetchbox` (about 10 MB; the web interface is inside it), run by the systemd unit `fetchbox.service` as the unprivileged user `fetchbox` (uid 1000, made by the installer before the package so that a host folder can be given to it). The database is in `/var/lib/fetchbox`, the service settings in `/etc/fetchbox/fetchbox.env`, the downloads go to `/downloads` (a drop-in, `/etc/systemd/system/fetchbox.service.d/10-downloads.conf`, points the package's `FETCHBOX_DOWNLOAD_DIR` there). No compiler, no Node.js. It is the same package as for any Debian or Ubuntu machine (see the main README), so `apt` knows it: `apt list --installed fetchbox`.
+The `fetchbox` package: one binary, `/usr/bin/fetchbox` (about 10 MB; the web interface is inside it), run by the systemd unit `fetchbox.service` as the unprivileged user `fetchbox` (uid 1000, made by the installer before the package so that a host folder can be given to it). The database is in `/var/lib/fetchbox`, the service settings in `/etc/fetchbox/fetchbox.env`, the downloads go to `/downloads` (a drop-in, `/etc/systemd/system/fetchbox.service.d/10-downloads.conf`, points the package's `FETCHBOX_DOWNLOAD_DIR` there; another one, `20-install-method.conf`, sets `FETCHBOX_INSTALL_METHOD=lxc`, so the update notice in the web app tells you to run `update` in the container's console). No compiler, no Node.js. It is the same package as for any Debian or Ubuntu machine (see the main README), so `apt` knows it: `apt list --installed fetchbox`.
 
 ## Downloads folder on the host
 

@@ -12,6 +12,8 @@ WorkingDirectory=/var/lib/fetchbox
 # Defaults; /etc/fetchbox/fetchbox.env overrides them (FETCHBOX_PORT, FETCHBOX_DOWNLOAD_DIR, ...).
 Environment=FETCHBOX_DATA_DIR=/var/lib/fetchbox
 Environment=FETCHBOX_DOWNLOAD_DIR=/var/lib/fetchbox/downloads
+# Tells the app it came from a package, so its update notice shows the apt / dnf steps.
+Environment=FETCHBOX_INSTALL_METHOD=package
 EnvironmentFile=-/etc/fetchbox/fetchbox.env
 ExecStart=/usr/bin/fetchbox
 Restart=on-failure

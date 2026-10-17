@@ -375,8 +375,21 @@ const pl: Messages = {
   'update.compose': 'Docker Compose (jak w repozytorium)',
   'update.composeSteps':
     'Uruchom w katalogu z plikiem docker-compose.yml. Pobrane pliki i ustawienia zostają w ./data i ./downloads, a niedokończone pobierania wznawiają się po restarcie.',
-  'update.plain': 'Bez Dockera',
+  'update.plain': 'Z kodu źródłowego',
   'update.plainSteps': 'W katalogu z kodem źródłowym; potem uruchom nowy program tak, jak uruchamiałeś stary.',
+  'update.unknownMethod': 'Nie wiadomo, jak FetchBox został tu zainstalowany, więc podano wszystkie sposoby. Użyj tego, którym go zainstalowałeś.',
+  'update.package': 'Pakiet DEB / RPM (apt, dnf)',
+  'update.packageSteps':
+    'Pobierz pakiet nowej wersji dla swojego procesora i zainstaluj go na starym. Usługa uruchomi się ponownie sama, a baza danych, ustawienia i pobrane pliki zostają. apt i dnf nie znają wydań z GitHuba, więc apt upgrade nie zaktualizuje FetchBoxa.',
+  'update.packageDeb': 'Debian, Ubuntu',
+  'update.packageRpm': 'Fedora, RHEL i pochodne',
+  'update.lxc': 'Kontener Proxmox',
+  'update.lxcSteps':
+    'Otwórz konsolę kontenera (w Proxmoksie: kontener, potem Console) i uruchom to polecenie. Znajdzie najnowsze wydanie, sprawdzi jego pakiet i zainstaluje go; usługa uruchomi się ponownie sama. Baza danych, ustawienia i pobrane pliki zostają.',
+  'update.script': 'Host z Linuxem (install.sh)',
+  'update.scriptSteps':
+    'Uruchom jako root na maszynie, na której działa FetchBox. Skrypt podmieni program i zrestartuje usługę; baza danych i ustawienia zostają.',
+  'update.prereleaseNotePinned': 'To wersja przedpremierowa: może mieć niedociągnięcia. Poniższe polecenia instalują dokładnie tę wersję.',
   'update.noSelf':
     'FetchBox nie zaktualizuje się sam wewnątrz kontenera: obraz jest tylko do odczytu, a restart przywróciłby starą wersję.',
   'update.later': 'Przypomnij później',

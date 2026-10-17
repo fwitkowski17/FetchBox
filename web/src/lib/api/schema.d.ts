@@ -728,6 +728,13 @@ export interface components {
          */
         HostKeyProblemKind: "untrusted" | "changed";
         /**
+         * @description How FetchBox was installed on this machine. The program cannot find that out by itself, so the
+         *     installer states it (`FETCHBOX_INSTALL_METHOD`), and the update dialog shows the steps that
+         *     belong to it.
+         * @enum {string}
+         */
+        InstallMethod: "docker" | "package" | "lxc" | "script" | "source";
+        /**
          * @description An SSH server the user has accepted the host key of (SPEC 6.12). SFTP has no certificate
          *     authorities: the key a server presents is only believed when it is the one that was accepted.
          */
@@ -1046,6 +1053,7 @@ export interface components {
             current: string;
             /** @description Update checks are switched on (`Settings::check_updates`). When off, nothing else is set. */
             enabled: boolean;
+            install_method?: null | components["schemas"]["InstallMethod"];
             /** @description Version of the newest published release, without a leading `v`. */
             latest?: string | null;
             /** @description `latest` is a pre-release (only possible when `Settings::check_prereleases` is on). */
