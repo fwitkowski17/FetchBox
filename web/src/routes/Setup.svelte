@@ -1,21 +1,54 @@
 <script lang="ts">
   // First run, as short as it can be: language, look (theme and accent), password, done. The
   // password step needs the one-time code from the server log. Everything else (download limits,
-  // speed unit...) has a sensible default and lives in Settings.
+  // speed unit...) has a sensible default and lives in Settings. One step is added when it is
+  // needed: if more than one disk is mounted in the download folder, which one new downloads go
+  // to is asked once the account exists (the disks are behind the login, so it cannot come
+  // earlier).
   import { ApiError } from '../lib/api/client';
+  import DiskChoice from '../lib/components/DiskChoice.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import LanguageSelect from '../lib/components/LanguageSelect.svelte';
   import LookFields from '../lib/components/LookFields.svelte';
   import { i18n, t } from '../lib/i18n';
   import { auth } from '../lib/stores/auth.svelte';
+  import { disks } from '../lib/stores/disks.svelte';
+  import { settings } from '../lib/stores/settings.svelte';
   import { CARD } from '../lib/util/classes';
   import { MIN_PASSWORD_LEN, checkNewPassword } from '../lib/util/password';
 
-  const STEPS = ['language', 'look', 'account', 'done'] as const;
-  type Step = (typeof STEPS)[number];
+  type Step = 'language' | 'look' | 'account' | 'disk' | 'done';
+
+  /** The disk step is part of the list once the server has told that there is a choice. */
+  let askDisk = $state(false);
+  const STEPS = $derived<readonly Step[]>(
+    askDisk ? ['language', 'look', 'account', 'disk', 'done'] : ['language', 'look', 'account', 'done'],
+  );
 
   let step = $state<Step>('language');
   const index = $derived(STEPS.indexOf(step));
+
+  // ---- disk
+  /** `null` until one is chosen: the step has no sensible default (the download folder may be the
+   *  small system disk of a container), so the choice is the user's. */
+  let chosenDisk = $state<string | null>(null);
+  let savingDisk = $state(false);
+  let diskError = $state<string | null>(null);
+
+  async function saveDisk(): Promise<void> {
+    if (chosenDisk === null || savingDisk) return;
+    savingDisk = true;
+    diskError = null;
+    try {
+      if (!settings.value) await settings.load();
+      if (settings.value) await settings.save({ ...settings.value, default_disk: chosenDisk });
+      step = 'done';
+    } catch (err) {
+      diskError = err instanceof ApiError ? i18n.errorText(err) : t('setup.disk.failed');
+    } finally {
+      savingDisk = false;
+    }
+  }
 
   // ---- account
   let code = $state('');
@@ -41,7 +74,11 @@
     try {
       await auth.setup(code, password);
       password = repeat = code = '';
-      step = 'done';
+      // Signed in now: see whether there is a disk to choose. Not being able to ask is no reason
+      // to hold the user back.
+      const found = await disks.load();
+      askDisk = found?.choosable ?? false;
+      step = askDisk ? 'disk' : 'done';
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         accountError = t('setup.error.code');
@@ -191,6 +228,30 @@
           </button>
         </div>
       </form>
+    {:else if step === 'disk'}
+      <section class={CARD} data-part="step-disk">
+        <div>
+          <h2 class="text-lg font-semibold tracking-tight">{t('setup.disk.title')}</h2>
+          <p class="hint mt-1">{t('setup.disk.hint')}</p>
+        </div>
+        {#if disks.value}
+          <DiskChoice disks={disks.value.disks} bind:value={chosenDisk} group="setup-disk" />
+        {/if}
+        {#if diskError}
+          <p class="flex gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger" role="alert">
+            <Icon name="alert" size={18} />{diskError}
+          </p>
+        {/if}
+        <button
+          class="btn primary justify-self-end"
+          type="button"
+          onclick={saveDisk}
+          disabled={chosenDisk === null || savingDisk}
+          data-part="disk-continue"
+        >
+          {savingDisk ? t('setup.disk.saving') : t('setup.disk.save')}
+        </button>
+      </section>
     {:else}
       <section class={[CARD, 'justify-items-center text-center']} data-part="step-done">
         <div class="grid size-12 place-items-center rounded-full bg-success-soft text-success">

@@ -19,6 +19,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - default speed of each download (a single download can get its own speed from its menu, which replaces the default, see 6.6)
   - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
+  - default disk (`default_disk`): which of the disks mounted in the download directory new downloads are saved on, see 6.14
   - download hours (`schedule_*`, off by default): download only between two times of the day, see 6.3.2
   - torrent hours (`torrent_schedule_*`, off by default): the same for torrents, set apart from the download hours, see 6.3.2 and 6.13
   - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9); also announce
@@ -59,7 +60,7 @@ FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,error}.rs
+│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,disks,error}.rs
 │   ├── http_engine/src/{lib,segments,worker,source,ftp,sftp,hostkeys,net,listing,probe}.rs   # also FTP(S) and SFTP, see 6.12
 │   ├── torrent_engine/{src/{lib,parse,error}.rs,examples/seed.rs}   # BitTorrent over librqbit, see 6.13
 │   ├── storage/{migrations/,src/{lib,downloads,known_hosts,segments,settings,stats,torrents}.rs}
@@ -248,9 +249,49 @@ hours of their own (6.13).
   changing the setting or the category afterwards never moves an existing file. The `.part` file lives next to the
   final file; conflict checks and name reservation are per subdirectory.
 
+### 6.14 Disks
+
+A user with two disks mounts them *inside* the download directory (`/downloads/hdd10tb`, `/downloads/ssd1`, as Docker volumes or
+mount points). Each such folder is a **disk**; the download directory itself (empty name) is always one more place to save to.
+
+- **Finding them** (`fetchbox_http_engine::disk::find_disks`): the direct children of the download directory that are folders on
+  *another file system* than the directory itself (device id differs; a symbolic link to such a folder counts, since writing follows
+  it). Files, hidden folders, names that are not a plain folder name and the folders that mean something else are skipped:
+  `torrents` and the category folders (`photo`, `music`, `video`, `program`, `archive`, `other`: `core::disks::is_reserved`; a category
+  folder may itself be a mount point, 6.3.1). The list is read on every request (a disk can be mounted while the program runs), sorted
+  by name. Nothing is configured: a folder is a disk because it is mounted.
+- **Names.** A disk is referred to by its folder name (`core::disks::is_valid_name`: one plain component, no separators, not `.`/`..`,
+  not hidden, no control characters, at most 255 bytes); the empty name is the download directory. `core::disks::rel_dir(disk, subdir)`
+  joins it with the category folder (`ssd1/video`); the engine's `target_dir` sanitizes each component on its own and drops `.` and
+  `..`, so a path of two names cannot climb out.
+- **Using one** (`disk_path`): the empty name, or a disk that is mounted *now*. An empty folder on the system disk is **not** a disk:
+  the check keeps a disk that is not mounted (a failed mount, an unplugged drive) from being filled in its place. It is made when a
+  download is added (`400` for an unusable disk), when one is resumed, when one starts (it fails with "the disk ... is not available"
+  and can be resumed once the disk is back), when `GET /api/disk?disk=` asks for space, and when the default is changed.
+- **The setting.** `Settings.default_disk` (empty = the download directory, which is what an installation from before disks has). Only
+  a *change* of it is checked for being usable (`400`): a stored default that is gone for a while must not block saving other
+  settings. `AddRequest.disk` names a disk for one download (`""` = the download directory; absent = the default). With the default
+  gone, an add that names no disk is refused (`400`) until another disk is named or the default is changed.
+- **Where a download lives.** `downloads.disk` (migration 0014, `''` for every existing row) is stored when the download is added and
+  never changes: the directory is `<download dir>/<disk>/<subdir>/`. So changing the default moves nothing, and the entries of earlier
+  downloads (and the deletion of their files, name conflicts, `.part` files, checksum verification) keep working on the disk they are on.
+  Name conflicts and name reservations are per disk and category folder (`find_unfinished_by_filename(disk, subdir, name)`); the
+  "same address already downloaded" check is across all disks. Category folders (`category_subdirs`) are inside the disk.
+- **Space.** Reservations are per device as before (6.2), so the disks do not borrow from each other: the checks of an add, of a
+  resume and of the engine's start use the disk of that download. `GET /api/disks` answers `{disks, default, default_available,
+  choosable}`: the download directory first, then each disk by name, with `name`, `path` (where it is on the machine, for display),
+  `total`, `available` and `reserved` (what the running downloads on that file system still have to write). `choosable` (more than
+  the download directory) is what makes the UI offer a choice. `GET /api/disk` (the ring) follows the default disk, or `?disk=`.
+- **Not covered.** Torrents (6.13) are saved in `<download dir>/torrents/` whatever the default disk is: the engine takes one output
+  folder when it starts. Nothing is ever moved between disks.
+- **Tests.** The server tests stand a link to a folder in `/dev/shm` (a tmpfs, another file system) in for a mounted disk and skip
+  where the machine has none: finding disks, a download on a chosen disk and on the default, the default changing without moving
+  anything, names per disk, refusals (not mounted, bad names), a stored default that is gone, a download whose disk disappeared
+  before it started. The engine tests `find_disks`, `disk_path` and `target_dir`; `core::disks` the names.
+
 ### 6.4 Data model (SQLite)
 
-- `downloads`: id, url, filename, subdir, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, start_at, start_now, active_ms, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, password, created_at, finished_at, error
+- `downloads`: id, url, filename, subdir, disk, category, status, size, downloaded, source_kind, resumable, etag, overwrite, ignore_space, waiting_space, archived, speed_limit, start_at, start_now, active_ms, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, password, created_at, finished_at, error
 - `segments`: download_id, idx, start, end, downloaded
 - `known_hosts`: id, host, port, key_type, fingerprint, added_at (unique per host and port): the SSH servers the user accepted (6.12).
   `downloads.password` is read by `storage::downloads::credentials` only and is not a column of the `Download` model, so it cannot reach
@@ -261,7 +302,7 @@ hours of their own (6.13).
   key: removing an entry from the list leaves the statistics alone. `downloads.active_ms` is the time spent transferring,
   summed over pauses and restarts (the manager adds the time between progress ticks and closes it when a download pauses,
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
-- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases, torrent_down_limit, torrent_up_limit, torrent_schedule_enabled, torrent_schedule_from, torrent_schedule_to, torrent_schedule_timezone)
+- `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases, torrent_down_limit, torrent_up_limit, torrent_schedule_enabled, torrent_schedule_from, torrent_schedule_to, torrent_schedule_timezone, default_disk)
 - `torrents`: see 6.13.
 
 Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`, `cancelled`.
@@ -289,7 +330,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   one (6.12). A refused login or a missing file at an FTP or SFTP server is `502` with the server's words, never `401` (that means that
   FetchBox's own session is missing).
 - `GET /api/settings`, `PUT /api/settings`
-- `GET /api/disk` (free space of the download disk)
+- `GET /api/disk[?disk=<name>]` (free space of a disk, by default the one new downloads go to) and `GET /api/disks` (6.14)
 - `GET /api/stats?range=today|7d|30d|all&offset=<minutes east of UTC>` (a summary of the downloads of a period, in the
   caller's days: `completed`, `failed`, `cancelled`, `in_progress` (not tied to the period), `bytes` fetched (plus what
   unfinished downloads have fetched so far), `completed_bytes`, `active_seconds`, `average_speed` (bytes over the time
@@ -338,8 +379,8 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   accent and accent text on cards, 4.2:1 on the tint). Status filters carry icons coloured by state.
 - Disk ring: at the bottom of the side menu (left bottom corner, also in the drawer) a ring shows the used share of the
   download disk, a lighter arc the space the running downloads still have to write, "N free of M" next to it, that amount and, when
-  it exceeds the free space (something else filled the disk), how much is missing. It shows the disk of
-  the download directory; a category subdirectory on another disk is covered by the checks but not drawn. Accent colour up to 85 % used, amber from 85 %, red from 95 % or when the queue does
+  it exceeds the free space (something else filled the disk), how much is missing. It shows the disk new downloads go to
+  (6.14; named under the figures when there is more than one); a category subdirectory on another disk is covered by the checks but not drawn. Accent colour up to 85 % used, amber from 85 %, red from 95 % or when the queue does
   not fit. Polled every 10 s (not while the tab is hidden) and refreshed when a download finishes; hidden if the server
   cannot tell. The add form turns the `507` into a dialog: what the file needs, what is free, how much of it the running downloads
   still have to write and what is left, with "Add anyway" (resends with `ignore_space`) and "Cancel"; a conflict dialog after it does not ask again.
@@ -419,6 +460,13 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   default the browser's zone while the hours are off), and a choice "When the hours end": "Pause running downloads" or
   "Let running downloads finish" (each with a line saying what it does). Equal times and an unknown zone are shown as errors
   before saving.
+- Disks in Settings (6.14): a card "Download disk", shown only when there is a choice (or when the chosen disk is gone, with a
+  warning), lists the download folder and each disk as radio cards (`DiskChoice`: name, path, "N free of M", a usage bar that turns amber from 85 % and red from 95 %) and
+  a line that changing it moves nothing. The choice is part of the settings form (saved with the rest). The disk ring names the default disk when there is more than
+  one and follows a change of it. A download card or row shows the disk and category folder in front of the file name's folder (`ssd1/video/`).
+  The add dialog has a "Save to" select (only when there is a choice) with each disk and its free space, the default one
+  preselected (the download folder if the default is gone) and the space of the chosen disk under it; the dialog asks for the disks every
+  time it opens. It applies to every file of a directory listing too.
 - Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
   floating button and the empty list (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
@@ -465,7 +513,10 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   it, kept as short as it can be: language, look (theme and accent colour; both applied live and stored like in
   Settings), password (setup code, password, repeat; this creates the account), and a final "All set" screen whose
   only button goes to the downloads. No download limits, speed unit or other options are asked: they have sensible
-  defaults and live in Settings. Back goes to the previous step until the account exists; the final step already runs
+  defaults and live in Settings. One step is added when needed (6.14): when `GET /api/disks` says there is a choice (`choosable`),
+  a step "Where should downloads go?" follows the password, listing the download folder and each disk with its path, capacity and
+  a usage bar; nothing is preselected (the download folder may be the small system disk of a container), "Continue" waits for a
+  choice and saves it as `default_disk`. It comes after the password because the disks are behind the login. Back goes to the previous step until the account exists; the final step already runs
   signed in, and reloading after the password step simply opens the app.
 - Password: Settings has a "Password" card (the sign-out card comes after it: signing out is the last thing on the page). For an account created in the UI it has a "Change password..." button that
   opens a dialog (`ChangePasswordDialog`) with the current password, the new one and the new one again (hidden text,

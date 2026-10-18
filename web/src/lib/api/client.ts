@@ -5,7 +5,9 @@ import type {
   AuthStatus,
   Category,
   Conflict,
+  DiskInfo,
   DiskSpace,
+  Disks,
   Credentials,
   Download,
   HostKeyProblem,
@@ -205,7 +207,11 @@ export const api = {
   torrentFiles: (id: number, signal?: AbortSignal) =>
     request<TorrentFile[]>('GET', `/torrents/${id}/files`, undefined, signal),
 
-  getDisk: () => request<DiskSpace>('GET', '/disk'),
+  /** Space of a disk; without a name, of the one new downloads go to by default. */
+  getDisk: (disk?: string) =>
+    request<DiskSpace>('GET', disk === undefined ? '/disk' : `/disk?disk=${encodeURIComponent(disk)}`),
+  /** The disks downloads can be saved on, with their space, and the default one. */
+  getDisks: () => request<Disks>('GET', '/disks'),
   /** `offsetMinutes`: the caller's distance from UTC, east positive; it decides where a day begins. */
   getStats: (range: StatsRange, offsetMinutes: number) =>
     request<Stats>('GET', `/stats?range=${range}&offset=${offsetMinutes}`),

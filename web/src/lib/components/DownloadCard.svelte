@@ -7,6 +7,7 @@
   import { selection } from '../stores/selection.svelte';
   import { algoLabel } from '../util/checksum';
   import { isHeld, isVerifyFailed, primaryAction, speedOf } from '../util/downloads';
+  import { folderOf } from '../util/disks';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
   import { formatWhen } from '../util/schedule';
   import CardMenu from './CardMenu.svelte';
@@ -30,7 +31,7 @@
   /** Held back because the disk is full; the gauge below says by how much. */
   const heldForSpace = $derived(d.status === 'paused' && d.waiting_space === true && d.size != null);
   const unfinished = $derived(d.status === 'queued' || d.status === 'downloading' || d.status === 'paused');
-  const folder = $derived(d.subdir ? `${d.subdir}/` : '');
+  const folder = $derived(folderOf(d));
   /** Queued on purpose (download hours, or a start time): it starts by itself, or now on request. */
   const held = $derived(isHeld(d));
   /** The file is complete and its checksum is being computed. */

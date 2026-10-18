@@ -22,10 +22,12 @@
   import { i18n, t } from '../i18n';
   import { addDialog } from '../stores/addDialog.svelte';
   import { addTorrentDialog } from '../stores/addTorrentDialog.svelte';
+  import { disks } from '../stores/disks.svelte';
   import { isMagnet } from '../util/torrentInput';
   import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
   import { ALGOS, algoLabel, checkChecksum, detectAlgo } from '../util/checksum';
+  import { findDisk, startingDisk } from '../util/disks';
   import { isSourceUrl, sourceOf } from '../util/format';
   import { emptySummary, tally, type BatchSummary } from '../util/listing';
   import { formatWhen, minutesToTime, nextOccurrence } from '../util/schedule';
@@ -33,6 +35,22 @@
   let url = $state('');
   let filename = $state('');
   let category = $state<Category | 'auto'>('auto');
+  // The disk to save on (SPEC 6.14). Untouched, it is the default disk; the dialog asks the server
+  // for the disks every time it opens, since one may have been mounted since.
+  let diskChoice = $state<string | null>(null);
+  const disk = $derived(diskChoice ?? startingDisk(disks.value));
+  const diskInfo = $derived(findDisk(disks.value, disk));
+  $effect(() => {
+    if (!addDialog.open) return;
+    untrack(() => {
+      diskChoice = null;
+      void disks.load();
+    });
+  });
+  /** What the add request says about the disk: nothing where there is nothing to choose from. */
+  function diskFields(): { disk?: string } {
+    return disks.choosable ? { disk } : {};
+  }
   let busy = $state(false);
   let error = $state<string | null>(null);
   let conflict = $state<Conflict | null>(null);
@@ -268,6 +286,7 @@
           url: file.url,
           category: category === 'auto' ? undefined : category,
           credentials: login,
+          ...diskFields(),
           ...startFields(),
         });
         tally(summary, 'added');
@@ -294,6 +313,7 @@
     url = '';
     trail = [];
     category = 'auto';
+    diskChoice = null;
     startNow = false;
     startLater = false;
     resetLogin();
@@ -312,6 +332,7 @@
         on_conflict: onConflict,
         ignore_space: ignoreSpace || undefined,
         credentials: login,
+        ...diskFields(),
         ...startFields(),
         ...checksumFields(),
       });
@@ -322,6 +343,7 @@
       url = '';
       filename = '';
       category = 'auto';
+      diskChoice = null;
       startNow = false;
       startLater = false;
       verifyOn = false;
@@ -544,6 +566,22 @@
         </select>
       </div>
     </div>
+
+    {#if disks.choosable && disks.value}
+      <div class="field" data-part="disk-select">
+        <label for="add-disk">{t('add.disk')}</label>
+        <select id="add-disk" class="select" value={disk} onchange={(e) => (diskChoice = e.currentTarget.value)}>
+          {#each disks.value.disks as d (d.name)}
+            <option value={d.name}>
+              {t('add.disk.option', { name: d.name === '' ? t('disks.main') : d.name, free: i18n.bytes(d.available) })}
+            </option>
+          {/each}
+        </select>
+        {#if diskInfo}
+          <p class="hint">{t('add.disk.hint', { free: i18n.bytes(diskInfo.available), total: i18n.bytes(diskInfo.total) })}</p>
+        {/if}
+      </div>
+    {/if}
 
     {#if !listing}
       <div class="grid gap-2" data-part="checksum-options">

@@ -9,6 +9,7 @@
     type ErrorCode,
     type Errors,
   } from '../util/settingsForm';
+  import DefaultDiskCard from './DefaultDiskCard.svelte';
   import HoursFields from './HoursFields.svelte';
   import SpeedField from './SpeedField.svelte';
   import Toggle from './Toggle.svelte';
@@ -167,6 +168,8 @@
       <p class="hint" data-part="torrent-schedule-note">{t('settings.torrentSchedule.note')}</p>
     {/if}
   </section>
+
+  <DefaultDiskCard bind:draft />
 
   <section class={CARD}>
     <h2 class="font-semibold tracking-tight">{t('settings.files')}</h2>

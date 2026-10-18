@@ -33,6 +33,7 @@ const base: Settings = {
   torrent_schedule_from: 0,
   torrent_schedule_to: 360,
   torrent_schedule_timezone: 'Europe/Warsaw',
+  default_disk: '',
 };
 
 describe('torrent limits', () => {
@@ -277,6 +278,30 @@ describe('torrent hours', () => {
     const d = toDraft(base);
     expect(isDirty(d, base)).toBe(false);
     d.torrentScheduleEnabled = true;
+    expect(isDirty(d, base)).toBe(true);
+  });
+});
+
+describe('default disk', () => {
+  it('round-trips, the empty name being the download folder', () => {
+    expect(toDraft(base).defaultDisk).toBe('');
+    const s: Settings = { ...base, default_disk: 'ssd1' };
+    const d = toDraft(s);
+    expect(d.defaultDisk).toBe('ssd1');
+    expect(fromDraft(d).default_disk).toBe('ssd1');
+    expect(fromDraft(toDraft(base)).default_disk).toBe('');
+  });
+
+  it('is the download folder for a server that does not know disks', () => {
+    const { default_disk: _omit, ...older } = base;
+    expect(toDraft(older).defaultDisk).toBe('');
+    expect(sameSettings(older, base)).toBe(true);
+  });
+
+  it('counts as a change of the form', () => {
+    const d = toDraft(base);
+    expect(isDirty(d, base)).toBe(false);
+    d.defaultDisk = 'hdd10tb';
     expect(isDirty(d, base)).toBe(true);
   });
 });
