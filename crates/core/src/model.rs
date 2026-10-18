@@ -609,7 +609,7 @@ impl std::str::FromStr for InstallMethod {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct VersionInfo {
-    /// Version of this program (`0.9.0`).
+    /// Version of this program (`0.9.1`).
     pub current: String,
     /// Update checks are switched on (`Settings::check_updates`). When off, nothing else is set.
     pub enabled: bool,

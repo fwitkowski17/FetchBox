@@ -44,7 +44,7 @@ pub struct Config {
     pub up_limit: u64,
     /// Find peers through the DHT. Off only in tests.
     pub dht: bool,
-    /// Name the engine gives itself to peers, `FetchBox/0.9.0`.
+    /// Name the engine gives itself to peers, `FetchBox/0.9.1`.
     pub client: String,
 }
 

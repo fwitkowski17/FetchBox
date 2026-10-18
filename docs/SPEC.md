@@ -690,7 +690,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
 
 ### 6.9 Version and updates
 
-- The version is the workspace version in `Cargo.toml` (`0.9.0`); the binary prints it with
+- The version is the workspace version in `Cargo.toml` (`0.9.1`); the binary prints it with
   `--version`, the API with `GET /api/version` and Settings shows it in the "About" card (also in `docs/openapi.json`, whose
   `info.version` it is). `web/package.json` carries the same number.
 - Update check: the server asks the GitHub releases API for the list of releases (`/repos/<owner>/<repo>/releases?per_page=20`;
@@ -741,7 +741,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   restart or `docker compose up` brings back the image's version, so a self-replaced binary would not survive; updating the
   container from inside would also need access to the Docker socket, which is root on the host. A user who wants unattended
   updates can run an updater such as Watchtower with a published image; that is outside the app.
-- A release is made by pushing the tag `v<version>` (for example `v0.9.0`): `.github/workflows/release.yml` checks that the tag
+- A release is made by pushing the tag `v<version>` (for example `v0.9.1`): `.github/workflows/release.yml` checks that the tag
   equals the workspace version, builds the web UI and the binary for x86_64 and aarch64 Linux (in a Debian 12 container on purpose: the glibc
   it is linked against is the oldest it runs on, so it runs on Debian 12+ and Ubuntu 22.04+; the Docker image and the Proxmox
   container are Debian 13), wraps each binary in a DEB and an RPM (6.11), installs every package in a clean container as a test
