@@ -89,6 +89,15 @@ fn torrent_hours(s: &Settings) -> String {
     }
 }
 
+/// A disk as the log names it: the empty name is the download directory itself.
+pub fn disk_label(name: &str) -> &str {
+    if name.is_empty() {
+        "download folder"
+    } else {
+        name
+    }
+}
+
 fn on_off(v: bool) -> &'static str {
     if v {
         "on"
@@ -144,6 +153,11 @@ pub fn settings_changes(old: &Settings, new: &Settings) -> Vec<String> {
     );
     change("torrent hours", torrent_hours(old), torrent_hours(new));
     change(
+        "default disk",
+        disk_label(&old.default_disk).to_owned(),
+        disk_label(&new.default_disk).to_owned(),
+    );
+    change(
         "category folders",
         on_off(old.category_subdirs).to_owned(),
         on_off(new.category_subdirs).to_owned(),
@@ -170,13 +184,14 @@ pub fn settings_changes(old: &Settings, new: &Settings) -> Vec<String> {
 /// The settings in one line, for the start-up log.
 pub fn settings_summary(s: &Settings) -> String {
     format!(
-        "connections {}, simultaneous downloads {}, speed of each download {}, total speed {}, torrent speed {} down / {} up, category folders {}, download hours {}, torrent hours {}, update check {}, pre-releases {}",
+        "connections {}, simultaneous downloads {}, speed of each download {}, total speed {}, torrent speed {} down / {} up, default disk {}, category folders {}, download hours {}, torrent hours {}, update check {}, pre-releases {}",
         s.connections,
         s.max_concurrent,
         limit(s.speed_per_download),
         limit(s.speed_global),
         limit(s.torrent_down_limit),
         limit(s.torrent_up_limit),
+        disk_label(&s.default_disk),
         on_off(s.category_subdirs),
         hours(s),
         torrent_hours(s),

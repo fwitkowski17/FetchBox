@@ -240,6 +240,7 @@ mod tests {
                 source_kind: SourceKind::Http,
                 overwrite: false,
                 subdir: String::new(),
+                disk: String::new(),
                 ignore_space: false,
                 start_at: None,
                 start_now: false,

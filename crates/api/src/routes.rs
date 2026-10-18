@@ -10,8 +10,8 @@ use axum::{
     Json, Router,
 };
 use fetchbox_core::{
-    AddRequest, Category, DiskSpace, Download, Error, Id, KnownHost, ProbeRequest, Settings, Stats,
-    StatsRange, TrustHost, UrlInfo, VersionInfo,
+    AddRequest, Category, DiskSpace, Disks, Download, Error, Id, KnownHost, ProbeRequest, Settings,
+    Stats, StatsRange, TrustHost, UrlInfo, VersionInfo,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -41,6 +41,7 @@ pub fn router(service: Arc<dyn Service>, auth: Arc<Auth>) -> Router {
         .route("/version", get(version))
         .route("/version/check", post(check_version))
         .route("/disk", get(disk))
+        .route("/disks", get(disks))
         .route("/stats", get(stats))
         .route("/events", get(sse::events))
         .merge(crate::torrents::routes())
@@ -256,20 +257,50 @@ pub(crate) async fn check_version(State(svc): Svc) -> ApiResult<Json<VersionInfo
     Ok(Json(svc.version(true).await?))
 }
 
-/// Free space on the disk that holds the download directory, and how much of it the running
+/// Query of `GET /disk`.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct DiskQuery {
+    /// The disk to look at (a name from `GET /api/disks`; empty = the download directory itself).
+    /// Without it: the default disk.
+    pub disk: Option<String>,
+}
+
+/// Free space on a disk (by default the one new downloads go to), and how much of it the running
 /// downloads still have to write.
 #[utoipa::path(
     get,
     path = "/api/disk",
     tag = "system",
     security(("session" = []), ("bearer" = [])),
+    params(DiskQuery),
     responses(
         (status = 200, body = DiskSpace),
+        (status = 400, description = "Not a disk that can be used now (not mounted, or not a folder name)", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
     )
 )]
-pub(crate) async fn disk(State(svc): Svc) -> ApiResult<Json<DiskSpace>> {
-    Ok(Json(svc.disk_space().await?))
+pub(crate) async fn disk(
+    State(svc): State<Arc<dyn Service>>,
+    Query(q): Query<DiskQuery>,
+) -> ApiResult<Json<DiskSpace>> {
+    Ok(Json(svc.disk_space(q.disk).await?))
+}
+
+/// The disks new downloads can be saved on: the download directory itself and every folder in it
+/// that is a file system of its own (a mounted disk), each with its capacity, and the default one.
+/// Downloads already on the list stay on the disk they were added to.
+#[utoipa::path(
+    get,
+    path = "/api/disks",
+    tag = "system",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, body = Disks),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+    )
+)]
+pub(crate) async fn disks(State(svc): Svc) -> ApiResult<Json<Disks>> {
+    Ok(Json(svc.disks().await?))
 }
 
 /// Query of `GET /stats`.

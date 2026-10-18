@@ -256,8 +256,22 @@
         "tags": [
           "system"
         ],
-        "summary": "Free space on the disk that holds the download directory, and how much of it the running\ndownloads still have to write.",
+        "summary": "Free space on a disk (by default the one new downloads go to), and how much of it the running\ndownloads still have to write.",
         "operationId": "disk",
+        "parameters": [
+          {
+            "name": "disk",
+            "in": "path",
+            "description": "The disk to look at (a name from `GET /api/disks`; empty = the download directory itself).\nWithout it: the default disk.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -265,6 +279,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DiskSpace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a disk that can be used now (not mounted, or not a folder name)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/disks": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The disks new downloads can be saved on: the download directory itself and every folder in it\nthat is a file system of its own (a mounted disk), each with its capacity, and the default one.\nDownloads already on the list stay on the disk they were added to.",
+        "operationId": "disks",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Disks"
                 }
               }
             }
@@ -2055,6 +2118,13 @@
               }
             ]
           },
+          "disk": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Save to this disk (SPEC 6.14) instead of the default one (`Settings::default_disk`). The\nempty name is the download directory itself; leave the field out to take the default."
+          },
           "filename": {
             "type": [
               "string",
@@ -2347,6 +2417,45 @@
           }
         }
       },
+      "DiskInfo": {
+        "type": "object",
+        "description": "One place downloads can be saved to, with its space.",
+        "required": [
+          "name",
+          "path",
+          "total",
+          "available",
+          "reserved"
+        ],
+        "properties": {
+          "available": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes available for new files.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "Folder name inside the download directory; empty for the download directory itself."
+          },
+          "path": {
+            "type": "string",
+            "description": "Where it is on the machine running FetchBox (shown, never taken from a client)."
+          },
+          "reserved": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What the running downloads on this file system still have to write.",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes this program can use on the file system (used plus available).",
+            "minimum": 0
+          }
+        }
+      },
       "DiskSpace": {
         "type": "object",
         "description": "Free space on the file system that holds the download directory.",
@@ -2373,6 +2482,37 @@
             "format": "int64",
             "description": "Bytes this program can use on the file system: what is used plus what is available\n(blocks reserved for root are not counted, like `df`'s `Use%`).",
             "minimum": 0
+          }
+        }
+      },
+      "Disks": {
+        "type": "object",
+        "description": "The disks FetchBox found and which one new downloads go to by default.",
+        "required": [
+          "disks",
+          "default",
+          "default_available",
+          "choosable"
+        ],
+        "properties": {
+          "choosable": {
+            "type": "boolean",
+            "description": "More than the download directory itself can be chosen: the UI offers a choice only then."
+          },
+          "default": {
+            "type": "string",
+            "description": "The disk new downloads go to unless the request names another (`Settings::default_disk`)."
+          },
+          "default_available": {
+            "type": "boolean",
+            "description": "The default is the download directory or a disk that is mounted now."
+          },
+          "disks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiskInfo"
+            },
+            "description": "The download directory first, then the mounted disks by name."
           }
         }
       },
@@ -2407,6 +2547,10 @@
                 "description": "The checksum the finished file is verified against (chosen when the download was added),\nand what the verification found when it did not match."
               }
             ]
+          },
+          "disk": {
+            "type": "string",
+            "description": "The disk the file is saved on (SPEC 6.14): a folder of the download directory, chosen when\nthe download was added and kept for good, so changing the default disk never moves it.\nEmpty = the download directory itself."
           },
           "downloaded": {
             "type": "integer",
@@ -3018,6 +3162,10 @@
             "format": "int32",
             "description": "Connections (segments) per download.",
             "minimum": 0
+          },
+          "default_disk": {
+            "type": "string",
+            "description": "The disk new downloads are saved on unless the request names another (SPEC 6.14): a folder\nof the download directory that is a file system of its own. Empty = the download directory\nitself. Existing downloads stay where they are."
           },
           "max_concurrent": {
             "type": "integer",

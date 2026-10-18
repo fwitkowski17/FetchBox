@@ -6,9 +6,9 @@
 //! still needs is its size minus what it has written.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use fetchbox_core::DiskSpace;
+use fetchbox_core::{disks, DiskSpace};
 
 use crate::error::EngineError;
 
@@ -70,6 +70,81 @@ fn space(_path: &Path) -> io::Result<DiskSpace> {
         io::ErrorKind::Unsupported,
         "free disk space is not available on this platform",
     ))
+}
+
+/// A folder of the download directory that is a file system of its own (SPEC 6.14).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MountedDisk {
+    /// The folder name.
+    pub name: String,
+    pub path: PathBuf,
+    /// Device id of the file system.
+    pub dev: u64,
+}
+
+/// The folders of `root` that are other file systems than `root` itself: the disks the user
+/// mounted (or linked) there, by name. Hidden folders, files, and the folders that mean something
+/// else inside the download directory (`fetchbox_core::disks::is_reserved`) are not disks. A
+/// symbolic link to a folder on another file system counts: following it is what writing to it does.
+pub fn find_disks(root: &Path) -> io::Result<Vec<MountedDisk>> {
+    let root_dev = device(root)?;
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(root)? {
+        let Ok(entry) = entry else { continue };
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue; // a name that is not text cannot be stored or shown
+        };
+        if !disks::is_valid_name(&name) || disks::is_reserved(&name) {
+            continue;
+        }
+        let path = entry.path();
+        // `metadata` follows links: a link to a file or to a dead target is not a disk.
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let Ok(dev) = device(&path) else { continue };
+        if dev != root_dev {
+            found.push(MountedDisk { name, path, dev });
+        }
+    }
+    found.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(found)
+}
+
+/// Why a disk cannot be used.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DiskProblem {
+    #[error("{0:?} is not the name of a folder in the download directory")]
+    BadName(String),
+    #[error(
+        "the disk {0:?} is not available: it is not a separate file system in the download directory (is it mounted?)"
+    )]
+    NotMounted(String),
+}
+
+/// The directory of a disk, if it can be used now: the empty name is `root` itself; any other has
+/// to be a folder of `root` that is a file system of its own. The check is what keeps a disk that
+/// is not mounted (an empty folder on the system disk) from being filled in its place.
+pub fn disk_path(root: &Path, name: &str) -> Result<PathBuf, DiskProblem> {
+    if !disks::is_valid_name(name) || (!name.is_empty() && disks::is_reserved(name)) {
+        return Err(DiskProblem::BadName(name.to_owned()));
+    }
+    if name.is_empty() {
+        return Ok(root.to_owned());
+    }
+    let path = root.join(name);
+    let separate = match (device(root), std::fs::metadata(&path)) {
+        (Ok(root_dev), Ok(meta)) if meta.is_dir() => device(&path).is_ok_and(|d| d != root_dev),
+        _ => false,
+    };
+    if separate {
+        Ok(path)
+    } else {
+        Err(DiskProblem::NotMounted(name.to_owned()))
+    }
 }
 
 /// Does a download needing `needed` more bytes fit, once what the running downloads still have to
@@ -164,5 +239,74 @@ mod tests {
         let root = volume(Path::new("/")).expect("root");
         let p = volume(proc).expect("proc");
         assert_ne!(root.dev, p.dev);
+    }
+
+    /// A directory on another file system than `base`, as far as the machine has one to offer:
+    /// `/dev/shm` is a tmpfs on Linux, so a link to a folder there stands in for a mounted disk.
+    #[cfg(unix)]
+    fn other_filesystem(base: &Path) -> Option<tempfile::TempDir> {
+        let shm = Path::new("/dev/shm");
+        if !shm.is_dir() || device(shm).ok()? == device(base).ok()? {
+            return None;
+        }
+        tempfile::tempdir_in(shm).ok()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plain_folders_are_not_disks_but_a_link_to_another_file_system_is() {
+        let root = tempfile::tempdir().expect("tmp");
+        std::fs::create_dir(root.path().join("plain")).expect("dir");
+        std::fs::write(root.path().join("file.bin"), b"x").expect("file");
+        assert_eq!(find_disks(root.path()).expect("scan"), vec![]);
+
+        let Some(other) = other_filesystem(root.path()) else {
+            return; // nothing to stand in for a second disk on this machine
+        };
+        let link = |name: &str| {
+            std::os::unix::fs::symlink(other.path(), root.path().join(name)).expect("link");
+        };
+        link("ssd1");
+        link("hdd10tb");
+        // Folders that mean something else, hidden ones and dead links are never disks.
+        link("video");
+        link("torrents");
+        link(".hidden");
+        std::os::unix::fs::symlink("/nonexistent/target", root.path().join("dead")).expect("link");
+
+        let found = find_disks(root.path()).expect("scan");
+        let names: Vec<&str> = found.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["hdd10tb", "ssd1"], "by name");
+        assert!(found
+            .iter()
+            .all(|d| d.dev == device(other.path()).expect("dev")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_disk_is_usable_only_while_it_is_a_file_system_of_its_own() {
+        let root = tempfile::tempdir().expect("tmp");
+        assert_eq!(disk_path(root.path(), ""), Ok(root.path().to_owned()));
+        // An empty folder on the same file system is a disk that is not mounted.
+        std::fs::create_dir(root.path().join("ssd1")).expect("dir");
+        assert_eq!(
+            disk_path(root.path(), "ssd1"),
+            Err(DiskProblem::NotMounted("ssd1".into()))
+        );
+        assert_eq!(
+            disk_path(root.path(), "missing"),
+            Err(DiskProblem::NotMounted("missing".into()))
+        );
+        for bad in ["../x", "a/b", ".hidden", "..", "video", "torrents"] {
+            assert_eq!(
+                disk_path(root.path(), bad),
+                Err(DiskProblem::BadName(bad.into())),
+                "{bad}"
+            );
+        }
+        if let Some(other) = other_filesystem(root.path()) {
+            std::os::unix::fs::symlink(other.path(), root.path().join("hdd")).expect("link");
+            assert_eq!(disk_path(root.path(), "hdd"), Ok(root.path().join("hdd")));
+        }
     }
 }

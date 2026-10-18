@@ -15,11 +15,11 @@ use crate::torrents;
 
 use fetchbox_core::{
     AddRequest, AddTorrentRequest, Category, CategoryStat, ChecksumAlgo, ChecksumInput,
-    ChecksumState, Conflict, ConflictKind, Credentials, DayStat, DiskSpace, Download, Event, Hold,
-    HostKeyProblem, HostKeyProblemKind, InstallMethod, KnownHost, LargestFile, ListingEntry,
-    OnConflict, OnHoursEnd, PeerState, PeerTransport, ProbeRequest, ReleaseNote, Settings,
-    SourceKind, Stats, StatsRange, Status, Torrent, TorrentFile, TorrentPeer, TorrentPeers,
-    TorrentStatus, TrustHost, UrlInfo, UrlKind, VersionInfo,
+    ChecksumState, Conflict, ConflictKind, Credentials, DayStat, DiskInfo, DiskSpace, Disks,
+    Download, Event, Hold, HostKeyProblem, HostKeyProblemKind, InstallMethod, KnownHost,
+    LargestFile, ListingEntry, OnConflict, OnHoursEnd, PeerState, PeerTransport, ProbeRequest,
+    ReleaseNote, Settings, SourceKind, Stats, StatsRange, Status, Torrent, TorrentFile,
+    TorrentPeer, TorrentPeers, TorrentStatus, TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
 
 #[derive(OpenApi)]
@@ -48,6 +48,7 @@ token as `Authorization: Bearer`.",
         routes::get_settings,
         routes::put_settings,
         routes::disk,
+        routes::disks,
         routes::stats,
         routes::version,
         routes::check_version,
@@ -69,7 +70,7 @@ token as `Authorization: Bearer`.",
     ),
     components(schemas(
         Download, Status, Category, SourceKind, Settings, AddRequest, OnConflict, Conflict,
-        ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, LoginRequest,
+        ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, DiskInfo, Disks, LoginRequest,
         LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest, Stats, StatsRange,
         LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry, VersionInfo, ReleaseNote, InstallMethod, Hold, OnHoursEnd, ChecksumAlgo, ChecksumInput, ChecksumState,
         Torrent, TorrentStatus, TorrentPeer, TorrentPeers, TorrentFile, PeerState, PeerTransport, AddTorrentRequest,
@@ -147,6 +148,7 @@ mod tests {
             ("/api/settings", "get"),
             ("/api/settings", "put"),
             ("/api/disk", "get"),
+            ("/api/disks", "get"),
             ("/api/version", "get"),
             ("/api/version/check", "post"),
             ("/api/events", "get"),
