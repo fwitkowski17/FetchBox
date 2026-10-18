@@ -15,8 +15,8 @@ use crate::torrents;
 
 use fetchbox_core::{
     AddRequest, AddTorrentRequest, Category, CategoryStat, ChecksumAlgo, ChecksumInput,
-    ChecksumState, Conflict, ConflictKind, Credentials, DayStat, DiskInfo, DiskSpace, Disks,
-    Download, Event, Hold, HostKeyProblem, HostKeyProblemKind, InstallMethod, KnownHost,
+    ChecksumState, Conflict, ConflictKind, Credentials, DayStat, DiskInfo, DiskSpace, DiskWarning,
+    Disks, Download, Event, Hold, HostKeyProblem, HostKeyProblemKind, InstallMethod, KnownHost,
     LargestFile, ListingEntry, OnConflict, OnHoursEnd, PeerState, PeerTransport, ProbeRequest,
     ReleaseNote, Settings, SourceKind, Stats, StatsRange, Status, Torrent, TorrentFile,
     TorrentPeer, TorrentPeers, TorrentStatus, TrustHost, UrlInfo, UrlKind, VersionInfo,
@@ -70,7 +70,7 @@ token as `Authorization: Bearer`.",
     ),
     components(schemas(
         Download, Status, Category, SourceKind, Settings, AddRequest, OnConflict, Conflict,
-        ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, DiskInfo, Disks, LoginRequest,
+        ConflictKind, Event, UpdateDownload, Health, ErrorBody, ConflictBody, SpaceBody, DiskSpace, DiskInfo, DiskWarning, Disks, LoginRequest,
         LoginResponse, LockedBody, AuthStatus, SetupRequest, ChangePasswordRequest, Stats, StatsRange,
         LargestFile, CategoryStat, DayStat, ProbeRequest, UrlInfo, UrlKind, ListingEntry, VersionInfo, ReleaseNote, InstallMethod, Hold, OnHoursEnd, ChecksumAlgo, ChecksumInput, ChecksumState,
         Torrent, TorrentStatus, TorrentPeer, TorrentPeers, TorrentFile, PeerState, PeerTransport, AddTorrentRequest,

@@ -1516,6 +1516,20 @@
         ],
         "summary": "Add a torrent from a `.torrent` file: the raw bytes of the file as the request body\n(`Content-Type: application/x-bittorrent`), at most 8 MiB.",
         "operationId": "add_file",
+        "parameters": [
+          {
+            "name": "disk",
+            "in": "path",
+            "description": "Save to this disk (a name from `GET /api/disks`; empty = the download directory itself).\nWithout it: the default disk for torrents.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/x-bittorrent": {
@@ -2163,6 +2177,13 @@
           "magnet"
         ],
         "properties": {
+          "disk": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Save to this disk (SPEC 6.14) instead of the default one for torrents\n(`Settings::torrent_default_disk`, else `default_disk`). Empty = the download directory."
+          },
           "magnet": {
             "type": "string",
             "description": "A `magnet:?xt=urn:btih:...` link."
@@ -2453,6 +2474,17 @@
             "format": "int64",
             "description": "Bytes this program can use on the file system (used plus available).",
             "minimum": 0
+          },
+          "warning": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DiskWarning",
+                "description": "A reason to doubt that this is the disk the user meant, if there is one."
+              }
+            ]
           }
         }
       },
@@ -2485,6 +2517,14 @@
           }
         }
       },
+      "DiskWarning": {
+        "type": "string",
+        "description": "Why a disk may not be what the user meant (SPEC 6.14). Both are guesses from where the folder is,\nshown as a warning: nothing is refused because of them.",
+        "enum": [
+          "inside_container",
+          "host_system_disk"
+        ]
+      },
       "Disks": {
         "type": "object",
         "description": "The disks FetchBox found and which one new downloads go to by default.",
@@ -2513,6 +2553,13 @@
               "$ref": "#/components/schemas/DiskInfo"
             },
             "description": "The download directory first, then the mounted disks by name."
+          },
+          "unmounted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Empty folders in the download directory that are not separate disks. A mount point that did\nnot mount looks like this (an empty folder on the system disk), so they are shown as a hint."
           }
         }
       },
@@ -3209,6 +3256,13 @@
             "description": "Default speed limit of every download, bytes/s. A download with a limit of its own\n(`Download::speed_limit`) ignores it.",
             "minimum": 0
           },
+          "torrent_default_disk": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The disk new torrents are saved on unless the request names another. `None` (the default):\nthe same disk as the downloads (`default_disk`); `Some(\"\")` is the download directory itself."
+          },
           "torrent_down_limit": {
             "type": "integer",
             "format": "int64",
@@ -3447,13 +3501,18 @@
           "peers_known",
           "file_count",
           "added_at",
-          "start_now"
+          "start_now",
+          "disk"
         ],
         "properties": {
           "added_at": {
             "type": "integer",
             "format": "int64",
             "description": "Unix seconds."
+          },
+          "disk": {
+            "type": "string",
+            "description": "The disk it is saved on (SPEC 6.14): a folder of the download directory, chosen when the\ntorrent was added and kept for good. Empty = the download directory itself."
           },
           "down_speed": {
             "type": "integer",

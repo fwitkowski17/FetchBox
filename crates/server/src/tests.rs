@@ -2384,13 +2384,20 @@ async fn disks_are_the_mounted_folders_of_the_download_directory() {
     let Some(targets) = fake_disks(&h, &["ssd1", "hdd10tb"]) else {
         return;
     };
-    // A plain folder is not a disk.
+    // A plain folder is not a disk; an empty one is what a mount that failed looks like, so it is
+    // pointed out. A symbolic link to a folder is a disk, also when it stays on the same file system.
     std::fs::create_dir(h.path("plain")).expect("dir");
+    let same_fs = tempfile::tempdir().expect("tmp");
+    std::os::unix::fs::symlink(same_fs.path(), h.path("linked")).expect("link");
     let found = h.mgr.disks().await.expect("disks");
     let names: Vec<&str> = found.disks.iter().map(|d| d.name.as_str()).collect();
-    assert_eq!(names, ["", "hdd10tb", "ssd1"]);
+    assert_eq!(names, ["", "hdd10tb", "linked", "ssd1"]);
+    assert_eq!(found.unmounted, ["plain"]);
+    // The download directory is judged by where this test runs (a container may be one); the
+    // disks are not on the container's host data here.
+    assert!(found.disks.iter().skip(1).all(|d| d.warning.is_none()));
     assert!(found.choosable);
-    let ssd = &found.disks[2];
+    let ssd = &found.disks[3];
     assert_eq!(ssd.path, h.path("ssd1").display().to_string());
     assert!(ssd.total > 0 && ssd.available <= ssd.total);
     let space = h.mgr.disk_space(Some("ssd1".into())).await.expect("space");

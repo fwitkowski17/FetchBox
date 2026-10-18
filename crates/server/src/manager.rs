@@ -1065,7 +1065,12 @@ impl Manager {
     }
 
     /// A disk with its space, or `None` (logged) when the space cannot be read.
-    fn disk_info(&self, name: &str, path: &std::path::Path) -> Option<DiskInfo> {
+    fn disk_info(
+        &self,
+        name: &str,
+        path: &std::path::Path,
+        env: &fetchbox_http_engine::disk::Environment,
+    ) -> Option<DiskInfo> {
         let vol = fetchbox_http_engine::disk::volume(path)
             .inspect_err(
                 |e| tracing::warn!(disk = name, error = %e, "cannot read the space of a disk"),
@@ -1077,6 +1082,7 @@ impl Manager {
             total: vol.space.total,
             available: vol.space.available,
             reserved: self.reserved_on(vol.dev).unwrap_or(0),
+            warning: fetchbox_http_engine::disk::warning_for(env, name.is_empty(), vol.dev),
         })
     }
 
@@ -1642,11 +1648,11 @@ impl Service for Manager {
 
     async fn disks(&self) -> Result<Disks> {
         let default = self.current_settings().default_disk;
+        let env = fetchbox_http_engine::disk::Environment::detect();
         let mut disks = Vec::new();
-        let main = self.disk_info("", &self.dir);
-        disks.extend(main);
+        disks.extend(self.disk_info("", &self.dir, &env));
         for found in fetchbox_http_engine::disk::find_disks(&self.dir).map_err(io_err)? {
-            disks.extend(self.disk_info(&found.name, &found.path));
+            disks.extend(self.disk_info(&found.name, &found.path, &env));
         }
         let default_available = default.is_empty() || disks.iter().any(|d| d.name == default);
         Ok(Disks {
@@ -1654,6 +1660,7 @@ impl Service for Manager {
             disks,
             default,
             default_available,
+            unmounted: fetchbox_http_engine::disk::find_unmounted(&self.dir).unwrap_or_default(),
         })
     }
 
@@ -1689,6 +1696,11 @@ impl Service for Manager {
         // while (a disk that is not mounted) without blocking every other change of the settings.
         if new.default_disk != old.default_disk {
             self.disk_dir(&new.default_disk)?;
+        }
+        if new.torrent_default_disk != old.torrent_default_disk {
+            if let Some(disk) = &new.torrent_default_disk {
+                self.disk_dir(disk)?;
+            }
         }
         self.with_db(|c| settings::save(c, &new))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
@@ -1727,8 +1739,8 @@ impl Service for Manager {
         self.torrent_add_magnet(req).await
     }
 
-    async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<Torrent> {
-        self.torrent_add_file(bytes).await
+    async fn add_torrent_file(&self, bytes: Vec<u8>, disk: Option<String>) -> Result<Torrent> {
+        self.torrent_add_file(bytes, disk).await
     }
 
     async fn pause_torrent(&self, id: Id) -> Result<Torrent> {

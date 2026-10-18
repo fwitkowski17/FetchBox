@@ -637,6 +637,11 @@ export interface components {
          *     `POST /api/torrents/file` instead.
          */
         AddTorrentRequest: {
+            /**
+             * @description Save to this disk (SPEC 6.14) instead of the default one for torrents
+             *     (`Settings::torrent_default_disk`, else `default_disk`). Empty = the download directory.
+             */
+            disk?: string | null;
             /** @description A `magnet:?xt=urn:btih:...` link. */
             magnet: string;
         };
@@ -780,6 +785,7 @@ export interface components {
              * @description Bytes this program can use on the file system (used plus available).
              */
             total: number;
+            warning?: null | components["schemas"]["DiskWarning"];
         };
         /** @description Free space on the file system that holds the download directory. */
         DiskSpace: {
@@ -803,6 +809,12 @@ export interface components {
              */
             total: number;
         };
+        /**
+         * @description Why a disk may not be what the user meant (SPEC 6.14). Both are guesses from where the folder is,
+         *     shown as a warning: nothing is refused because of them.
+         * @enum {string}
+         */
+        DiskWarning: "inside_container" | "host_system_disk";
         /** @description The disks FetchBox found and which one new downloads go to by default. */
         Disks: {
             /** @description More than the download directory itself can be chosen: the UI offers a choice only then. */
@@ -813,6 +825,11 @@ export interface components {
             default_available: boolean;
             /** @description The download directory first, then the mounted disks by name. */
             disks: components["schemas"]["DiskInfo"][];
+            /**
+             * @description Empty folders in the download directory that are not separate disks. A mount point that did
+             *     not mount looks like this (an empty folder on the system disk), so they are shown as a hint.
+             */
+            unmounted?: string[];
         };
         /** @description A download as stored and shown to the user. */
         Download: {
@@ -1134,6 +1151,11 @@ export interface components {
              */
             speed_per_download: number;
             /**
+             * @description The disk new torrents are saved on unless the request names another. `None` (the default):
+             *     the same disk as the downloads (`default_disk`); `Some("")` is the download directory itself.
+             */
+            torrent_default_disk?: string | null;
+            /**
              * Format: int64
              * @description Speed limit of all torrents together, receiving, bytes/s (`0` = none). Separate from the
              *     limits of downloads: a swarm and a server are different things to cap.
@@ -1271,6 +1293,11 @@ export interface components {
              * @description Unix seconds.
              */
             added_at: number;
+            /**
+             * @description The disk it is saved on (SPEC 6.14): a folder of the download directory, chosen when the
+             *     torrent was added and kept for good. Empty = the download directory itself.
+             */
+            disk: string;
             /**
              * Format: int64
              * @description Bytes per second from the swarm now.
@@ -2609,7 +2636,13 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /**
+                 * @description Save to this disk (a name from `GET /api/disks`; empty = the download directory itself).
+                 *     Without it: the default disk for torrents.
+                 */
+                disk: string | null;
+            };
             cookie?: never;
         };
         requestBody: {

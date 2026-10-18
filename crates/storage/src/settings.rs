@@ -24,6 +24,7 @@ const TORRENT_SCHEDULE_FROM: &str = "torrent_schedule_from";
 const TORRENT_SCHEDULE_TO: &str = "torrent_schedule_to";
 const TORRENT_SCHEDULE_TIMEZONE: &str = "torrent_schedule_timezone";
 const DEFAULT_DISK: &str = "default_disk";
+const TORRENT_DEFAULT_DISK: &str = "torrent_default_disk";
 
 /// Key of the Argon2 hash of the password created in the first-run setup. It lives in the
 /// same table as the settings but is not part of `Settings`, so it never reaches the API.
@@ -83,6 +84,8 @@ pub fn load(conn: &Connection) -> Result<Settings> {
         torrent_schedule_timezone: get_num(conn, TORRENT_SCHEDULE_TIMEZONE)?
             .unwrap_or(d.torrent_schedule_timezone),
         default_disk: get_num(conn, DEFAULT_DISK)?.unwrap_or(d.default_disk),
+        // No key = the torrents follow the downloads' default disk.
+        torrent_default_disk: get_num(conn, TORRENT_DEFAULT_DISK)?,
     })
 }
 
@@ -131,6 +134,17 @@ pub fn save(conn: &mut Connection, s: &Settings) -> Result<()> {
             s.torrent_schedule_timezone
         ])?;
         stmt.execute(params![DEFAULT_DISK, s.default_disk])?;
+        match &s.torrent_default_disk {
+            Some(disk) => {
+                stmt.execute(params![TORRENT_DEFAULT_DISK, disk])?;
+            }
+            None => {
+                tx.execute(
+                    "DELETE FROM settings WHERE key = ?1",
+                    [TORRENT_DEFAULT_DISK],
+                )?;
+            }
+        }
     }
     tx.commit()?;
     Ok(())
@@ -179,6 +193,7 @@ mod tests {
             torrent_schedule_to: 7 * 60,
             torrent_schedule_timezone: "Europe/Berlin".to_owned(),
             default_disk: "ssd1".to_owned(),
+            torrent_default_disk: Some("hdd10tb".to_owned()),
         };
         save(&mut conn, &s).expect("save");
         assert_eq!(load(&conn).expect("load"), s);

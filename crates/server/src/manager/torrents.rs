@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use fetchbox_core::disks::rel_dir;
+use fetchbox_core::filename::sanitize;
 use fetchbox_core::{
     AddTorrentRequest, Error, Event, Hold, Id, Result, Settings, Torrent, TorrentFile,
     TorrentPeers, TorrentStatus, MAX_MAGNET_LEN, MAX_TORRENT_FILE,
@@ -168,6 +170,26 @@ fn view(
         hold: held.map(|_| Hold::Window),
         starts_at: held.flatten(),
         start_now: row.start_now,
+        disk: row.disk.clone(),
+    }
+}
+
+/// Where the engine saves a torrent on `disk`, relative to the download directory; empty for the
+/// download directory itself, where the engine's own folder (`torrents/`) is used as before.
+///
+/// On a disk it is `<disk>/torrents`, and the files go straight into the folder the engine is
+/// given, so `folder` says whether the torrent gets one of its own: the engine does that by itself
+/// for a torrent of several files (a folder named after it), not for one file. A `.torrent` file
+/// tells which it is. A magnet link does not until its description has arrived, so it always gets a
+/// folder, named after the link (or its hash): the layout cannot change once the files are there.
+fn torrent_output_rel(disk: &str, folder: Option<&str>) -> String {
+    if disk.is_empty() {
+        return String::new();
+    }
+    let base = rel_dir(disk, "torrents");
+    match folder {
+        Some(name) => format!("{base}/{}", sanitize(name)),
+        None => base,
     }
 }
 
@@ -381,6 +403,16 @@ impl Manager {
         self.torrent_now(id)
     }
 
+    /// Where the torrents of a disk are saved (the engine's own folder for the download directory).
+    fn torrent_dir_of(&self, disk: &str) -> PathBuf {
+        self.dir.join(rel_dir(disk, "torrents"))
+    }
+
+    /// The folder the engine is told to save a stored torrent in; none for its own default.
+    fn torrent_output(&self, row: &StoredTorrent) -> Option<PathBuf> {
+        (!row.output.is_empty()).then(|| self.dir.join(&row.output))
+    }
+
     fn torrent_dir(&self) -> PathBuf {
         self.dir.join("torrents")
     }
@@ -457,6 +489,16 @@ impl Manager {
             }
         }
         for row in &rows {
+            // A torrent on a disk that is not mounted is stopped with a note instead of being
+            // written to the folder that stands in its place on the system disk. (The engine may
+            // have restored it already; it only checks the files, so little can have happened.)
+            if let Err(e) = self.disk_dir(&row.disk) {
+                if engine.contains(&row.info_hash) {
+                    let _ = engine.pause(&row.info_hash).await;
+                }
+                self.torrent_failed(row.id, e.to_string());
+                continue;
+            }
             if engine.contains(&row.info_hash) {
                 // The engine restored it; what the user last chose decides if it runs.
                 let _ = if row.paused || self.torrent_hold(row) {
@@ -472,6 +514,10 @@ impl Manager {
 
     /// Give a stored torrent to the engine again (after a restart that lost it, or a resume).
     async fn torrent_readd(&self, engine: &Arc<TorrentEngine>, row: &StoredTorrent) {
+        if let Err(e) = self.disk_dir(&row.disk) {
+            self.torrent_failed(row.id, e.to_string());
+            return;
+        }
         if row.has_metainfo {
             let bytes = match self.with_db(|c| store::metainfo(c, row.id)) {
                 Ok(Some(b)) => Bytes::from(b),
@@ -481,7 +527,10 @@ impl Manager {
                 }
             };
             let stopped = row.paused || self.torrent_hold(row);
-            if let Err(e) = engine.add_file(bytes, stopped, vec![]).await {
+            if let Err(e) = engine
+                .add_file_in(bytes, stopped, vec![], self.torrent_output(row))
+                .await
+            {
                 if !matches!(e, TorrentError::Duplicate) {
                     self.torrent_failed(row.id, e.to_string());
                 }
@@ -490,7 +539,7 @@ impl Manager {
             // Its description has to come from the swarm again; a stopped one waits for "resume",
             // one held by the torrent hours for the hours.
             if !row.paused && !self.torrent_hold(row) {
-                self.fetch_magnet(row.id, magnet.clone());
+                self.fetch_magnet(row.id, magnet.clone(), self.torrent_output(row));
             }
         } else {
             self.torrent_failed(row.id, "nothing to restore it from".into());
@@ -499,7 +548,7 @@ impl Manager {
 
     /// Fetch the description of a magnet link in the background and, once it is there, finish the
     /// record. The task is kept so that pausing or removing the torrent can cancel it.
-    fn fetch_magnet(&self, id: Id, magnet: String) {
+    fn fetch_magnet(&self, id: Id, magnet: String, output: Option<PathBuf>) {
         let Some(me) = self.this.get().and_then(Weak::upgrade) else {
             return;
         };
@@ -512,7 +561,7 @@ impl Manager {
             async move {
                 let outcome = match me.engine_now() {
                     Some(engine) => engine
-                        .add_magnet(&magnet, false, vec![])
+                        .add_magnet_in(&magnet, false, vec![], output)
                         .await
                         .map(|added| (engine, added.info_hash)),
                     None => Err(TorrentError::Engine(
@@ -552,7 +601,9 @@ impl Manager {
         if let Err(e) = stored {
             tracing::warn!(id, error = %e, "cannot store the description of a torrent");
         }
-        if let Some(missing) = self.torrent_space_problem(snap.size.saturating_sub(snap.downloaded))
+        let disk = self.torrent_row(id).map(|r| r.disk).unwrap_or_default();
+        if let Some(missing) =
+            self.torrent_space_problem(&disk, snap.size.saturating_sub(snap.downloaded))
         {
             tracing::warn!(target: "activity", id, name = %name, "{missing}");
             let _ = engine.pause(hash).await;
@@ -567,8 +618,8 @@ impl Manager {
 
     /// Why `needed` more bytes do not fit where torrents are saved, or `None` when they do (or the
     /// disk cannot be asked).
-    fn torrent_space_problem(&self, needed: u64) -> Option<String> {
-        let vol = fetchbox_http_engine::disk::volume(&self.torrent_dir()).ok()?;
+    fn torrent_space_problem(&self, disk: &str, needed: u64) -> Option<String> {
+        let vol = fetchbox_http_engine::disk::volume(&self.torrent_dir_of(disk)).ok()?;
         let reserved = self.reserved_on(vol.dev).ok()?;
         let free = vol.space.available.saturating_sub(reserved);
         (needed > free)
@@ -676,6 +727,15 @@ impl Manager {
         }
         let parsed = parse_magnet(&uri)?;
         self.check_trackers(&parsed.trackers).await?;
+        let disk = req
+            .disk
+            .clone()
+            .unwrap_or_else(|| self.current_settings().torrent_disk().to_owned());
+        self.disk_dir(&disk)?;
+        let output = torrent_output_rel(
+            &disk,
+            Some(parsed.name.as_deref().unwrap_or(&parsed.info_hash)),
+        );
         let Some(setup) = self.torrents.setup.get() else {
             return Err(Error::Engine("BitTorrent is not switched on".into()));
         };
@@ -702,18 +762,24 @@ impl Manager {
                     metainfo: None,
                     size: None,
                     file_count: 0,
+                    disk: &disk,
+                    output: &output,
                 },
             )
         })?;
-        tracing::info!(target: "activity", id = row.id, name = %name, "torrent added (magnet link)");
+        tracing::info!(target: "activity", id = row.id, name = %name, disk = %logfmt::disk_label(&disk), "torrent added (magnet link)");
         if !self.torrent_hold(&row) {
-            self.fetch_magnet(row.id, uri);
+            self.fetch_magnet(row.id, uri, self.torrent_output(&row));
         }
         self.publish_torrent(row.id);
         self.torrent_now(row.id)
     }
 
-    pub(crate) async fn torrent_add_file(&self, bytes: Vec<u8>) -> Result<Torrent> {
+    pub(crate) async fn torrent_add_file(
+        &self,
+        bytes: Vec<u8>,
+        disk: Option<String>,
+    ) -> Result<Torrent> {
         if bytes.is_empty() {
             return Err(Error::InvalidInput("the .torrent file is empty".into()));
         }
@@ -723,6 +789,15 @@ impl Manager {
         let parsed = parse_torrent_file(&bytes)?;
         self.check_trackers(&parsed.trackers).await?;
         let contents = parsed.contents;
+        let disk = disk.unwrap_or_else(|| self.current_settings().torrent_disk().to_owned());
+        self.disk_dir(&disk)?;
+        let name_for_folder = parsed
+            .name
+            .clone()
+            .unwrap_or_else(|| parsed.info_hash.clone());
+        // One file goes straight into the folder; several get a folder named after the torrent.
+        let own_folder = contents.is_none_or(|c| c.file_count > 1);
+        let output = torrent_output_rel(&disk, own_folder.then_some(name_for_folder.as_str()));
         let Some(setup) = self.torrents.setup.get() else {
             return Err(Error::Engine("BitTorrent is not switched on".into()));
         };
@@ -734,7 +809,7 @@ impl Manager {
             return Err(TorrentError::Duplicate.into());
         }
         if let Some(c) = contents {
-            if let Ok(vol) = fetchbox_http_engine::disk::volume(&self.torrent_dir()) {
+            if let Ok(vol) = fetchbox_http_engine::disk::volume(&self.torrent_dir_of(&disk)) {
                 let reserved = self.reserved_on(vol.dev)?;
                 if c.size > vol.space.available.saturating_sub(reserved) {
                     return Err(Error::InsufficientSpace {
@@ -760,15 +835,20 @@ impl Manager {
                     metainfo: Some(&bytes),
                     size: contents.map(|c| c.size),
                     file_count: contents.map_or(0, |c| c.file_count),
+                    disk: &disk,
+                    output: &output,
                 },
             )
         })?;
         let held = self.torrent_hold(&row);
-        if let Err(e) = engine.add_file(Bytes::from(bytes), held, vec![]).await {
+        if let Err(e) = engine
+            .add_file_in(Bytes::from(bytes), held, vec![], self.torrent_output(&row))
+            .await
+        {
             let _ = self.with_db(|c| store::remove(c, row.id));
             return Err(e.into());
         }
-        tracing::info!(target: "activity", id = row.id, name = %name, size = contents.map_or(0, |c| c.size), "torrent added (.torrent file)");
+        tracing::info!(target: "activity", id = row.id, name = %name, size = contents.map_or(0, |c| c.size), disk = %logfmt::disk_label(&disk), "torrent added (.torrent file)");
         self.publish_torrent(row.id);
         self.torrent_now(row.id)
     }
@@ -809,6 +889,8 @@ impl Manager {
 
     pub(crate) async fn torrent_resume(&self, id: Id) -> Result<Torrent> {
         let row = self.torrent_row(id)?;
+        // A disk that is not mounted would be filled in its place: it has to be there to start.
+        self.disk_dir(&row.disk)?;
         self.with_db(|c| {
             store::set_paused(c, id, false)?;
             store::set_error(c, id, None)
@@ -816,7 +898,7 @@ impl Manager {
         // Not enough room is checked again now: the user may have made some.
         if let Some(size) = row.size {
             let left = size.saturating_sub(self.torrent_now(id)?.downloaded);
-            if let Some(problem) = self.torrent_space_problem(left) {
+            if let Some(problem) = self.torrent_space_problem(&row.disk, left) {
                 self.with_db(|c| {
                     store::set_paused(c, id, true)?;
                     store::set_error(c, id, Some(&problem))
@@ -824,7 +906,7 @@ impl Manager {
                 self.publish_torrent(id);
                 return Err(Error::InsufficientSpace {
                     needed: left,
-                    free: fetchbox_http_engine::disk::volume(&self.torrent_dir())
+                    free: fetchbox_http_engine::disk::volume(&self.torrent_dir_of(&row.disk))
                         .map(|v| v.space.available)
                         .unwrap_or(0),
                     reserved: 0,
@@ -1009,6 +1091,8 @@ mod tests {
             finished_at: None,
             error: None,
             start_now: false,
+            disk: String::new(),
+            output: String::new(),
         }
     }
 
@@ -1236,5 +1320,28 @@ mod tests {
         };
         let t = view(&noted, None, false, None, 0, Some(None));
         assert_eq!(t.status, TorrentStatus::Error);
+    }
+
+    #[test]
+    fn a_torrent_on_a_disk_is_saved_under_that_disk() {
+        // The download directory keeps the engine's own folder, as before disks.
+        assert_eq!(torrent_output_rel("", None), "");
+        assert_eq!(torrent_output_rel("", Some("Name")), "");
+        // On a disk: straight into <disk>/torrents for one file, a folder of its own otherwise.
+        assert_eq!(torrent_output_rel("ssd1", None), "ssd1/torrents");
+        assert_eq!(
+            torrent_output_rel("ssd1", Some("Ubuntu 24")),
+            "ssd1/torrents/Ubuntu 24"
+        );
+        // The name comes from the swarm or a link: it cannot climb out.
+        assert_eq!(
+            torrent_output_rel("ssd1", Some("../../etc")),
+            "ssd1/torrents/etc"
+        );
+        assert_eq!(torrent_output_rel("ssd1", Some("a/b")), "ssd1/torrents/b");
+        assert_eq!(
+            torrent_output_rel("ssd1", Some("..")),
+            "ssd1/torrents/download"
+        );
     }
 }

@@ -158,6 +158,11 @@ pub fn settings_changes(old: &Settings, new: &Settings) -> Vec<String> {
         disk_label(&new.default_disk).to_owned(),
     );
     change(
+        "torrent disk",
+        disk_label(old.torrent_disk()).to_owned(),
+        disk_label(new.torrent_disk()).to_owned(),
+    );
+    change(
         "category folders",
         on_off(old.category_subdirs).to_owned(),
         on_off(new.category_subdirs).to_owned(),

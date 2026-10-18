@@ -141,6 +141,9 @@ pub struct Torrent {
     pub starts_at: Option<i64>,
     /// The torrent hours do not apply to this torrent ("Start now").
     pub start_now: bool,
+    /// The disk it is saved on (SPEC 6.14): a folder of the download directory, chosen when the
+    /// torrent was added and kept for good. Empty = the download directory itself.
+    pub disk: String,
 }
 
 /// A peer we know about.
@@ -230,6 +233,10 @@ pub struct TorrentFile {
 pub struct AddTorrentRequest {
     /// A `magnet:?xt=urn:btih:...` link.
     pub magnet: String,
+    /// Save to this disk (SPEC 6.14) instead of the default one for torrents
+    /// (`Settings::torrent_default_disk`, else `default_disk`). Empty = the download directory.
+    #[serde(default)]
+    pub disk: Option<String>,
 }
 
 /// Longest magnet link that is accepted.

@@ -80,6 +80,14 @@ pub(crate) async fn add_magnet(
     ))
 }
 
+/// Query of `POST /torrents/file`.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct AddFileQuery {
+    /// Save to this disk (a name from `GET /api/disks`; empty = the download directory itself).
+    /// Without it: the default disk for torrents.
+    pub disk: Option<String>,
+}
+
 /// Add a torrent from a `.torrent` file: the raw bytes of the file as the request body
 /// (`Content-Type: application/x-bittorrent`), at most 8 MiB.
 #[utoipa::path(
@@ -87,6 +95,7 @@ pub(crate) async fn add_magnet(
     path = "/api/torrents/file",
     tag = "torrents",
     security(("session" = []), ("bearer" = [])),
+    params(AddFileQuery),
     request_body(content = Vec<u8>, content_type = "application/x-bittorrent"),
     responses(
         (status = 201, description = "Added", body = Torrent),
@@ -100,11 +109,12 @@ pub(crate) async fn add_magnet(
 )]
 pub(crate) async fn add_file(
     State(svc): Svc,
+    Query(q): Query<AddFileQuery>,
     body: Bytes,
 ) -> ApiResult<(StatusCode, Json<Torrent>)> {
     Ok((
         StatusCode::CREATED,
-        Json(svc.add_torrent_file(body.to_vec()).await?),
+        Json(svc.add_torrent_file(body.to_vec(), q.disk).await?),
     ))
 }
 

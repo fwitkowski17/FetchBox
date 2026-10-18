@@ -56,6 +56,21 @@ pub fn rel_dir(disk: &str, subdir: &str) -> String {
     }
 }
 
+/// Why a disk may not be what the user meant (SPEC 6.14). Both are guesses from where the folder is,
+/// shown as a warning: nothing is refused because of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DiskWarning {
+    /// FetchBox runs in a container and this folder is on the container's own file system: nothing
+    /// from the host is mounted there, and what is saved is lost when the container is recreated.
+    InsideContainer,
+    /// FetchBox runs in a container and this disk is on the same file system as the container's data
+    /// on the host (Docker keeps `/etc/hostname` there), which is usually the host's system disk:
+    /// the disk the user meant may not have been mounted on the host when the container started.
+    HostSystemDisk,
+}
+
 /// One place downloads can be saved to, with its space.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -70,6 +85,9 @@ pub struct DiskInfo {
     pub available: u64,
     /// What the running downloads on this file system still have to write.
     pub reserved: u64,
+    /// A reason to doubt that this is the disk the user meant, if there is one.
+    #[serde(default)]
+    pub warning: Option<DiskWarning>,
 }
 
 /// The disks FetchBox found and which one new downloads go to by default.
@@ -84,6 +102,10 @@ pub struct Disks {
     pub default_available: bool,
     /// More than the download directory itself can be chosen: the UI offers a choice only then.
     pub choosable: bool,
+    /// Empty folders in the download directory that are not separate disks. A mount point that did
+    /// not mount looks like this (an empty folder on the system disk), so they are shown as a hint.
+    #[serde(default)]
+    pub unmounted: Vec<String>,
 }
 
 #[cfg(test)]

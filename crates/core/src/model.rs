@@ -344,6 +344,18 @@ pub struct Settings {
     /// itself. Existing downloads stay where they are.
     #[serde(default)]
     pub default_disk: String,
+    /// The disk new torrents are saved on unless the request names another. `None` (the default):
+    /// the same disk as the downloads (`default_disk`); `Some("")` is the download directory itself.
+    #[serde(default)]
+    pub torrent_default_disk: Option<String>,
+}
+impl Settings {
+    /// The disk a new torrent goes to when its request names none.
+    pub fn torrent_disk(&self) -> &str {
+        self.torrent_default_disk
+            .as_deref()
+            .unwrap_or(&self.default_disk)
+    }
 }
 
 /// What happens to the downloads that are running when the download hours end.
@@ -415,6 +427,7 @@ impl Default for Settings {
             torrent_schedule_to: default_schedule_to(),
             torrent_schedule_timezone: default_schedule_timezone(),
             default_disk: crate::disks::MAIN.to_owned(),
+            torrent_default_disk: None,
         }
     }
 }
@@ -456,9 +469,15 @@ impl Settings {
                 "the download hours need a start and an end that differ (minutes 0..1440)".into(),
             ));
         }
-        if !crate::disks::is_valid_name(&self.default_disk) {
+        if !crate::disks::is_valid_name(&self.default_disk)
+            || !self
+                .torrent_default_disk
+                .as_deref()
+                .is_none_or(crate::disks::is_valid_name)
+        {
             return Err(crate::Error::InvalidInput(
-                "default_disk must be the name of a folder in the download directory".into(),
+                "default_disk and torrent_default_disk must be the name of a folder in the download directory"
+                    .into(),
             ));
         }
         if self.torrent_schedule_enabled && !self.torrent_schedule_window().is_valid() {

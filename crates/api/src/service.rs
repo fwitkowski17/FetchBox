@@ -58,7 +58,7 @@ pub trait Service: Send + Sync + 'static {
     /// Add a torrent by magnet link. The description (name, files) arrives later from the swarm.
     async fn add_torrent_magnet(&self, req: AddTorrentRequest) -> Result<Torrent>;
     /// Add a torrent from the bytes of a `.torrent` file.
-    async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<Torrent>;
+    async fn add_torrent_file(&self, bytes: Vec<u8>, disk: Option<String>) -> Result<Torrent>;
     /// Stop a torrent; what it has stays on disk.
     async fn pause_torrent(&self, id: Id) -> Result<Torrent>;
     /// Start a stopped torrent again.
