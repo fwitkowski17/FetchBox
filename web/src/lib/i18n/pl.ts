@@ -840,6 +840,17 @@ const pl: Messages = {
   'setup.disk.saving': 'Zapisywanie…',
   'setup.disk.failed': 'Nie udało się zapisać wyboru. Spróbuj ponownie.',
 
+  'settings.disks.torrents': 'Dysk dla torrentów',
+  'settings.disks.torrents.same': 'Taki sam jak dla pobrań',
+  'settings.disks.torrents.hint': 'Nowe torrenty trafiają do folderu „torrents” na tym dysku. Pojedynczy torrent może wskazać inny dysk przy dodawaniu.',
+  'disks.unmounted': 'Foldery {names} w folderze pobierania są puste i nie są osobnymi dyskami. Jeśli spodziewałeś się tam dysków, sprawdź, czy są zamontowane (w Dockerze: czy ścieżka na hoście jest zamontowana, zanim kontener wystartuje).',
+  'disks.warn.inside_container': 'Ten folder jest wewnątrz kontenera, a nie na dysku Twojej maszyny: nic z hosta nie jest tu zamontowane, a to, co tu zapiszesz, przepadnie przy odtworzeniu kontenera. Zamontuj folder hosta jako folder pobierania.',
+  'disks.warn.host_system_disk': 'Ten dysk leży na tym samym systemie plików co dane kontenera na hoście, zwykle na dysku systemowym hosta. Być może nie był zamontowany na hoście, gdy kontener startował: jeśli spodziewałeś się osobnego dysku, sprawdź montowanie i uruchom kontener ponownie.',
+  'torrent.field.disk': 'Zapisany na',
+
+  'setup.disk.check': 'Sprawdź folder pobierania',
+  'setup.disk.checkHint': 'Coś w folderze pobierania wygląda nieprawidłowo. Możesz iść dalej i naprawić to później; Ustawienia pokażą to ponownie.',
+
   // ---- errors shown to the user
   'error.network': 'Nie można połączyć się z serwerem.',
   'error.http': 'Serwer zwrócił błąd ({status}).',

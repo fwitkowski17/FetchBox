@@ -774,6 +774,17 @@ export const en = {
   'setup.disk.saving': 'Saving…',
   'setup.disk.failed': 'Could not save the choice. Try again.',
 
+  'settings.disks.torrents': 'Disk for torrents',
+  'settings.disks.torrents.same': 'The same as downloads',
+  'settings.disks.torrents.hint': 'New torrents are saved in the folder “torrents” on this disk. A single torrent can pick another disk when you add it.',
+  'disks.unmounted': 'The folders {names} in the download folder are empty and are not separate disks. If you expected disks there, check that they are mounted (with Docker: that the path on the host is mounted before the container starts).',
+  'disks.warn.inside_container': 'This folder is inside the container, not on a disk of your machine: nothing from the host is mounted here, and what is saved here is lost when the container is recreated. Mount a folder of the host as the download folder.',
+  'disks.warn.host_system_disk': 'This disk is on the same file system as the container’s data on the host, usually the host’s system disk. It may not have been mounted on the host when the container started: if you expected a separate disk, check the mount and restart the container.',
+  'torrent.field.disk': 'Saved on',
+
+  'setup.disk.check': 'Check the download folder',
+  'setup.disk.checkHint': 'Something about the download folder looks wrong. You can go on and fix it later; Settings shows it again.',
+
   // ---- errors shown to the user
   'error.network': 'Cannot reach the server.',
   'error.http': 'The server answered with an error ({status}).',

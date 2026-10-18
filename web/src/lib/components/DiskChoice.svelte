@@ -4,7 +4,7 @@
   import type { DiskInfo } from '../api/types';
   import { i18n, t } from '../i18n';
   import { FULL_AT, WARN_AT } from '../util/disk';
-  import { usedShare } from '../util/disks';
+  import { usedShare, warningKey } from '../util/disks';
   import Icon from './Icon.svelte';
 
   let {
@@ -57,6 +57,11 @@
           <span class="truncate font-mono text-xs text-muted" title={d.path}>{d.path}</span>
         </span>
       </span>
+      {#if d.warning}
+        <span class="flex gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning" data-part="disk-warning" data-warning={d.warning}>
+          <Icon name="alert" size={18} />{t(warningKey(d.warning))}
+        </span>
+      {/if}
       <span
         class="block h-1.5 overflow-hidden rounded-full bg-border"
         role="img"

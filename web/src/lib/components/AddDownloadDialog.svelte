@@ -13,6 +13,7 @@
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import ConflictDialog from './ConflictDialog.svelte';
+  import DiskSelect from './DiskSelect.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
   import HostKeyPrompt from './HostKeyPrompt.svelte';
   import Icon from './Icon.svelte';
@@ -27,7 +28,7 @@
   import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
   import { ALGOS, algoLabel, checkChecksum, detectAlgo } from '../util/checksum';
-  import { findDisk, startingDisk } from '../util/disks';
+  import { startingDisk } from '../util/disks';
   import { isSourceUrl, sourceOf } from '../util/format';
   import { emptySummary, tally, type BatchSummary } from '../util/listing';
   import { formatWhen, minutesToTime, nextOccurrence } from '../util/schedule';
@@ -39,7 +40,6 @@
   // for the disks every time it opens, since one may have been mounted since.
   let diskChoice = $state<string | null>(null);
   const disk = $derived(diskChoice ?? startingDisk(disks.value));
-  const diskInfo = $derived(findDisk(disks.value, disk));
   $effect(() => {
     if (!addDialog.open) return;
     untrack(() => {
@@ -568,19 +568,7 @@
     </div>
 
     {#if disks.choosable && disks.value}
-      <div class="field" data-part="disk-select">
-        <label for="add-disk">{t('add.disk')}</label>
-        <select id="add-disk" class="select" value={disk} onchange={(e) => (diskChoice = e.currentTarget.value)}>
-          {#each disks.value.disks as d (d.name)}
-            <option value={d.name}>
-              {t('add.disk.option', { name: d.name === '' ? t('disks.main') : d.name, free: i18n.bytes(d.available) })}
-            </option>
-          {/each}
-        </select>
-        {#if diskInfo}
-          <p class="hint">{t('add.disk.hint', { free: i18n.bytes(diskInfo.available), total: i18n.bytes(diskInfo.total) })}</p>
-        {/if}
-      </div>
+      <DiskSelect id="add-disk" disks={disks.value} value={disk} onchange={(name) => (diskChoice = name)} />
     {/if}
 
     {#if !listing}

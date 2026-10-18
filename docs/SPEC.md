@@ -19,7 +19,7 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
   - default speed of each download (a single download can get its own speed from its menu, which replaces the default, see 6.6)
   - total speed limit of all downloads together
   - sort downloads into a subdirectory per category (`category_subdirs`, off by default)
-  - default disk (`default_disk`): which of the disks mounted in the download directory new downloads are saved on, see 6.14
+  - default disk (`default_disk`) and, separately if wanted, the default disk of torrents (`torrent_default_disk`; none = the same as downloads): which of the disks mounted in the download directory new downloads and torrents are saved on, see 6.14
   - download hours (`schedule_*`, off by default): download only between two times of the day, see 6.3.2
   - torrent hours (`torrent_schedule_*`, off by default): the same for torrents, set apart from the download hours, see 6.3.2 and 6.13
   - check for updates (`check_updates`, on by default): whether a newer release exists, shown in Settings (see 6.9); also announce
@@ -255,8 +255,11 @@ A user with two disks mounts them *inside* the download directory (`/downloads/h
 mount points). Each such folder is a **disk**; the download directory itself (empty name) is always one more place to save to.
 
 - **Finding them** (`fetchbox_http_engine::disk::find_disks`): the direct children of the download directory that are folders on
-  *another file system* than the directory itself (device id differs; a symbolic link to such a folder counts, since writing follows
-  it). Files, hidden folders, names that are not a plain folder name and the folders that mean something else are skipped:
+  *another file system* than the directory itself (device id differs), **or symbolic links to a folder**. A link is followed, as
+  writing through it does, so the space shown and the reservations are the target's; it counts even when the target is on the same file
+  system, because a link is made on purpose and names a place to save to (the `ln -s /mnt/hdd /downloads/hdd` of a host install; in a
+  container the target has to be mounted there too). A link to a file or to nothing is not a disk. Files, hidden folders, names that are
+  not a plain folder name and the folders that mean something else are skipped:
   `torrents` and the category folders (`photo`, `music`, `video`, `program`, `archive`, `other`: `core::disks::is_reserved`; a category
   folder may itself be a mount point, 6.3.1). The list is read on every request (a disk can be mounted while the program runs), sorted
   by name. Nothing is configured: a folder is a disk because it is mounted.
@@ -264,7 +267,7 @@ mount points). Each such folder is a **disk**; the download directory itself (em
   not hidden, no control characters, at most 255 bytes); the empty name is the download directory. `core::disks::rel_dir(disk, subdir)`
   joins it with the category folder (`ssd1/video`); the engine's `target_dir` sanitizes each component on its own and drops `.` and
   `..`, so a path of two names cannot climb out.
-- **Using one** (`disk_path`): the empty name, or a disk that is mounted *now*. An empty folder on the system disk is **not** a disk:
+- **Using one** (`disk_path`): the empty name, or a disk that is mounted (or linked) *now*. An empty folder on the system disk is **not** a disk:
   the check keeps a disk that is not mounted (a failed mount, an unplugged drive) from being filled in its place. It is made when a
   download is added (`400` for an unusable disk), when one is resumed, when one starts (it fails with "the disk ... is not available"
   and can be resumed once the disk is back), when `GET /api/disk?disk=` asks for space, and when the default is changed.
@@ -279,15 +282,43 @@ mount points). Each such folder is a **disk**; the download directory itself (em
   "same address already downloaded" check is across all disks. Category folders (`category_subdirs`) are inside the disk.
 - **Space.** Reservations are per device as before (6.2), so the disks do not borrow from each other: the checks of an add, of a
   resume and of the engine's start use the disk of that download. `GET /api/disks` answers `{disks, default, default_available,
-  choosable}`: the download directory first, then each disk by name, with `name`, `path` (where it is on the machine, for display),
+  choosable, unmounted}`: the download directory first, then each disk by name, with `name`, `path` (where it is on the machine, for display),
   `total`, `available` and `reserved` (what the running downloads on that file system still have to write). `choosable` (more than
   the download directory) is what makes the UI offer a choice. `GET /api/disk` (the ring) follows the default disk, or `?disk=`.
-- **Not covered.** Torrents (6.13) are saved in `<download dir>/torrents/` whatever the default disk is: the engine takes one output
-  folder when it starts. Nothing is ever moved between disks.
+- **Warnings** (a hint, never a refusal): the program cannot know what the user meant to mount, only guess from where a folder is.
+  `GET /api/disks` carries `DiskInfo.warning` and `Disks.unmounted`. Only inside a container (`/.dockerenv` or `/run/.containerenv`,
+  `disk::Environment`): the download directory on the container's own file system (same device as `/`) is `inside_container` (nothing
+  from the host is mounted there and what is saved is lost with the container); a *named* disk on the same device as `/etc/hostname`,
+  which Docker bind-mounts from the host's container data (usually the host's system disk), is `host_system_disk` (the host path was
+  probably not a mounted disk when the container started: Docker then mounts the empty folder of the host's system disk). The download
+  directory on the host's system disk is what a plain `./downloads` volume is and is not doubted. Independent of that, `unmounted` lists
+  the empty plain folders of the download directory that are not disks (hidden and reserved names and links left out), which is what a
+  mount point that did not mount looks like; folders with files in them are the user's own and are not mentioned. The UI shows them in
+  Settings (the "Download disk" card is shown whenever there is a warning) and in the first-run step (which also appears, as "Check the
+  download folder" without a choice, when there is only a warning). `warning_for` is a pure function and tested with made-up devices;
+  Docker itself was not run for this. Not caught: a host path that is a mounted disk of the wrong kind, a disk on the same device as the
+  host data on purpose (a false alarm), Podman keeping its hosts file elsewhere (no alarm).
+- **Torrents.** A torrent has its own disk: `torrents.disk` and `torrents.output` (migration 0015, both `''` for every torrent from
+  before; `output` is the folder the engine writes to, relative to the download directory, `''` = the engine's own `torrents/` folder).
+  `Settings.torrent_default_disk` is the default for new torrents; `null` (nothing stored) means the same as `default_disk`
+  (`Settings::torrent_disk`), `""` the download directory. `AddTorrentRequest.disk` (JSON) and `POST /api/torrents/file?disk=` name a disk
+  for one torrent; `Torrent.disk` reports it. The engine is given the folder per torrent (`add_file_in`, `add_magnet_in`:
+  librqbit's `output_folder`, which holds the files directly): on the download directory nothing changes (`torrents/`, the engine's
+  layout); on a disk it is `<disk>/torrents`, with a folder named after the torrent for a torrent of several files (as the engine does
+  by itself) and none for one file. A magnet link does not tell that before its description arrives, so it always gets a folder (named
+  after the link's `dn`, else its hash): the layout cannot change once files exist. The folder name is sanitized like a download's. The
+  disk has to be usable when a torrent is added, resumed and re-added; a torrent whose disk is gone is stopped with a note (an error
+  status with "not available") instead of being written to the folder that stands in its place. The engine restores torrents from its
+  own session before the manager looks at them, so such a torrent may already be checking its files for a moment; it is paused at once.
+  A torrent that is running when its disk goes away is not noticed. Space checks for a `.torrent` file and for a magnet's
+  description use the disk of the torrent. The engine's own folder (its session default) stays `<download dir>/torrents/`.
+- **Not covered.** Nothing is ever moved between disks (changing a default or a disk moves no file and no entry).
 - **Tests.** The server tests stand a link to a folder in `/dev/shm` (a tmpfs, another file system) in for a mounted disk and skip
   where the machine has none: finding disks, a download on a chosen disk and on the default, the default changing without moving
   anything, names per disk, refusals (not mounted, bad names), a stored default that is gone, a download whose disk disappeared
-  before it started. The engine tests `find_disks`, `disk_path` and `target_dir`; `core::disks` the names.
+  before it started, torrents saved on a chosen disk (a real transfer between two sessions, removal with the files) and with the
+  defaults told apart, a torrent whose disk went away. The engine tests `find_disks` (mounts and links), `find_unmounted`, `warning_for`,
+  `disk_path` and `target_dir`, and saving a torrent into a folder of its own; `core::disks` the names.
 
 ### 6.4 Data model (SQLite)
 
@@ -460,13 +491,13 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   default the browser's zone while the hours are off), and a choice "When the hours end": "Pause running downloads" or
   "Let running downloads finish" (each with a line saying what it does). Equal times and an unknown zone are shown as errors
   before saving.
-- Disks in Settings (6.14): a card "Download disk", shown only when there is a choice (or when the chosen disk is gone, with a
-  warning), lists the download folder and each disk as radio cards (`DiskChoice`: name, path, "N free of M", a usage bar that turns amber from 85 % and red from 95 %) and
+- Disks in Settings (6.14): a card "Download disk", shown when there is a choice, when a chosen disk is gone or when something looks wrongly mounted (warnings), lists the download folder and each disk as radio cards (`DiskChoice`: name, path, "N free of M", a usage bar that turns amber from 85 % and red from 95 %) and
   a line that changing it moves nothing. The choice is part of the settings form (saved with the rest). The disk ring names the default disk when there is more than
   one and follows a change of it. A download card or row shows the disk and category folder in front of the file name's folder (`ssd1/video/`).
-  The add dialog has a "Save to" select (only when there is a choice) with each disk and its free space, the default one
+  A "Disk for torrents" select ("The same as downloads" or a disk) sits under the list. The add dialog has a "Save to" select (only when there is a choice) with each disk and its free space, the default one
   preselected (the download folder if the default is gone) and the space of the chosen disk under it; the dialog asks for the disks every
-  time it opens. It applies to every file of a directory listing too.
+  time it opens. It applies to every file of a directory listing too. The add-torrent dialog has the same select, starting on the
+  default of torrents, and the torrent's overview says which disk it is saved on.
 - Adding a download is a modal dialog (`AddDownloadDialog`), not a page: opened from the list header, the
   floating button and the empty list (all through `stores/addDialog`), mounted once in the app
   shell. The URL field is focused, Enter submits, Escape / Cancel / the backdrop close it and keep what was typed (a
@@ -841,6 +872,7 @@ sending). They get a list of their own (the page "Torrents", `#/torrents`), thei
 `torrent_engine` crate, an adapter over `librqbit` 9 (Apache-2.0; `default-features = false` with `rust-tls`: no OpenSSL, no HTTP API and
 no web UI of its own). It does not implement the `Downloader` trait of 6.1, whose shape (`start(job)` of a URL) does not fit.
 
+- **Where they are saved.** `<download dir>/torrents/`, or `<disk>/torrents/` on the disk chosen for the torrent (6.14).
 - **Engine life.** It is started when the first torrent is added, and at start-up when torrents are stored (in the background), so
   nobody who never adds a torrent has a port open or a DHT node running. A failed start (the port is in use) is kept and shown on every
   torrent, and tried again with the next add or resume. It listens on TCP and uTP on `--torrent-port` (`FETCHBOX_TORRENT_PORT`, default 6881;

@@ -211,7 +211,7 @@ The live updates use server-sent events: switch response buffering off for `/api
 
 ## 🗄️ Several disks
 
-Mount each disk as a folder **inside** the download folder, for example `/downloads/hdd10tb` and `/downloads/ssd1`. FetchBox treats every folder there that is a file system of its own (a mount point, or a link to one) as a *disk*:
+Mount each disk as a folder **inside** the download folder, for example `/downloads/hdd10tb` and `/downloads/ssd1`. FetchBox treats every folder there that is a file system of its own (a mount point) or a symbolic link to a folder (`ln -s /mnt/hdd /downloads/hdd`; in a container the target must be mounted too) as a *disk*:
 
 ```yaml
     volumes:
@@ -221,10 +221,11 @@ Mount each disk as a folder **inside** the download folder, for example `/downlo
 ```
 
 - **First run.** When more than the download folder itself is found, the setup asks which disk new downloads go to (after the password, since the list is behind the login). Nothing is chosen for you: the download folder may be the small system disk of a container.
-- **Settings > Download disk** shows each disk with its path and capacity and lets you change the default. Changing it **moves nothing**: every download keeps the disk it was added to, with its entry in the list and its file.
-- **Adding a download** has a *Save to* choice (the default disk is preselected), with the free space of the disk you pick. The space checks, name conflicts and the disk ring follow it.
+- **Settings > Download disk** shows each disk with its path and capacity and lets you change the default, for downloads and, if you like, separately for torrents. Changing it **moves nothing**: every download keeps the disk it was added to, with its entry in the list and its file.
+- **Adding a download or a torrent** has a *Save to* choice (the default disk is preselected), with the free space of the disk you pick. The space checks, name conflicts and the disk ring follow it.
+- **Warnings.** In Docker, FetchBox tells when the download folder is inside the container (nothing from the host is mounted there, so what is saved is lost when the container is recreated), when a disk is on the same file system as the container's data on the host (usually the host's system disk: the path on the host may not have been a mounted disk when the container started), and when an empty folder in the download folder is not a disk (a mount that did not happen looks like that). They are hints, from the first-run step and from Settings; nothing is refused because of them.
 - **A disk that is not mounted** is refused (an empty folder on the system disk would be filled in its place): adding to it is an error, and a download that was on it fails with a message until the disk is back, then it can be resumed. If the default disk is gone, adds that rely on it are refused until you pick another disk or the download folder.
-- The folders `torrents`, `photo`, `music`, `video`, `program`, `archive` and `other` are never offered as disks (they are the torrent folder and the category folders, which may sit on a disk of their own as before). **Torrents** are saved in `torrents/` inside the download folder whatever the default disk is.
+- The folders `torrents`, `photo`, `music`, `video`, `program`, `archive` and `other` are never offered as disks (they are the torrent folder and the category folders, which may sit on a disk of their own as before). **Torrents** are saved in `torrents/` on their disk (inside the download folder for the download folder itself, `<disk>/torrents/` on a disk; a torrent of several files gets a folder of its name, and a magnet link always one).
 
 ## 🌍 Sources and logins
 

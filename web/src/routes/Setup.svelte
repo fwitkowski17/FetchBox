@@ -4,7 +4,7 @@
   // speed unit...) has a sensible default and lives in Settings. One step is added when it is
   // needed: if more than one disk is mounted in the download folder, which one new downloads go
   // to is asked once the account exists (the disks are behind the login, so it cannot come
-  // earlier).
+  // earlier). The same step tells when the download folder itself looks wrongly mounted.
   import { ApiError } from '../lib/api/client';
   import DiskChoice from '../lib/components/DiskChoice.svelte';
   import Icon from '../lib/components/Icon.svelte';
@@ -14,6 +14,7 @@
   import { auth } from '../lib/stores/auth.svelte';
   import { disks } from '../lib/stores/disks.svelte';
   import { settings } from '../lib/stores/settings.svelte';
+  import { warningKey } from '../lib/util/disks';
   import { CARD } from '../lib/util/classes';
   import { MIN_PASSWORD_LEN, checkNewPassword } from '../lib/util/password';
 
@@ -21,6 +22,8 @@
 
   /** The disk step is part of the list once the server has told that there is a choice. */
   let askDisk = $state(false);
+  /** There is a real choice (otherwise the step only shows a warning). */
+  const choose = $derived(disks.choosable);
   const STEPS = $derived<readonly Step[]>(
     askDisk ? ['language', 'look', 'account', 'disk', 'done'] : ['language', 'look', 'account', 'done'],
   );
@@ -36,6 +39,10 @@
   let diskError = $state<string | null>(null);
 
   async function saveDisk(): Promise<void> {
+    if (!choose) {
+      step = 'done';
+      return;
+    }
     if (chosenDisk === null || savingDisk) return;
     savingDisk = true;
     diskError = null;
@@ -77,7 +84,8 @@
       // Signed in now: see whether there is a disk to choose. Not being able to ask is no reason
       // to hold the user back.
       const found = await disks.load();
-      askDisk = found?.choosable ?? false;
+      const warned = (found?.disks.some((d) => d.warning) ?? false) || (found?.unmounted?.length ?? 0) > 0;
+      askDisk = (found?.choosable ?? false) || warned;
       step = askDisk ? 'disk' : 'done';
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
@@ -231,11 +239,24 @@
     {:else if step === 'disk'}
       <section class={CARD} data-part="step-disk">
         <div>
-          <h2 class="text-lg font-semibold tracking-tight">{t('setup.disk.title')}</h2>
-          <p class="hint mt-1">{t('setup.disk.hint')}</p>
+          <h2 class="text-lg font-semibold tracking-tight">{t(choose ? 'setup.disk.title' : 'setup.disk.check')}</h2>
+          <p class="hint mt-1">{t(choose ? 'setup.disk.hint' : 'setup.disk.checkHint')}</p>
         </div>
-        {#if disks.value}
+        {#if disks.value && choose}
           <DiskChoice disks={disks.value.disks} bind:value={chosenDisk} group="setup-disk" />
+        {:else if disks.value}
+          {#each disks.value.disks as d (d.name)}
+            {#if d.warning}
+              <p class="flex gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning" role="status" data-part="disk-warning">
+                <Icon name="alert" size={18} />{t(warningKey(d.warning))}
+              </p>
+            {/if}
+          {/each}
+        {/if}
+        {#if disks.value && (disks.value.unmounted?.length ?? 0) > 0}
+          <p class="flex gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning" role="status" data-part="disks-unmounted">
+            <Icon name="alert" size={18} />{t('disks.unmounted', { names: (disks.value.unmounted ?? []).join(', ') })}
+          </p>
         {/if}
         {#if diskError}
           <p class="flex gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger" role="alert">
@@ -246,7 +267,7 @@
           class="btn primary justify-self-end"
           type="button"
           onclick={saveDisk}
-          disabled={chosenDisk === null || savingDisk}
+          disabled={(choose && chosenDisk === null) || savingDisk}
           data-part="disk-continue"
         >
           {savingDisk ? t('setup.disk.saving') : t('setup.disk.save')}

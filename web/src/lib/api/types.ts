@@ -15,6 +15,7 @@ export type AppEvent = Schemas['Event'];
 export type AuthStatus = Schemas['AuthStatus'];
 export type DiskSpace = Schemas['DiskSpace'];
 export type DiskInfo = Schemas['DiskInfo'];
+export type DiskWarning = Schemas['DiskWarning'];
 export type Disks = Schemas['Disks'];
 export type UrlInfo = Schemas['UrlInfo'];
 export type VersionInfo = Schemas['VersionInfo'];

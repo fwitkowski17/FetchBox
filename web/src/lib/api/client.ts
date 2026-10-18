@@ -193,10 +193,16 @@ export const api = {
     request<Download>('PATCH', `/downloads/${id}`, { category }),
 
   listTorrents: () => request<Torrent[]>('GET', '/torrents'),
-  addTorrentMagnet: (magnet: string) => request<Torrent>('POST', '/torrents', { magnet }),
+  /** `disk`: where to save it (a name from `getDisks`); none = the default for torrents. */
+  addTorrentMagnet: (magnet: string, disk?: string) =>
+    request<Torrent>('POST', '/torrents', disk === undefined ? { magnet } : { magnet, disk }),
   /** The bytes of a `.torrent` file. */
-  addTorrentFile: (bytes: ArrayBuffer) =>
-    upload<Torrent>('/torrents/file', bytes, 'application/x-bittorrent'),
+  addTorrentFile: (bytes: ArrayBuffer, disk?: string) =>
+    upload<Torrent>(
+      disk === undefined ? '/torrents/file' : `/torrents/file?disk=${encodeURIComponent(disk)}`,
+      bytes,
+      'application/x-bittorrent',
+    ),
   pauseTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/pause`),
   resumeTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/resume`),
   startTorrentNow: (id: number) => request<Torrent>('POST', `/torrents/${id}/start-now`),

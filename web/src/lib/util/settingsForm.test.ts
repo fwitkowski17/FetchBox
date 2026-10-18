@@ -34,6 +34,7 @@ const base: Settings = {
   torrent_schedule_to: 360,
   torrent_schedule_timezone: 'Europe/Warsaw',
   default_disk: '',
+  torrent_default_disk: null,
 };
 
 describe('torrent limits', () => {
@@ -303,5 +304,30 @@ describe('default disk', () => {
     expect(isDirty(d, base)).toBe(false);
     d.defaultDisk = 'hdd10tb';
     expect(isDirty(d, base)).toBe(true);
+  });
+});
+
+describe('torrent disk', () => {
+  it('is the same as the downloads until one is chosen', () => {
+    expect(toDraft(base).torrentDisk).toBeNull();
+    expect(fromDraft(toDraft(base)).torrent_default_disk).toBeNull();
+  });
+
+  it('round-trips a disk of its own, the download folder being the empty name', () => {
+    for (const name of ['hdd10tb', '']) {
+      const s: Settings = { ...base, torrent_default_disk: name };
+      const d = toDraft(s);
+      expect(d.torrentDisk).toBe(name);
+      expect(fromDraft(d).torrent_default_disk).toBe(name);
+    }
+  });
+
+  it('is told apart from "the same as downloads" when changes are detected', () => {
+    const d = toDraft(base);
+    expect(isDirty(d, base)).toBe(false);
+    d.torrentDisk = '';
+    expect(isDirty(d, base)).toBe(true);
+    const { torrent_default_disk: _omit, ...older } = base;
+    expect(sameSettings(older, base)).toBe(true);
   });
 });

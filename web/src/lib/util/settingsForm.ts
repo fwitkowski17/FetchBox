@@ -42,6 +42,8 @@ export interface Draft {
   torrentScheduleTimezone: string;
   /** The disk new downloads are saved on by default; empty = the download directory itself. */
   defaultDisk: string;
+  /** The disk new torrents go to; `null` = the same as the downloads. */
+  torrentDisk: string | null;
 }
 
 export function speedToDraft(bytesPerSecond: number): SpeedDraft {
@@ -90,6 +92,7 @@ export function toDraft(s: Settings): Draft {
     torrentScheduleTimezone: torrentScheduleZone(s),
     // Older servers know one directory only.
     defaultDisk: s.default_disk ?? '',
+    torrentDisk: s.torrent_default_disk ?? null,
   };
 }
 
@@ -114,6 +117,7 @@ export function fromDraft(d: Draft): Settings {
     torrent_schedule_to: timeToMinutes(d.torrentScheduleTo) ?? 360,
     torrent_schedule_timezone: d.torrentScheduleTimezone.trim(),
     default_disk: d.defaultDisk,
+    torrent_default_disk: d.torrentDisk,
   };
 }
 
@@ -186,7 +190,8 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     (a.torrent_schedule_from ?? 0) === (b.torrent_schedule_from ?? 0) &&
     (a.torrent_schedule_to ?? 360) === (b.torrent_schedule_to ?? 360) &&
     (a.torrent_schedule_timezone ?? 'UTC') === (b.torrent_schedule_timezone ?? 'UTC') &&
-    (a.default_disk ?? '') === (b.default_disk ?? '')
+    (a.default_disk ?? '') === (b.default_disk ?? '') &&
+    (a.torrent_default_disk ?? null) === (b.torrent_default_disk ?? null)
   );
 }
 

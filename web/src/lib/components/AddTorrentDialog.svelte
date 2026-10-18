@@ -3,9 +3,13 @@
   // Everything is sent one after the other; what fails stays in the dialog with its reason.
   import { i18n, t } from '../i18n';
   import { addTorrentDialog } from '../stores/addTorrentDialog.svelte';
+  import { disks } from '../stores/disks.svelte';
+  import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
   import { torrents } from '../stores/torrents.svelte';
+  import { startingTorrentDisk } from '../util/disks';
   import { MAX_TORRENT_FILE, magnetsIn } from '../util/torrentInput';
+  import DiskSelect from './DiskSelect.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
 
@@ -16,6 +20,11 @@
   let over = $state(false);
   let input: HTMLInputElement | undefined = $state();
   let field: HTMLTextAreaElement | undefined = $state();
+  // The disk to save on (SPEC 6.14). Untouched, it is the default for torrents.
+  let diskChoice = $state<string | null>(null);
+  const disk = $derived(diskChoice ?? startingTorrentDisk(disks.value, settings.value?.torrent_default_disk));
+  /** What the add request says about the disk: nothing where there is nothing to choose from. */
+  const diskArg = $derived(disks.choosable ? disk : undefined);
 
   // Every opening starts clean (with a link when the one who opened it had one).
   $effect(() => {
@@ -25,6 +34,8 @@
       errors = [];
       busy = false;
       over = false;
+      diskChoice = null;
+      void disks.load();
       queueMicrotask(() => field?.focus());
     }
   });
@@ -68,7 +79,7 @@
     try {
       for (const m of parsed.valid) {
         try {
-          await torrents.addMagnet(m);
+          await torrents.addMagnet(m, diskArg);
           added++;
         } catch (err) {
           keepMagnets.push(m);
@@ -82,7 +93,7 @@
           continue;
         }
         try {
-          await torrents.addFile(await f.arrayBuffer());
+          await torrents.addFile(await f.arrayBuffer(), diskArg);
           added++;
         } catch (err) {
           keepFiles.push(f);
@@ -183,6 +194,10 @@
         </ul>
       {/if}
     </div>
+
+    {#if disks.choosable && disks.value}
+      <DiskSelect id="add-torrent-disk" disks={disks.value} value={disk} onchange={(name) => (diskChoice = name)} />
+    {/if}
 
     {#if errors.length > 0}
       <ul class="grid gap-1 text-sm text-danger" role="alert" data-part="errors">

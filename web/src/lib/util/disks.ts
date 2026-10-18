@@ -1,5 +1,11 @@
 // Disks (SPEC 6.14): the places downloads can be saved to. Pure functions, no DOM.
-import type { DiskInfo, Disks } from '../api/types';
+import type { DiskInfo, DiskWarning, Disks } from '../api/types';
+
+/** The i18n key of the sentence that explains a warning about a disk. */
+export function warningKey(w: DiskWarning): 'disks.warn.inside_container' | 'disks.warn.host_system_disk' {
+  return w === 'inside_container' ? 'disks.warn.inside_container' : 'disks.warn.host_system_disk';
+}
+
 
 /** The share of a disk that is in use, 0..1. */
 export function usedShare(d: Pick<DiskInfo, 'total' | 'available'>): number {
@@ -20,6 +26,16 @@ export function findDisk(disks: Disks | null, name: string): DiskInfo | undefine
 export function startingDisk(disks: Disks | null): string {
   if (!disks) return '';
   return disks.default_available && findDisk(disks, disks.default) ? disks.default : '';
+}
+
+/**
+ * The disk the add-torrent dialog starts on: the default for torrents (their own, or else the
+ * downloads' one) while it can be used, otherwise the download folder.
+ */
+export function startingTorrentDisk(disks: Disks | null, torrentDefault: string | null | undefined): string {
+  if (!disks) return '';
+  if (torrentDefault === null || torrentDefault === undefined) return startingDisk(disks);
+  return findDisk(disks, torrentDefault) ? torrentDefault : '';
 }
 
 /** The folder shown for a download: the disk and the category folder, `ssd1/video/`; empty for none. */
