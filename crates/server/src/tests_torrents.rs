@@ -107,6 +107,17 @@ impl Rig {
         read(r).await
     }
 
+    async fn post_file_at(&self, path: &str, bytes: &[u8]) -> (u16, serde_json::Value) {
+        let r = reqwest::Client::new()
+            .post(format!("{}{path}", self.api))
+            .header("content-type", "application/x-bittorrent")
+            .body(bytes.to_vec())
+            .send()
+            .await
+            .expect("post");
+        read(r).await
+    }
+
     async fn delete(&self, path: &str) -> u16 {
         reqwest::Client::new()
             .delete(format!("{}{path}", self.api))
@@ -316,6 +327,165 @@ async fn a_magnet_link_waits_for_its_description_and_can_be_stopped_and_removed(
     rig.mgr.stop_torrents().await;
 }
 
+/// Stand-ins for mounted disks (SPEC 6.14): links to folders on another file system.
+#[cfg(unix)]
+fn fake_disks(rig: &Rig, names: &[&str]) -> Option<Vec<tempfile::TempDir>> {
+    use std::os::unix::fs::MetadataExt;
+    let shm = std::path::Path::new("/dev/shm");
+    let downloads = rig.root.path().join("downloads");
+    std::fs::create_dir_all(&downloads).ok()?;
+    if !shm.is_dir()
+        || std::fs::metadata(shm).ok()?.dev() == std::fs::metadata(&downloads).ok()?.dev()
+    {
+        return None;
+    }
+    names
+        .iter()
+        .map(|name| {
+            let target = tempfile::tempdir_in(shm).ok()?;
+            std::os::unix::fs::symlink(target.path(), downloads.join(name)).ok()?;
+            Some(target)
+        })
+        .collect()
+}
+
+async fn set_torrent_disks(rig: &Rig, default: &str, torrents: Option<&str>) {
+    let mut s = fetchbox_api::service::Service::settings(&*rig.mgr)
+        .await
+        .expect("settings");
+    s.default_disk = default.to_owned();
+    s.torrent_default_disk = torrents.map(str::to_owned);
+    fetchbox_api::service::Service::update_settings(&*rig.mgr, s)
+        .await
+        .expect("save");
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_torrent_is_saved_on_the_chosen_disk() {
+    let rig = Rig::new().await;
+    let Some(targets) = fake_disks(&rig, &["ssd1", "hdd10tb"]) else {
+        return;
+    };
+    let (ssd, hdd) = (targets[0].path(), targets[1].path());
+    let (seed, torrent, content) = seeder(rig.root.path(), 300 * 1024).await;
+
+    // Torrents follow the downloads' default disk until they have one of their own.
+    set_torrent_disks(&rig, "ssd1", None).await;
+    let r = reqwest::Client::new()
+        .post(format!("{}/torrents/file?disk=hdd10tb", rig.api))
+        .header("content-type", "application/x-bittorrent")
+        .body(torrent.to_vec())
+        .send()
+        .await
+        .expect("post");
+    let (status, t) = read(r).await;
+    assert_eq!(status, 201, "{t}");
+    assert_eq!(t["disk"], "hdd10tb", "the request names a disk");
+    let id = t["id"].as_i64().expect("id");
+    seed.add_file(torrent.clone(), false, vec![rig.mine()])
+        .await
+        .expect("seed");
+    rig.wait_status(id, "seeding").await;
+    // One file goes straight into <disk>/torrents.
+    assert!(std::fs::read(hdd.join("torrents/data.bin")).expect("on the disk") == content);
+    assert!(!ssd.join("torrents/data.bin").exists());
+    assert!(!rig.root.path().join("downloads/torrents/data.bin").exists());
+
+    // Removed with its files from the disk it is on, whatever the default is now.
+    set_torrent_disks(&rig, "ssd1", Some("")).await;
+    assert_eq!(
+        rig.delete(&format!("/torrents/{id}?delete_files=true"))
+            .await,
+        204
+    );
+    assert!(!hdd.join("torrents/data.bin").exists());
+    seed.shutdown().await;
+    rig.mgr.stop_torrents().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_magnet_link_gets_a_folder_on_its_disk_and_the_defaults_are_told_apart() {
+    let rig = Rig::new().await;
+    let Some(_targets) = fake_disks(&rig, &["ssd1", "hdd10tb"]) else {
+        return;
+    };
+    set_torrent_disks(&rig, "ssd1", None).await;
+    let magnet =
+        |hash: &str, name: &str| format!(r#"{{"magnet":"magnet:?xt=urn:btih:{hash}&dn={name}"}}"#);
+    // No disk named, no disk of their own: the downloads' default.
+    let (status, a) = rig.post("/torrents", &magnet(HASH_A, "One")).await;
+    assert_eq!(status, 201, "{a}");
+    assert_eq!(a["disk"], "ssd1");
+    // Torrents with a default of their own.
+    set_torrent_disks(&rig, "ssd1", Some("hdd10tb")).await;
+    let hash_b = "1123456789abcdef0123456789abcdef01234567";
+    let (_, b) = rig.post("/torrents", &magnet(hash_b, "Two")).await;
+    assert_eq!(b["disk"], "hdd10tb");
+    // The download directory itself, asked for by an empty name.
+    let hash_c = "2123456789abcdef0123456789abcdef01234567";
+    let (_, c) = rig
+        .post(
+            "/torrents",
+            &format!(r#"{{"magnet":"magnet:?xt=urn:btih:{hash_c}","disk":""}}"#),
+        )
+        .await;
+    assert_eq!(c["disk"], "");
+    // A disk that is not there is refused, and nothing is added.
+    let hash_d = "3123456789abcdef0123456789abcdef01234567";
+    let (status, e) = rig
+        .post(
+            "/torrents",
+            &format!(r#"{{"magnet":"magnet:?xt=urn:btih:{hash_d}","disk":"nope"}}"#),
+        )
+        .await;
+    assert_eq!(status, 400, "{e}");
+    assert_eq!(
+        rig.get("/torrents").await.1.as_array().map(Vec::len),
+        Some(3)
+    );
+    let (status, _) = rig
+        .post_file_at("/torrents/file?disk=..", b"not a torrent")
+        .await;
+    assert_eq!(status, 400);
+    rig.mgr.stop_torrents().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_torrent_whose_disk_is_gone_is_stopped_with_a_note_and_not_started() {
+    let rig = Rig::new().await;
+    let Some(targets) = fake_disks(&rig, &["hdd10tb"]) else {
+        return;
+    };
+    set_torrent_disks(&rig, "hdd10tb", None).await;
+    let (_, t) = rig
+        .post(
+            "/torrents",
+            &format!(r#"{{"magnet":"magnet:?xt=urn:btih:{HASH_A}"}}"#),
+        )
+        .await;
+    let id = t["id"].as_i64().expect("id");
+    let (status, _) = rig.post(&format!("/torrents/{id}/pause"), "").await;
+    assert_eq!(status, 200);
+    // The disk goes away (an empty folder stands in its place).
+    std::fs::remove_file(rig.root.path().join("downloads/hdd10tb")).expect("unmount");
+    std::fs::create_dir(rig.root.path().join("downloads/hdd10tb")).expect("empty folder");
+    let (status, e) = rig.post(&format!("/torrents/{id}/resume"), "").await;
+    assert_eq!(status, 400, "{e}");
+    assert!(e.to_string().contains("not available"), "{e}");
+    assert_eq!(
+        std::fs::read_dir(rig.root.path().join("downloads/hdd10tb"))
+            .expect("dir")
+            .count(),
+        0,
+        "nothing was written in its place"
+    );
+    drop(targets);
+    rig.mgr.stop_torrents().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn what_is_not_a_torrent_is_refused() {
     let rig = Rig::new().await;
@@ -354,6 +524,7 @@ async fn torrents_are_off_until_the_manager_is_told() {
         &*mgr,
         fetchbox_core::AddTorrentRequest {
             magnet: format!("magnet:?xt=urn:btih:{HASH_A}"),
+            disk: None,
         },
     )
     .await
@@ -406,7 +577,7 @@ async fn the_list_and_the_downloads_come_back_after_a_restart() {
     .await
     .expect("start");
     first.enable_torrents(setup(first_port)).await;
-    let added = fetchbox_api::service::Service::add_torrent_file(&*first, torrent.to_vec())
+    let added = fetchbox_api::service::Service::add_torrent_file(&*first, torrent.to_vec(), None)
         .await
         .expect("add");
     seed.add_file(

@@ -8,6 +8,7 @@
   import { selection } from '../stores/selection.svelte';
   import { algoLabel } from '../util/checksum';
   import { isHeld, isVerifyFailed, primaryAction, speedOf } from '../util/downloads';
+  import { folderOf } from '../util/disks';
   import { etaSeconds, formatPercent, fraction, hostOf } from '../util/format';
   import CardMenu from './CardMenu.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
@@ -37,7 +38,7 @@
       ? t('card.keptMismatch', { algo: sumLabel, expected: d.checksum.expected, actual: d.checksum.actual })
       : t('card.keptUnverified'),
   );
-  const folder = $derived(d.subdir ? `${d.subdir}/` : '');
+  const folder = $derived(folderOf(d));
   const showBar = $derived(d.status !== 'cancelled');
   const barValue = $derived(d.status === 'completed' ? 1 : frac);
   const primary = $derived.by(() => {

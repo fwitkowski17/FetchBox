@@ -103,10 +103,31 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Free space on the disk that holds the download directory, and how much of it the running
+         * Free space on a disk (by default the one new downloads go to), and how much of it the running
          *     downloads still have to write.
          */
         get: operations["disk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/disks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The disks new downloads can be saved on: the download directory itself and every folder in it
+         *     that is a file system of its own (a mounted disk), each with its capacity, and the default one.
+         *     Downloads already on the list stay on the disk they were added to.
+         */
+        get: operations["disks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -587,6 +608,11 @@ export interface components {
             category?: null | components["schemas"]["Category"];
             checksum?: null | components["schemas"]["ChecksumInput"];
             credentials?: null | components["schemas"]["Credentials"];
+            /**
+             * @description Save to this disk (SPEC 6.14) instead of the default one (`Settings::default_disk`). The
+             *     empty name is the download directory itself; leave the field out to take the default.
+             */
+            disk?: string | null;
             /** @description Override the file name suggested by the server. */
             filename?: string | null;
             /**
@@ -611,6 +637,11 @@ export interface components {
          *     `POST /api/torrents/file` instead.
          */
         AddTorrentRequest: {
+            /**
+             * @description Save to this disk (SPEC 6.14) instead of the default one for torrents
+             *     (`Settings::torrent_default_disk`, else `default_disk`). Empty = the download directory.
+             */
+            disk?: string | null;
             /** @description A `magnet:?xt=urn:btih:...` link. */
             magnet: string;
         };
@@ -733,6 +764,29 @@ export interface components {
              */
             start: number;
         };
+        /** @description One place downloads can be saved to, with its space. */
+        DiskInfo: {
+            /**
+             * Format: int64
+             * @description Bytes available for new files.
+             */
+            available: number;
+            /** @description Folder name inside the download directory; empty for the download directory itself. */
+            name: string;
+            /** @description Where it is on the machine running FetchBox (shown, never taken from a client). */
+            path: string;
+            /**
+             * Format: int64
+             * @description What the running downloads on this file system still have to write.
+             */
+            reserved: number;
+            /**
+             * Format: int64
+             * @description Bytes this program can use on the file system (used plus available).
+             */
+            total: number;
+            warning?: null | components["schemas"]["DiskWarning"];
+        };
         /** @description Free space on the file system that holds the download directory. */
         DiskSpace: {
             /**
@@ -755,6 +809,28 @@ export interface components {
              */
             total: number;
         };
+        /**
+         * @description Why a disk may not be what the user meant (SPEC 6.14). Both are guesses from where the folder is,
+         *     shown as a warning: nothing is refused because of them.
+         * @enum {string}
+         */
+        DiskWarning: "inside_container" | "host_system_disk";
+        /** @description The disks FetchBox found and which one new downloads go to by default. */
+        Disks: {
+            /** @description More than the download directory itself can be chosen: the UI offers a choice only then. */
+            choosable: boolean;
+            /** @description The disk new downloads go to unless the request names another (`Settings::default_disk`). */
+            default: string;
+            /** @description The default is the download directory or a disk that is mounted now. */
+            default_available: boolean;
+            /** @description The download directory first, then the mounted disks by name. */
+            disks: components["schemas"]["DiskInfo"][];
+            /**
+             * @description Empty folders in the download directory that are not separate disks. A mount point that did
+             *     not mount looks like this (an empty folder on the system disk), so they are shown as a hint.
+             */
+            unmounted?: string[];
+        };
         /** @description A download as stored and shown to the user. */
         Download: {
             /**
@@ -764,6 +840,12 @@ export interface components {
             archived?: boolean;
             category: components["schemas"]["Category"];
             checksum?: null | components["schemas"]["ChecksumState"];
+            /**
+             * @description The disk the file is saved on (SPEC 6.14): a folder of the download directory, chosen when
+             *     the download was added and kept for good, so changing the default disk never moves it.
+             *     Empty = the download directory itself.
+             */
+            disk?: string;
             /** Format: int64 */
             downloaded: number;
             error?: string | null;
@@ -1024,6 +1106,12 @@ export interface components {
              */
             connections: number;
             /**
+             * @description The disk new downloads are saved on unless the request names another (SPEC 6.14): a folder
+             *     of the download directory that is a file system of its own. Empty = the download directory
+             *     itself. Existing downloads stay where they are.
+             */
+            default_disk?: string;
+            /**
              * Format: int32
              * @description Max simultaneously running downloads; extra ones are `Queued`.
              */
@@ -1062,6 +1150,11 @@ export interface components {
              *     (`Download::speed_limit`) ignores it.
              */
             speed_per_download: number;
+            /**
+             * @description The disk new torrents are saved on unless the request names another. `None` (the default):
+             *     the same disk as the downloads (`default_disk`); `Some("")` is the download directory itself.
+             */
+            torrent_default_disk?: string | null;
             /**
              * Format: int64
              * @description Speed limit of all torrents together, receiving, bytes/s (`0` = none). Separate from the
@@ -1200,6 +1293,11 @@ export interface components {
              * @description Unix seconds.
              */
             added_at: number;
+            /**
+             * @description The disk it is saved on (SPEC 6.14): a folder of the download directory, chosen when the
+             *     torrent was added and kept for good. Empty = the download directory itself.
+             */
+            disk: string;
             /**
              * Format: int64
              * @description Bytes per second from the swarm now.
@@ -1416,7 +1514,7 @@ export interface components {
              * @description When the answer was obtained (unix seconds); `None` if no check has succeeded yet.
              */
             checked_at?: number | null;
-            /** @description Version of this program (`0.9.0`). */
+            /** @description Version of this program (`0.9.1`). */
             current: string;
             /** @description Update checks are switched on (`Settings::check_updates`). When off, nothing else is set. */
             enabled: boolean;
@@ -1651,7 +1749,13 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /**
+                 * @description The disk to look at (a name from `GET /api/disks`; empty = the download directory itself).
+                 *     Without it: the default disk.
+                 */
+                disk: string | null;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1662,6 +1766,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiskSpace"];
+                };
+            };
+            /** @description Not a disk that can be used now (not mounted, or not a folder name) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    disks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Disks"];
                 };
             };
             /** @description Not logged in */
@@ -2495,7 +2636,13 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /**
+                 * @description Save to this disk (a name from `GET /api/disks`; empty = the download directory itself).
+                 *     Without it: the default disk for torrents.
+                 */
+                disk: string | null;
+            };
             cookie?: never;
         };
         requestBody: {

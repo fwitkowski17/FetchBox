@@ -5,7 +5,9 @@ import type {
   AuthStatus,
   Category,
   Conflict,
+  DiskInfo,
   DiskSpace,
+  Disks,
   Credentials,
   Download,
   HostKeyProblem,
@@ -191,10 +193,16 @@ export const api = {
     request<Download>('PATCH', `/downloads/${id}`, { category }),
 
   listTorrents: () => request<Torrent[]>('GET', '/torrents'),
-  addTorrentMagnet: (magnet: string) => request<Torrent>('POST', '/torrents', { magnet }),
+  /** `disk`: where to save it (a name from `getDisks`); none = the default for torrents. */
+  addTorrentMagnet: (magnet: string, disk?: string) =>
+    request<Torrent>('POST', '/torrents', disk === undefined ? { magnet } : { magnet, disk }),
   /** The bytes of a `.torrent` file. */
-  addTorrentFile: (bytes: ArrayBuffer) =>
-    upload<Torrent>('/torrents/file', bytes, 'application/x-bittorrent'),
+  addTorrentFile: (bytes: ArrayBuffer, disk?: string) =>
+    upload<Torrent>(
+      disk === undefined ? '/torrents/file' : `/torrents/file?disk=${encodeURIComponent(disk)}`,
+      bytes,
+      'application/x-bittorrent',
+    ),
   pauseTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/pause`),
   resumeTorrent: (id: number) => request<Torrent>('POST', `/torrents/${id}/resume`),
   startTorrentNow: (id: number) => request<Torrent>('POST', `/torrents/${id}/start-now`),
@@ -205,7 +213,11 @@ export const api = {
   torrentFiles: (id: number, signal?: AbortSignal) =>
     request<TorrentFile[]>('GET', `/torrents/${id}/files`, undefined, signal),
 
-  getDisk: () => request<DiskSpace>('GET', '/disk'),
+  /** Space of a disk; without a name, of the one new downloads go to by default. */
+  getDisk: (disk?: string) =>
+    request<DiskSpace>('GET', disk === undefined ? '/disk' : `/disk?disk=${encodeURIComponent(disk)}`),
+  /** The disks downloads can be saved on, with their space, and the default one. */
+  getDisks: () => request<Disks>('GET', '/disks'),
   /** `offsetMinutes`: the caller's distance from UTC, east positive; it decides where a day begins. */
   getStats: (range: StatsRange, offsetMinutes: number) =>
     request<Stats>('GET', `/stats?range=${range}&offset=${offsetMinutes}`),

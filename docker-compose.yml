@@ -29,3 +29,7 @@ services:
     volumes:
       - ./data:/data
       - ./downloads:/downloads
+      # More than one disk: mount each as a folder inside /downloads and choose the default one in the
+      # first-run setup or in Settings (FetchBox treats a folder that is its own file system as a disk).
+      # - /mnt/hdd10tb:/downloads/hdd10tb
+      # - /mnt/ssd1:/downloads/ssd1

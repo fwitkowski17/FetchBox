@@ -128,15 +128,15 @@ class TorrentsStore {
   remove = (id: number, deleteFiles: boolean) => this.#run(() => api.removeTorrent(id, deleteFiles));
 
   /** Add by magnet link. Throws: the dialog shows what went wrong next to the field. */
-  async addMagnet(magnet: string): Promise<Torrent> {
-    const t = await api.addTorrentMagnet(magnet.trim());
+  async addMagnet(magnet: string, disk?: string): Promise<Torrent> {
+    const t = await api.addTorrentMagnet(magnet.trim(), disk);
     this.#adopt(t);
     return t;
   }
 
   /** Add the bytes of a `.torrent` file. Throws like `addMagnet`. */
-  async addFile(bytes: ArrayBuffer): Promise<Torrent> {
-    const t = await api.addTorrentFile(bytes);
+  async addFile(bytes: ArrayBuffer, disk?: string): Promise<Torrent> {
+    const t = await api.addTorrentFile(bytes, disk);
     this.#adopt(t);
     return t;
   }

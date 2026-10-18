@@ -117,6 +117,7 @@ impl Harness {
             start_now: false,
             checksum: None,
             credentials: None,
+            disk: None,
         }
     }
 
@@ -199,6 +200,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         start_now: false,
         checksum: None,
         credentials: None,
+        disk: None,
     };
     assert!(matches!(h.mgr.add(bad).await, Err(Error::InvalidInput(_))));
     let dead = AddRequest {
@@ -211,6 +213,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         start_now: false,
         checksum: None,
         credentials: None,
+        disk: None,
     };
     assert!(matches!(h.mgr.add(dead).await, Err(Error::Engine(_))));
 }
@@ -1100,7 +1103,7 @@ async fn a_file_that_really_does_not_fit_is_added_but_held_back() {
 #[tokio::test]
 async fn a_held_download_starts_once_there_is_room() {
     let h = Harness::new().await;
-    let free = h.mgr.disk_space().await.expect("space").available;
+    let free = h.mgr.disk_space(None).await.expect("space").available;
     // Held because it claims more than the disk has free right now...
     let d = h
         .mgr
@@ -1129,12 +1132,12 @@ fn pct(available: u64, percent: u64) -> u64 {
 #[tokio::test]
 async fn running_downloads_reserve_space_for_the_next_ones() {
     let h = Harness::new().await;
-    let free = h.mgr.disk_space().await.expect("space").available;
+    let free = h.mgr.disk_space(None).await.expect("space").available;
     let claim = |percent: u64| h.req("claim", &pct(free, percent).to_string(), OnConflict::Reject);
 
     // 60 % of the free space is claimed by the first, running download...
     let first = h.mgr.add(claim(60)).await.expect("first fits");
-    let space = h.mgr.disk_space().await.expect("space");
+    let space = h.mgr.disk_space(None).await.expect("space");
     assert!(
         space.reserved > pct(free, 50) && space.reserved <= pct(free, 60),
         "{space:?}"
@@ -1162,12 +1165,12 @@ async fn running_downloads_reserve_space_for_the_next_ones() {
 
     // A smaller one still fits next to it (60 + 30 < 100) and is running too.
     let third = h.mgr.add(claim(30)).await.expect("30 % fits");
-    assert!(h.mgr.disk_space().await.expect("space").reserved > pct(free, 80));
+    assert!(h.mgr.disk_space(None).await.expect("space").reserved > pct(free, 80));
 
     // Pausing gives the reservation back: a paused download is not writing anything.
     h.mgr.pause(third.id).await.expect("pause");
     h.wait_status(third.id, Status::Paused).await;
-    let space = h.mgr.disk_space().await.expect("space");
+    let space = h.mgr.disk_space(None).await.expect("space");
     assert!(space.reserved <= pct(free, 60), "{space:?}");
     h.mgr
         .add(claim(35))
@@ -1176,7 +1179,7 @@ async fn running_downloads_reserve_space_for_the_next_ones() {
 
     // Cancelling the big one gives its share back as well.
     h.mgr.cancel(first.id).await.expect("cancel");
-    assert!(h.mgr.disk_space().await.expect("space").reserved < pct(free, 40));
+    assert!(h.mgr.disk_space(None).await.expect("space").reserved < pct(free, 40));
 }
 
 #[tokio::test]
@@ -1187,14 +1190,14 @@ async fn queued_downloads_reserve_nothing() {
     settings.max_concurrent = 1;
     h.mgr.update_settings(settings).await.expect("update");
 
-    let free = h.mgr.disk_space().await.expect("space").available;
+    let free = h.mgr.disk_space(None).await.expect("space").available;
     let claim = |percent: u64| h.req("claim", &pct(free, percent).to_string(), OnConflict::Reject);
     h.mgr.add(claim(60)).await.expect("running");
     let waiting = h.mgr.add(claim(30)).await.expect("queued");
     assert_eq!(waiting.status, Status::Queued);
 
     // Only the running one counts, so the queued 30 % does not stand in the way of a 35 %.
-    let space = h.mgr.disk_space().await.expect("space");
+    let space = h.mgr.disk_space(None).await.expect("space");
     assert!(space.reserved <= pct(free, 60), "{space:?}");
     h.mgr
         .add(claim(35))
@@ -1205,7 +1208,7 @@ async fn queued_downloads_reserve_nothing() {
 #[tokio::test]
 async fn the_user_can_add_a_download_anyway() {
     let h = Harness::new().await;
-    let free = h.mgr.disk_space().await.expect("space").available;
+    let free = h.mgr.disk_space(None).await.expect("space").available;
     let claim = |tenths: u64, ignore_space: bool| AddRequest {
         ignore_space,
         ..h.req(
@@ -1223,7 +1226,7 @@ async fn the_user_can_add_a_download_anyway() {
     // Same request with `ignore_space`: accepted, and the disk is now over-committed, which the
     // ring will show (`reserved` above `available`).
     h.mgr.add(claim(7, true)).await.expect("added anyway");
-    let space = h.mgr.disk_space().await.expect("space");
+    let space = h.mgr.disk_space(None).await.expect("space");
     assert!(space.reserved > space.available, "{space:?}");
     assert_eq!(h.mgr.list().await.expect("list").len(), 2);
 }
@@ -1231,7 +1234,7 @@ async fn the_user_can_add_a_download_anyway() {
 #[tokio::test]
 async fn a_download_added_anyway_is_started_and_not_failed_for_space() {
     let h = Harness::new().await;
-    let free = h.mgr.disk_space().await.expect("space").available;
+    let free = h.mgr.disk_space(None).await.expect("space").available;
     let claim = |tenths: u64, ignore_space: bool| AddRequest {
         ignore_space,
         ..h.req(
@@ -1776,6 +1779,7 @@ async fn a_verification_interrupted_by_a_restart_is_done_again() {
                 source_kind: fetchbox_core::SourceKind::Http,
                 overwrite: false,
                 subdir: String::new(),
+                disk: String::new(),
                 ignore_space: false,
                 start_at: None,
                 start_now: false,
@@ -1819,6 +1823,7 @@ async fn a_missing_file_fails_the_verification_with_a_reason() {
             source_kind: fetchbox_core::SourceKind::Http,
             overwrite: false,
             subdir: String::new(),
+            disk: String::new(),
             ignore_space: false,
             start_at: None,
             start_now: false,
@@ -2328,6 +2333,263 @@ async fn conflicts_are_checked_inside_the_subdirectory() {
     assert_eq!(file(&h.path("other.mkv")), b"base");
 }
 
+/// Stand-ins for mounted disks (SPEC 6.14): folders of the download directory that are links to
+/// directories on another file system (`/dev/shm`, a tmpfs, on Linux). `None` where the machine has
+/// no other file system to offer, which skips the test.
+#[cfg(unix)]
+fn fake_disks(h: &Harness, names: &[&str]) -> Option<Vec<tempfile::TempDir>> {
+    use std::os::unix::fs::MetadataExt;
+    let shm = std::path::Path::new("/dev/shm");
+    if !shm.is_dir()
+        || std::fs::metadata(shm).ok()?.dev() == std::fs::metadata(h.dir.path()).ok()?.dev()
+    {
+        return None;
+    }
+    names
+        .iter()
+        .map(|name| {
+            let target = tempfile::tempdir_in(shm).ok()?;
+            std::os::unix::fs::symlink(target.path(), h.dir.path().join(name)).ok()?;
+            Some(target)
+        })
+        .collect()
+}
+
+async fn set_default_disk(h: &Harness, name: &str) -> fetchbox_core::Result<Settings> {
+    let s = Settings {
+        default_disk: name.to_owned(),
+        ..h.mgr.settings().await.expect("s")
+    };
+    h.mgr.update_settings(s).await
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn disks_are_the_mounted_folders_of_the_download_directory() {
+    let h = Harness::new().await;
+    // Nothing mounted: only the download directory, and nothing to choose from.
+    let none = h.mgr.disks().await.expect("disks");
+    assert_eq!(
+        (
+            none.disks.len(),
+            none.choosable,
+            none.default.as_str(),
+            none.default_available
+        ),
+        (1, false, "", true)
+    );
+    assert_eq!(none.disks[0].name, "");
+    assert!(none.disks[0].total > 0);
+
+    let Some(targets) = fake_disks(&h, &["ssd1", "hdd10tb"]) else {
+        return;
+    };
+    // A plain folder is not a disk; an empty one is what a mount that failed looks like, so it is
+    // pointed out. A symbolic link to a folder is a disk, also when it stays on the same file system.
+    std::fs::create_dir(h.path("plain")).expect("dir");
+    let same_fs = tempfile::tempdir().expect("tmp");
+    std::os::unix::fs::symlink(same_fs.path(), h.path("linked")).expect("link");
+    let found = h.mgr.disks().await.expect("disks");
+    let names: Vec<&str> = found.disks.iter().map(|d| d.name.as_str()).collect();
+    assert_eq!(names, ["", "hdd10tb", "linked", "ssd1"]);
+    assert_eq!(found.unmounted, ["plain"]);
+    // The download directory is judged by where this test runs (a container may be one); the
+    // disks are not on the container's host data here.
+    assert!(found.disks.iter().skip(1).all(|d| d.warning.is_none()));
+    assert!(found.choosable);
+    let ssd = &found.disks[3];
+    assert_eq!(ssd.path, h.path("ssd1").display().to_string());
+    assert!(ssd.total > 0 && ssd.available <= ssd.total);
+    let space = h.mgr.disk_space(Some("ssd1".into())).await.expect("space");
+    assert_eq!(space.total, ssd.total);
+    drop(targets);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_download_goes_to_the_chosen_disk_and_stays_when_the_default_changes() {
+    let h = Harness::new().await;
+    let Some(targets) = fake_disks(&h, &["ssd1", "hdd10tb"]) else {
+        return;
+    };
+    let (ssd, hdd) = (targets[0].path(), targets[1].path());
+
+    // No choice, no default disk: the download directory, as before.
+    let plain = h
+        .mgr
+        .add(h.req("fast", "plain.bin", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(plain.disk, "");
+    h.wait_status(plain.id, Status::Completed).await;
+    assert_eq!(file(&h.path("plain.bin")), body());
+
+    // The request names a disk.
+    let mut asked = h.req("fast", "asked.bin", OnConflict::Reject);
+    asked.disk = Some("ssd1".into());
+    let asked = h.mgr.add(asked).await.expect("add");
+    assert_eq!(asked.disk, "ssd1");
+    h.wait_status(asked.id, Status::Completed).await;
+    assert_eq!(file(&ssd.join("asked.bin")), body());
+    assert!(!h.path("asked.bin").exists());
+
+    // The default disk takes what names none; with category folders the folder is inside the disk.
+    set_default_disk(&h, "hdd10tb").await.expect("default");
+    set_subdirs(&h, true).await;
+    let by_default = h
+        .mgr
+        .add(h.req("fast", "movie.mkv", OnConflict::Reject))
+        .await
+        .expect("add");
+    assert_eq!(
+        (by_default.disk.as_str(), by_default.subdir.as_str()),
+        ("hdd10tb", "video")
+    );
+    h.wait_status(by_default.id, Status::Completed).await;
+    assert_eq!(file(&hdd.join("video/movie.mkv")), body());
+    // An empty name asks for the download directory itself, whatever the default is.
+    let mut main = h.req("fast", "main.mkv", OnConflict::Reject);
+    main.disk = Some(String::new());
+    let main = h.mgr.add(main).await.expect("add");
+    assert_eq!(main.disk, "");
+    h.wait_status(main.id, Status::Completed).await;
+    assert_eq!(file(&h.path("video/main.mkv")), body());
+
+    // Changing the default moves nothing: earlier entries keep their disk and their files.
+    set_default_disk(&h, "ssd1").await.expect("default");
+    let list = h.mgr.list().await.expect("list");
+    let on = |id| list.iter().find(|d| d.id == id).map(|d| d.disk.clone());
+    assert_eq!(on(plain.id).as_deref(), Some(""));
+    assert_eq!(on(asked.id).as_deref(), Some("ssd1"));
+    assert_eq!(on(by_default.id).as_deref(), Some("hdd10tb"));
+    assert_eq!(file(&hdd.join("video/movie.mkv")), body());
+
+    // A finished download is deleted with its file from the disk it is on.
+    h.mgr
+        .remove(by_default.id, true)
+        .await
+        .expect("delete with the file");
+    assert!(!hdd.join("video/movie.mkv").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn names_are_checked_per_disk() {
+    let h = Harness::new().await;
+    let Some(_targets) = fake_disks(&h, &["ssd1", "hdd10tb"]) else {
+        return;
+    };
+    let on = |disk: &str| {
+        let mut r = h.req("fast", "same.bin", OnConflict::Reject);
+        r.disk = Some(disk.to_owned());
+        r
+    };
+    let a = h.mgr.add(on("ssd1")).await.expect("add");
+    h.wait_status(a.id, Status::Completed).await;
+    // The file exists on the SSD only: the same name on the other disk is no conflict (the same
+    // address is, so it is told apart by overwriting the duplicate check with a new name).
+    let mut other = on("hdd10tb");
+    other.on_conflict = OnConflict::Rename;
+    let b = h.mgr.add(other).await.expect("add on the other disk");
+    h.wait_status(b.id, Status::Completed).await;
+    assert_eq!(
+        b.filename, "same.bin",
+        "no clash with the file on the other disk"
+    );
+    // On the same disk it is a clash.
+    let Err(Error::Conflict(c)) = h.mgr.add(on("ssd1")).await else {
+        panic!("expected a conflict")
+    };
+    assert_ne!(c.kind, ConflictKind::NameReserved);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_disk_that_is_not_there_is_refused() {
+    let h = Harness::new().await;
+    // A folder that is not a separate file system is a disk that is not mounted.
+    std::fs::create_dir(h.path("ssd1")).expect("dir");
+    for bad in ["ssd1", "missing", "../x", "a/b", ".hidden", "video"] {
+        let mut r = h.req("fast", "x.bin", OnConflict::Reject);
+        r.disk = Some(bad.to_owned());
+        assert!(
+            matches!(h.mgr.add(r).await, Err(Error::InvalidInput(_))),
+            "{bad:?} must be refused"
+        );
+        assert!(
+            matches!(set_default_disk(&h, bad).await, Err(Error::InvalidInput(_))),
+            "{bad:?} must not become the default"
+        );
+    }
+    assert!(h.mgr.list().await.expect("list").is_empty());
+    assert!(matches!(
+        h.mgr.disk_space(Some("ssd1".into())).await,
+        Err(Error::InvalidInput(_))
+    ));
+
+    // A stored default that has gone away blocks adds that rely on it, but not other settings.
+    let Some(_targets) = fake_disks(&h, &["hdd10tb"]) else {
+        return;
+    };
+    set_default_disk(&h, "hdd10tb").await.expect("default");
+    std::fs::remove_file(h.path("hdd10tb")).expect("unmount");
+    let gone = h.mgr.disks().await.expect("disks");
+    assert_eq!(
+        (gone.default.as_str(), gone.default_available),
+        ("hdd10tb", false)
+    );
+    assert!(matches!(
+        h.mgr.add(h.req("fast", "x.bin", OnConflict::Reject)).await,
+        Err(Error::InvalidInput(_))
+    ));
+    let mut s = h.mgr.settings().await.expect("s");
+    s.connections = 2;
+    h.mgr
+        .update_settings(s)
+        .await
+        .expect("other settings still save");
+    // The download directory is always there.
+    let mut main = h.req("fast", "x.bin", OnConflict::Reject);
+    main.disk = Some(String::new());
+    assert!(h.mgr.add(main).await.is_ok());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_download_whose_disk_disappeared_fails_instead_of_filling_another_disk() {
+    let h = Harness::new().await;
+    let Some(targets) = fake_disks(&h, &["ssd1"]) else {
+        return;
+    };
+    // Held until a set time, so the disk can go away before it starts.
+    let mut waiting = h.req("fast", "late.bin", OnConflict::Reject);
+    waiting.disk = Some("ssd1".into());
+    waiting.start_at = Some(crate::clock::now() + 3600);
+    let d = h.mgr.add(waiting).await.expect("add");
+    std::fs::remove_file(h.path("ssd1")).expect("unmount");
+    std::fs::create_dir(h.path("ssd1")).expect("an empty folder in its place");
+
+    h.mgr.start_now(d.id).await.expect("start now");
+    let failed = h.wait_status(d.id, Status::Failed).await;
+    assert!(
+        failed
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("not available")),
+        "{:?}",
+        failed.error
+    );
+    assert_eq!(
+        std::fs::read_dir(h.path("ssd1")).expect("dir").count(),
+        0,
+        "nothing was written"
+    );
+    assert!(std::fs::read_dir(targets[0].path())
+        .expect("dir")
+        .next()
+        .is_none());
+}
+
 #[tokio::test]
 async fn private_url_policy_is_applied_by_the_manager() {
     let h = Harness::with_policy(fetchbox_http_engine::UrlPolicy {
@@ -2456,6 +2718,7 @@ fn killed_process_resumes_from_saved_offsets() {
             start_now: false,
             checksum: None,
             credentials: None,
+            disk: None,
         };
         let id = mgr.add(req).await.expect("add").id;
         let probe = fetchbox_storage::open(&db_path).expect("second connection");
@@ -3332,6 +3595,7 @@ mod remote_sources {
             start_now: false,
             checksum: None,
             credentials,
+            disk: None,
         }
     }
 
