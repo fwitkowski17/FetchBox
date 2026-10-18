@@ -94,6 +94,7 @@ mod tests {
                 start_at: None,
                 start_now: false,
                 subdir: String::new(),
+                disk: String::new(),
                 checksum: None,
                 credentials: None,
             },

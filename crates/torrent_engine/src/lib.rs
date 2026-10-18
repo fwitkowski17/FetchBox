@@ -204,10 +204,24 @@ impl TorrentEngine {
         paused: bool,
         initial_peers: Vec<SocketAddr>,
     ) -> Result<Added, TorrentError> {
+        self.add_magnet_in(uri, paused, initial_peers, None).await
+    }
+
+    /// Like [`Self::add_magnet`], saving into `output` (exactly that folder) instead of the engine's
+    /// own output folder. The caller decides the layout: the engine puts the files of the torrent
+    /// directly into it.
+    pub async fn add_magnet_in(
+        &self,
+        uri: &str,
+        paused: bool,
+        initial_peers: Vec<SocketAddr>,
+        output: Option<PathBuf>,
+    ) -> Result<Added, TorrentError> {
         self.add(
             AddTorrent::from_url(uri.trim().to_owned()),
             paused,
             initial_peers,
+            output,
         )
         .await
     }
@@ -219,7 +233,18 @@ impl TorrentEngine {
         paused: bool,
         initial_peers: Vec<SocketAddr>,
     ) -> Result<Added, TorrentError> {
-        self.add(AddTorrent::from_bytes(bytes), paused, initial_peers)
+        self.add_file_in(bytes, paused, initial_peers, None).await
+    }
+
+    /// Like [`Self::add_file`], saving into `output` (see [`Self::add_magnet_in`]).
+    pub async fn add_file_in(
+        &self,
+        bytes: Bytes,
+        paused: bool,
+        initial_peers: Vec<SocketAddr>,
+        output: Option<PathBuf>,
+    ) -> Result<Added, TorrentError> {
+        self.add(AddTorrent::from_bytes(bytes), paused, initial_peers, output)
             .await
     }
 
@@ -228,9 +253,11 @@ impl TorrentEngine {
         what: AddTorrent<'_>,
         paused: bool,
         initial_peers: Vec<SocketAddr>,
+        output: Option<PathBuf>,
     ) -> Result<Added, TorrentError> {
         let opts = AddTorrentOptions {
             paused,
+            output_folder: output.map(|p| p.to_string_lossy().into_owned()),
             // Files already in the torrents folder are checked and kept (a torrent added again after
             // it was removed without its files), not refused.
             overwrite: true,
@@ -608,6 +635,51 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         panic!("timed out waiting for: {what}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_torrent_can_be_saved_into_a_folder_of_its_own() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let seeder = TorrentEngine::start(config(dir.path(), "seed"))
+            .await
+            .expect("seeder");
+        let (content, torrent) = make_torrent(&seeder, dir.path(), 300 * 1024).await;
+        let added = seeder
+            .add_file(torrent.clone(), false, vec![])
+            .await
+            .expect("seed add");
+        let hash = added.info_hash.clone();
+        wait_for("the seeder to be complete", || {
+            seeder.snapshot(&hash).filter(|s| s.complete)
+        })
+        .await;
+        let seed_addr = SocketAddr::from(([127, 0, 0, 1], seeder.listen_port().expect("port")));
+
+        let leech = TorrentEngine::start(config(dir.path(), "leech"))
+            .await
+            .expect("leecher");
+        // Another disk: not under the engine's own output folder.
+        let elsewhere = dir.path().join("other-disk/torrents");
+        leech
+            .add_file_in(torrent, false, vec![seed_addr], Some(elsewhere.clone()))
+            .await
+            .expect("leech add");
+        wait_for("the download to finish", || {
+            leech.snapshot(&hash).filter(|s| s.complete)
+        })
+        .await;
+        assert!(std::fs::read(elsewhere.join("data.bin")).expect("file") == content);
+        assert!(
+            !dir.path().join("leech/files/data.bin").exists(),
+            "nothing went to the engine's own folder"
+        );
+        leech.remove(&hash, true).await.expect("remove with files");
+        assert!(
+            !elsewhere.join("data.bin").exists(),
+            "the files went with it"
+        );
+        leech.shutdown().await;
+        seeder.shutdown().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

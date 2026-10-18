@@ -3,6 +3,7 @@
 
 pub mod category;
 pub mod checksum;
+pub mod disks;
 pub mod error;
 pub mod filename;
 pub mod limiter;
@@ -15,6 +16,7 @@ pub mod torrent;
 use async_trait::async_trait;
 
 pub use checksum::{ChecksumAlgo, ChecksumInput, ChecksumState};
+pub use disks::{DiskInfo, DiskWarning, Disks};
 pub use error::{Error, Result};
 pub use model::{
     AddRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace, Download, Event, Handle,

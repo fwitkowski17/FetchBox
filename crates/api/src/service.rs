@@ -47,7 +47,9 @@ pub trait Service: Send + Sync + 'static {
     async fn settings(&self) -> Result<Settings>;
     async fn update_settings(&self, settings: Settings) -> Result<Settings>;
     /// Free space where downloads are written.
-    async fn disk_space(&self) -> Result<DiskSpace>;
+    async fn disk_space(&self, disk: Option<String>) -> Result<DiskSpace>;
+    /// The disks new downloads can go to, with their space (SPEC 6.14).
+    async fn disks(&self) -> Result<fetchbox_core::Disks>;
     /// A summary of the downloads of a period. `offset_minutes` is the caller's distance from UTC
     /// (east is positive), which decides where a day begins.
     async fn stats(&self, range: StatsRange, offset_minutes: i32) -> Result<Stats>;
@@ -56,7 +58,7 @@ pub trait Service: Send + Sync + 'static {
     /// Add a torrent by magnet link. The description (name, files) arrives later from the swarm.
     async fn add_torrent_magnet(&self, req: AddTorrentRequest) -> Result<Torrent>;
     /// Add a torrent from the bytes of a `.torrent` file.
-    async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<Torrent>;
+    async fn add_torrent_file(&self, bytes: Vec<u8>, disk: Option<String>) -> Result<Torrent>;
     /// Stop a torrent; what it has stays on disk.
     async fn pause_torrent(&self, id: Id) -> Result<Torrent>;
     /// Start a stopped torrent again.

@@ -194,6 +194,11 @@ pub struct Download {
     /// Subdirectory of the download directory the file goes to; empty = the directory itself.
     #[serde(default)]
     pub subdir: String,
+    /// The disk the file is saved on (SPEC 6.14): a folder of the download directory, chosen when
+    /// the download was added and kept for good, so changing the default disk never moves it.
+    /// Empty = the download directory itself.
+    #[serde(default)]
+    pub disk: String,
     /// Current speed in bytes/s. Not persisted: filled in for running downloads.
     #[serde(default)]
     pub speed: u64,
@@ -334,6 +339,23 @@ pub struct Settings {
     /// IANA time zone the torrent hours are in.
     #[serde(default = "default_schedule_timezone")]
     pub torrent_schedule_timezone: String,
+    /// The disk new downloads are saved on unless the request names another (SPEC 6.14): a folder
+    /// of the download directory that is a file system of its own. Empty = the download directory
+    /// itself. Existing downloads stay where they are.
+    #[serde(default)]
+    pub default_disk: String,
+    /// The disk new torrents are saved on unless the request names another. `None` (the default):
+    /// the same disk as the downloads (`default_disk`); `Some("")` is the download directory itself.
+    #[serde(default)]
+    pub torrent_default_disk: Option<String>,
+}
+impl Settings {
+    /// The disk a new torrent goes to when its request names none.
+    pub fn torrent_disk(&self) -> &str {
+        self.torrent_default_disk
+            .as_deref()
+            .unwrap_or(&self.default_disk)
+    }
 }
 
 /// What happens to the downloads that are running when the download hours end.
@@ -404,6 +426,8 @@ impl Default for Settings {
             torrent_schedule_from: 0,
             torrent_schedule_to: default_schedule_to(),
             torrent_schedule_timezone: default_schedule_timezone(),
+            default_disk: crate::disks::MAIN.to_owned(),
+            torrent_default_disk: None,
         }
     }
 }
@@ -443,6 +467,17 @@ impl Settings {
         if self.schedule_enabled && !self.schedule_window().is_valid() {
             return Err(crate::Error::InvalidInput(
                 "the download hours need a start and an end that differ (minutes 0..1440)".into(),
+            ));
+        }
+        if !crate::disks::is_valid_name(&self.default_disk)
+            || !self
+                .torrent_default_disk
+                .as_deref()
+                .is_none_or(crate::disks::is_valid_name)
+        {
+            return Err(crate::Error::InvalidInput(
+                "default_disk and torrent_default_disk must be the name of a folder in the download directory"
+                    .into(),
             ));
         }
         if self.torrent_schedule_enabled && !self.torrent_schedule_window().is_valid() {
@@ -496,6 +531,10 @@ pub struct AddRequest {
     /// Verify the finished file against this checksum (SPEC 6.2.2).
     #[serde(default)]
     pub checksum: Option<ChecksumInput>,
+    /// Save to this disk (SPEC 6.14) instead of the default one (`Settings::default_disk`). The
+    /// empty name is the download directory itself; leave the field out to take the default.
+    #[serde(default)]
+    pub disk: Option<String>,
     /// Log in to the source with this user name and password (SPEC 6.12). They win over a login
     /// written into the address (`ftp://user:password@host/file`), which is moved here anyway.
     #[serde(default)]

@@ -13,6 +13,7 @@
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import ConflictDialog from './ConflictDialog.svelte';
+  import DiskSelect from './DiskSelect.svelte';
   import CategoryIcon from './CategoryIcon.svelte';
   import HostKeyPrompt from './HostKeyPrompt.svelte';
   import Icon from './Icon.svelte';
@@ -22,10 +23,12 @@
   import { i18n, t } from '../i18n';
   import { addDialog } from '../stores/addDialog.svelte';
   import { addTorrentDialog } from '../stores/addTorrentDialog.svelte';
+  import { disks } from '../stores/disks.svelte';
   import { isMagnet } from '../util/torrentInput';
   import { settings } from '../stores/settings.svelte';
   import { toast } from '../stores/toast.svelte';
   import { ALGOS, algoLabel, checkChecksum, detectAlgo } from '../util/checksum';
+  import { startingDisk } from '../util/disks';
   import { isSourceUrl, sourceOf } from '../util/format';
   import { emptySummary, tally, type BatchSummary } from '../util/listing';
   import { formatWhen, minutesToTime, nextOccurrence } from '../util/schedule';
@@ -33,6 +36,21 @@
   let url = $state('');
   let filename = $state('');
   let category = $state<Category | 'auto'>('auto');
+  // The disk to save on (SPEC 6.14). Untouched, it is the default disk; the dialog asks the server
+  // for the disks every time it opens, since one may have been mounted since.
+  let diskChoice = $state<string | null>(null);
+  const disk = $derived(diskChoice ?? startingDisk(disks.value));
+  $effect(() => {
+    if (!addDialog.open) return;
+    untrack(() => {
+      diskChoice = null;
+      void disks.load();
+    });
+  });
+  /** What the add request says about the disk: nothing where there is nothing to choose from. */
+  function diskFields(): { disk?: string } {
+    return disks.choosable ? { disk } : {};
+  }
   let busy = $state(false);
   let error = $state<string | null>(null);
   let conflict = $state<Conflict | null>(null);
@@ -268,6 +286,7 @@
           url: file.url,
           category: category === 'auto' ? undefined : category,
           credentials: login,
+          ...diskFields(),
           ...startFields(),
         });
         tally(summary, 'added');
@@ -294,6 +313,7 @@
     url = '';
     trail = [];
     category = 'auto';
+    diskChoice = null;
     startNow = false;
     startLater = false;
     resetLogin();
@@ -312,6 +332,7 @@
         on_conflict: onConflict,
         ignore_space: ignoreSpace || undefined,
         credentials: login,
+        ...diskFields(),
         ...startFields(),
         ...checksumFields(),
       });
@@ -322,6 +343,7 @@
       url = '';
       filename = '';
       category = 'auto';
+      diskChoice = null;
       startNow = false;
       startLater = false;
       verifyOn = false;
@@ -544,6 +566,10 @@
         </select>
       </div>
     </div>
+
+    {#if disks.choosable && disks.value}
+      <DiskSelect id="add-disk" disks={disks.value} value={disk} onchange={(name) => (diskChoice = name)} />
+    {/if}
 
     {#if !listing}
       <div class="grid gap-2" data-part="checksum-options">

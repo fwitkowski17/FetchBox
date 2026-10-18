@@ -3,7 +3,10 @@
   // will still write, and the numbers next to it. Amber from 85 %, red from 95 % or when the
   // queue does not fit.
   import { i18n, t } from '../i18n';
+  import { untrack } from 'svelte';
   import { disk } from '../stores/disk.svelte';
+  import { disks } from '../stores/disks.svelte';
+  import { settings } from '../stores/settings.svelte';
   import { diskView } from '../util/disk';
   import { formatPercent } from '../util/format';
 
@@ -17,6 +20,21 @@
   const TEXT = { ok: 'text-muted', warn: 'text-warning', full: 'text-danger' } as const;
 
   const value = $derived(disk.value);
+
+  // The ring shows the disk new downloads go to, so it follows a change of the default.
+  $effect(() => {
+    void settings.value?.default_disk;
+    untrack(() => {
+      void disk.refresh();
+      void disks.load();
+    });
+  });
+  /** Which disk it is, when there is more than one to tell apart. */
+  const diskName = $derived.by(() => {
+    const found = disks.value;
+    if (!found?.choosable) return null;
+    return found.default === '' ? t('disks.main') : found.default;
+  });
   const view = $derived(value ? diskView(value) : null);
   // Percent of the circle, for `pathLength="100"`.
   const usedLen = $derived(view ? view.used * 100 : 0);
@@ -77,6 +95,9 @@
     <div class="min-w-0 text-sm leading-tight">
       <p class="font-semibold text-text">{t('disk.free', { size: i18n.bytes(value.available) })}</p>
       <p class="text-muted">{t('disk.of', { size: i18n.bytes(value.total) })}</p>
+      {#if diskName}
+        <p class="truncate font-medium text-muted" title={diskName} data-part="disk-name">{diskName}</p>
+      {/if}
       {#if view.short > 0}
         <p class={['mt-0.5 font-medium', TEXT.full]} role="status" data-part="disk-short">
           {t('disk.short', { size: i18n.bytes(view.short) })}

@@ -82,6 +82,10 @@
     <dt class={LABEL}>{t('torrent.field.files')}</dt>
     <dd class="tabular-nums">{torrent.file_count > 0 ? torrent.file_count : '—'}</dd>
   </div>
+  <div class="grid gap-1" data-part="torrent-disk">
+    <dt class={LABEL}>{t('torrent.field.disk')}</dt>
+    <dd>{torrent.disk === '' ? t('disks.main') : torrent.disk}</dd>
+  </div>
   <div class="grid gap-1">
     <dt class={LABEL}>{t('torrent.field.added')}</dt>
     <dd>{i18n.date(torrent.added_at)}</dd>

@@ -41,6 +41,7 @@ function torrent(over: Partial<Torrent> = {}): Torrent {
     hold: null,
     starts_at: null,
     start_now: false,
+    disk: '',
     ...over,
   };
 }

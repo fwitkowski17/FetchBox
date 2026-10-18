@@ -526,13 +526,14 @@ impl Inner {
     }
 }
 
-/// Download directory plus the (sanitized) subdirectory, if any.
+/// Download directory plus the (sanitized) subdirectory, if any. The subdirectory may be a path of
+/// several names (`ssd1/video`: a disk and a category folder, SPEC 6.14); each name is made safe on
+/// its own and `.` and `..` are dropped, so no part of it can climb out of the download directory.
 fn target_dir(base: &Path, subdir: &str) -> PathBuf {
-    if subdir.is_empty() {
-        base.to_owned()
-    } else {
-        base.join(sanitize(subdir))
-    }
+    subdir
+        .split('/')
+        .filter(|part| !matches!(*part, "" | "." | ".."))
+        .fold(base.to_owned(), |dir, part| dir.join(sanitize(part)))
 }
 
 fn part_path(dir: &Path, id: Id, filename: &str) -> PathBuf {
@@ -1461,6 +1462,20 @@ mod tests {
             PathBuf::from("/downloads/etc")
         );
         assert_eq!(target_dir(base, "/etc"), PathBuf::from("/downloads/etc"));
+        // A disk and a category folder are two names, each made safe on its own.
+        assert_eq!(
+            target_dir(base, "ssd1/video"),
+            PathBuf::from("/downloads/ssd1/video")
+        );
+        assert_eq!(
+            target_dir(base, "ssd1/../video"),
+            PathBuf::from("/downloads/ssd1/video")
+        );
+        assert_eq!(
+            target_dir(base, "../../etc/passwd"),
+            PathBuf::from("/downloads/etc/passwd")
+        );
+        assert_eq!(target_dir(base, "a\\b/.."), PathBuf::from("/downloads/b"));
     }
 
     #[tokio::test]

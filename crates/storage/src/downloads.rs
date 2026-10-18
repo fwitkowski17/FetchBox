@@ -16,8 +16,10 @@ pub struct NewDownload {
     pub source_kind: SourceKind,
     /// Replace an existing file with the same name when the download finishes.
     pub overwrite: bool,
-    /// Subdirectory below the download directory; empty = none.
+    /// Subdirectory below the disk; empty = none.
     pub subdir: String,
+    /// The disk (a folder of the download directory) it is saved on; empty = the directory itself.
+    pub disk: String,
     /// The user added it although it did not fit; the engine does not check free space for it.
     pub ignore_space: bool,
     /// Do not start before this moment (unix seconds).
@@ -31,13 +33,13 @@ pub struct NewDownload {
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, disk";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
     conn.execute(
-        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space, start_at, start_now, checksum_algo, checksum_expected, username, password)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO downloads (url, filename, category, source_kind, overwrite, subdir, ignore_space, start_at, start_now, checksum_algo, checksum_expected, username, password, disk)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             new.url,
             new.filename,
@@ -51,7 +53,8 @@ pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
             new.checksum.as_ref().map(|(a, _)| a.as_str()),
             new.checksum.as_ref().map(|(_, v)| v.as_str()),
             new.credentials.as_ref().map(|c| c.username.as_str()),
-            new.credentials.as_ref().map(|c| c.password.as_str())
+            new.credentials.as_ref().map(|c| c.password.as_str()),
+            new.disk
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -217,9 +220,10 @@ pub fn find_by_url(conn: &Connection, url: &str) -> Result<Vec<Download>> {
     rows.map(|r| r?).collect()
 }
 
-/// Unfinished download (queued, downloading, paused) that will produce `subdir/filename`.
+/// Unfinished download (queued, downloading, paused) that will produce `disk/subdir/filename`.
 pub fn find_unfinished_by_filename(
     conn: &Connection,
+    disk: &str,
     subdir: &str,
     filename: &str,
 ) -> Result<Option<Download>> {
@@ -227,11 +231,11 @@ pub fn find_unfinished_by_filename(
         .query_row(
             &format!(
                 "SELECT {COLUMNS} FROM downloads
-                  WHERE filename = ?1 AND subdir = ?2
+                  WHERE filename = ?1 AND subdir = ?2 AND disk = ?3
                     AND status IN ('queued', 'downloading', 'paused')
                   ORDER BY id LIMIT 1"
             ),
-            params![filename, subdir],
+            params![filename, subdir, disk],
             read_row,
         )
         .optional()?;
@@ -375,6 +379,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let verified = row.get(19)?;
     let verify_failed = row.get(20)?;
     let username = row.get(21)?;
+    let disk = row.get(22)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -394,6 +399,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             error,
             username,
             subdir,
+            disk,
             speed: 0,
             waiting_space,
             archived,
@@ -433,6 +439,7 @@ mod tests {
             start_at: None,
             start_now: false,
             subdir: String::new(),
+            disk: String::new(),
             checksum: None,
             credentials: None,
         }
@@ -640,12 +647,12 @@ mod tests {
         let conn = open_in_memory().expect("db");
         let a = insert(&conn, &new("http://x/a")).expect("a");
         assert_eq!(find_by_url(&conn, "http://x/a").expect("f").len(), 1);
-        assert!(find_unfinished_by_filename(&conn, "", "f.bin")
+        assert!(find_unfinished_by_filename(&conn, "", "", "f.bin")
             .expect("f")
             .is_some());
         set_status(&conn, a, Status::Completed, None).expect("s");
         assert_eq!(find_by_url(&conn, "http://x/a").expect("f").len(), 1);
-        assert!(find_unfinished_by_filename(&conn, "", "f.bin")
+        assert!(find_unfinished_by_filename(&conn, "", "", "f.bin")
             .expect("f")
             .is_none());
         set_status(&conn, a, Status::Cancelled, None).expect("s");
@@ -732,18 +739,48 @@ mod tests {
     }
 
     #[test]
+    fn name_reservation_is_per_disk() {
+        let conn = open_in_memory().expect("db");
+        let mut n = new("http://x/a");
+        n.disk = "ssd1".into();
+        n.subdir = "video".into();
+        insert(&conn, &n).expect("insert");
+        assert!(find_unfinished_by_filename(&conn, "ssd1", "video", "f.bin")
+            .expect("f")
+            .is_some());
+        // The same folder on another disk, or on the download directory, is another place.
+        for disk in ["", "hdd10tb"] {
+            assert!(find_unfinished_by_filename(&conn, disk, "video", "f.bin")
+                .expect("f")
+                .is_none());
+        }
+        let d = list(&conn).expect("list");
+        assert_eq!(
+            (d[0].disk.as_str(), d[0].subdir.as_str()),
+            ("ssd1", "video")
+        );
+    }
+
+    #[test]
+    fn a_download_from_before_disks_is_on_the_download_directory() {
+        let conn = open_in_memory().expect("db");
+        insert(&conn, &new("http://x/a")).expect("insert");
+        assert_eq!(list(&conn).expect("list")[0].disk, "");
+    }
+
+    #[test]
     fn name_reservation_is_per_subdirectory() {
         let conn = open_in_memory().expect("db");
         let mut n = new("http://x/a");
         n.subdir = "video".into();
         insert(&conn, &n).expect("insert");
-        assert!(find_unfinished_by_filename(&conn, "video", "f.bin")
+        assert!(find_unfinished_by_filename(&conn, "", "video", "f.bin")
             .expect("f")
             .is_some());
-        assert!(find_unfinished_by_filename(&conn, "", "f.bin")
+        assert!(find_unfinished_by_filename(&conn, "", "", "f.bin")
             .expect("f")
             .is_none());
-        assert!(find_unfinished_by_filename(&conn, "music", "f.bin")
+        assert!(find_unfinished_by_filename(&conn, "", "music", "f.bin")
             .expect("f")
             .is_none());
         let d = list(&conn).expect("list");

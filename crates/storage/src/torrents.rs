@@ -27,6 +27,11 @@ pub struct StoredTorrent {
     pub error: Option<String>,
     /// The torrent hours do not apply to it ("Start now").
     pub start_now: bool,
+    /// The disk it is saved on (a folder of the download directory); empty = the directory itself.
+    pub disk: String,
+    /// The folder the engine writes it to, relative to the download directory; empty = the
+    /// engine's default (`torrents/`).
+    pub output: String,
 }
 
 /// What is needed to add a torrent.
@@ -38,10 +43,12 @@ pub struct NewTorrent<'a> {
     pub metainfo: Option<&'a [u8]>,
     pub size: Option<u64>,
     pub file_count: u32,
+    pub disk: &'a str,
+    pub output: &'a str,
 }
 
 const COLUMNS: &str = "id, info_hash, name, magnet, metainfo IS NOT NULL, size, file_count, \
-                       paused, uploaded, added_at, finished_at, error, start_now";
+                       paused, uploaded, added_at, finished_at, error, start_now, disk, output";
 
 fn count(v: i64) -> u64 {
     u64::try_from(v).unwrap_or(0)
@@ -64,6 +71,8 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<StoredTorrent> {
         finished_at: row.get(10)?,
         error: row.get(11)?,
         start_now: row.get(12)?,
+        disk: row.get(13)?,
+        output: row.get(14)?,
     })
 }
 
@@ -75,15 +84,17 @@ fn num(v: u64) -> i64 {
 /// a constraint error.
 pub fn insert(conn: &Connection, t: &NewTorrent<'_>) -> Result<StoredTorrent> {
     conn.execute(
-        "INSERT INTO torrents (info_hash, name, magnet, metainfo, size, file_count)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO torrents (info_hash, name, magnet, metainfo, size, file_count, disk, output)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             t.info_hash,
             t.name,
             t.magnet,
             t.metainfo,
             t.size.map(num),
-            t.file_count
+            t.file_count,
+            t.disk,
+            t.output
         ],
     )?;
     get(conn, conn.last_insert_rowid())?
@@ -214,6 +225,8 @@ mod tests {
             metainfo: None,
             size: None,
             file_count: 0,
+            disk: "",
+            output: "",
         }
     }
 
@@ -250,6 +263,26 @@ mod tests {
         // A description without the file keeps the file that is stored.
         set_description(&conn, t.id, "Ubuntu 24", 4_000_000_000, 1, None).expect("again");
         assert!(metainfo(&conn, t.id).expect("bytes").is_some());
+    }
+
+    #[test]
+    fn a_torrent_keeps_the_disk_and_folder_it_was_added_with() {
+        let conn = open_in_memory().expect("db");
+        // From before disks: the download directory and the engine's own folder.
+        let old = insert(&conn, &magnet_row()).expect("insert");
+        assert_eq!((old.disk.as_str(), old.output.as_str()), ("", ""));
+        let other = NewTorrent {
+            info_hash: "1123456789abcdef0123456789abcdef01234567",
+            disk: "ssd1",
+            output: "ssd1/torrents/Name",
+            ..magnet_row()
+        };
+        let t = insert(&conn, &other).expect("insert");
+        let read = get(&conn, t.id).expect("get").expect("there");
+        assert_eq!(
+            (read.disk.as_str(), read.output.as_str()),
+            ("ssd1", "ssd1/torrents/Name")
+        );
     }
 
     #[test]

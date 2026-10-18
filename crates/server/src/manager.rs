@@ -23,15 +23,16 @@ use async_trait::async_trait;
 use fetchbox_api::service::Service;
 use fetchbox_core::category::detect as detect_category;
 use fetchbox_core::checksum::normalize as normalize_checksum;
+use fetchbox_core::disks::rel_dir;
 use fetchbox_core::filename::sanitize;
 use fetchbox_core::limiter::RateLimiter;
 use fetchbox_core::schedule::Gate;
 use fetchbox_core::scheduler::Scheduler;
 use fetchbox_core::{
-    AddRequest, AddTorrentRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace,
-    Download, Downloader, Error, Event, Hold, Id, InstallMethod, Job, KnownHost, OnConflict,
-    OnHoursEnd, Result, Settings, SourceKind, Stats, StatsRange, Status, Torrent, TorrentFile,
-    TorrentPeers, TrustHost, UrlInfo, UrlKind, VersionInfo,
+    AddRequest, AddTorrentRequest, Category, Conflict, ConflictKind, Credentials, DiskInfo,
+    DiskSpace, Disks, Download, Downloader, Error, Event, Hold, Id, InstallMethod, Job, KnownHost,
+    OnConflict, OnHoursEnd, Result, Settings, SourceKind, Stats, StatsRange, Status, Torrent,
+    TorrentFile, TorrentPeers, TrustHost, UrlInfo, UrlKind, VersionInfo,
 };
 use fetchbox_http_engine::{
     candidates, source, verify::hash_file, EngineError, HttpDownloader, UrlPolicy,
@@ -574,11 +575,14 @@ impl Manager {
             return Ok(false);
         }
         let s = self.current_settings();
+        // A disk that is not mounted is an empty folder on the system disk: writing there would
+        // fill the wrong disk, so the download fails (and can be resumed once it is back).
+        self.disk_dir(&d.disk)?;
         let job = Job {
             id,
             url: d.url,
             filename: d.filename,
-            subdir: d.subdir,
+            subdir: rel_dir(&d.disk, &d.subdir),
             connections: s.connections,
             speed_limit: d.speed_limit,
             etag: d.etag,
@@ -772,8 +776,9 @@ impl Manager {
     // ---- conflicts -----------------------------------------------------------------
 
     /// First file name that is free on disk and not claimed by an unfinished download.
-    async fn free_name(&self, subdir: &str, name: &str) -> Result<String> {
-        for path in candidates(&self.dir.join(subdir), name).take(10_000) {
+    async fn free_name(&self, disk: &str, subdir: &str, name: &str) -> Result<String> {
+        let dir = self.engine.dir_for(&rel_dir(disk, subdir));
+        for path in candidates(&dir, name).take(10_000) {
             let cand = path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -783,7 +788,7 @@ impl Manager {
                 continue;
             }
             if self
-                .with_db(|c| downloads::find_unfinished_by_filename(c, subdir, &cand))?
+                .with_db(|c| downloads::find_unfinished_by_filename(c, disk, subdir, &cand))?
                 .is_some()
             {
                 continue;
@@ -794,13 +799,20 @@ impl Manager {
     }
 
     /// The most relevant collision for `url`/`name`, if any.
-    async fn detect_conflict(&self, url: &str, subdir: &str, name: &str) -> Result<Detected> {
+    async fn detect_conflict(
+        &self,
+        url: &str,
+        disk: &str,
+        subdir: &str,
+        name: &str,
+    ) -> Result<Detected> {
         let dup = self
             .with_db(|c| downloads::find_by_url(c, url))?
             .into_iter()
             .next();
-        let reserved = self.with_db(|c| downloads::find_unfinished_by_filename(c, subdir, name))?;
-        let on_disk = tokio::fs::metadata(self.dir.join(subdir).join(name))
+        let reserved =
+            self.with_db(|c| downloads::find_unfinished_by_filename(c, disk, subdir, name))?;
+        let on_disk = tokio::fs::metadata(self.engine.dir_for(&rel_dir(disk, subdir)).join(name))
             .await
             .ok();
         let name_reserved = reserved.is_some();
@@ -808,7 +820,7 @@ impl Manager {
         if dup.is_none() && !name_taken {
             return Ok(Detected::default());
         }
-        let suggested_name = self.free_name(subdir, name).await?;
+        let suggested_name = self.free_name(disk, subdir, name).await?;
 
         let conflict = if let Some(d) = dup {
             Conflict {
@@ -860,7 +872,10 @@ impl Manager {
                 d.filename
             )));
         }
-        let path = self.engine.dir_for(&d.subdir).join(&d.filename);
+        let path = self
+            .engine
+            .dir_for(&rel_dir(&d.disk, &d.subdir))
+            .join(&d.filename);
         match tokio::fs::remove_file(&path).await {
             Ok(()) => {
                 tracing::info!(id = d.id, path = %path.display(), "deleted the downloaded file");
@@ -894,7 +909,8 @@ impl Manager {
             Ok(()) | Err(Error::NotFound(_)) => {}
             Err(e) => return Err(e),
         }
-        self.remove_part(d.id, &d.subdir, &d.filename).await;
+        self.remove_part(d.id, &rel_dir(&d.disk, &d.subdir), &d.filename)
+            .await;
         let ms = self.active_stop(d.id);
         self.with_db(|c| {
             segments::replace(c, d.id, &[])?;
@@ -949,7 +965,10 @@ impl Manager {
             self.forget_verification(id, &job);
             return;
         };
-        let path = self.engine.dir_for(&d.subdir).join(&d.filename);
+        let path = self
+            .engine
+            .dir_for(&rel_dir(&d.disk, &d.subdir))
+            .join(&d.filename);
         // The progress bar: how much of the file has been read.
         let ticker = {
             let (me, job, total) = (Arc::clone(&self), Arc::clone(&job), d.size);
@@ -1038,6 +1057,35 @@ impl Manager {
         }
     }
 
+    /// The directory of a disk that can be written to now (SPEC 6.14): the download directory for
+    /// the empty name, otherwise a folder of it that is a file system of its own.
+    fn disk_dir(&self, name: &str) -> Result<PathBuf> {
+        fetchbox_http_engine::disk::disk_path(&self.dir, name)
+            .map_err(|e| Error::InvalidInput(e.to_string()))
+    }
+
+    /// A disk with its space, or `None` (logged) when the space cannot be read.
+    fn disk_info(
+        &self,
+        name: &str,
+        path: &std::path::Path,
+        env: &fetchbox_http_engine::disk::Environment,
+    ) -> Option<DiskInfo> {
+        let vol = fetchbox_http_engine::disk::volume(path)
+            .inspect_err(
+                |e| tracing::warn!(disk = name, error = %e, "cannot read the space of a disk"),
+            )
+            .ok()?;
+        Some(DiskInfo {
+            name: name.to_owned(),
+            path: path.display().to_string(),
+            total: vol.space.total,
+            available: vol.space.available,
+            reserved: self.reserved_on(vol.dev).unwrap_or(0),
+            warning: fetchbox_http_engine::disk::warning_for(env, name.is_empty(), vol.dev),
+        })
+    }
+
     /// Bytes that the running downloads still have to write on file system `dev`: the space
     /// reserved for them. "Running" means holding a download slot, whether or not the engine has
     /// reported its start yet, so two downloads added in quick succession see each other.
@@ -1045,7 +1093,7 @@ impl Manager {
     /// cancelled ones reserve nothing. A running download's reservation shrinks as the disk fills.
     fn reserved_on(&self, dev: u64) -> Result<u64> {
         let all = self.with_db(|c| downloads::list(c))?;
-        // Category subdirectories may sit on other disks; look each directory up once.
+        // Disks and category subdirectories may sit on other file systems; look each directory up once.
         let mut same_disk: HashMap<String, bool> = HashMap::new();
         let mut total = 0u64;
         for d in all {
@@ -1056,8 +1104,9 @@ impl Manager {
             }
             let d = self.view(d);
             let Some(size) = d.size else { continue };
-            let here = *same_disk.entry(d.subdir.clone()).or_insert_with(|| {
-                fetchbox_http_engine::disk::volume(&self.engine.dir_for(&d.subdir))
+            let rel = rel_dir(&d.disk, &d.subdir);
+            let here = *same_disk.entry(rel.clone()).or_insert_with(|| {
+                fetchbox_http_engine::disk::volume(&self.engine.dir_for(&rel))
                     .map_or(true, |v| v.dev == dev)
             });
             if here {
@@ -1075,8 +1124,10 @@ impl Manager {
     ///   downloads still have to write; the user decides (`ignore_space`).
     ///
     /// A disk whose space cannot be read is not checked: that must not stop downloads.
-    fn check_room(&self, subdir: &str, needed: u64) -> Result<bool> {
-        let vol = match fetchbox_http_engine::disk::volume(&self.engine.dir_for(subdir)) {
+    fn check_room(&self, disk: &str, subdir: &str, needed: u64) -> Result<bool> {
+        let vol = match fetchbox_http_engine::disk::volume(
+            &self.engine.dir_for(&rel_dir(disk, subdir)),
+        ) {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(error = %e, "cannot read free disk space; skipping the check");
@@ -1263,7 +1314,14 @@ impl Service for Manager {
         let category = req
             .category
             .unwrap_or_else(|| detect_category(&name, info.content_type.as_deref()));
-        // Decided once, now: later setting changes or category edits never move a download.
+        // Decided once, now: later setting changes or category edits never move a download, and
+        // neither does a later change of the default disk.
+        let settings_now = self.current_settings();
+        let disk = req
+            .disk
+            .clone()
+            .unwrap_or_else(|| settings_now.default_disk.clone());
+        self.disk_dir(&disk)?;
         let subdir = if self.current_settings().category_subdirs {
             category.as_str().to_owned()
         } else {
@@ -1288,12 +1346,12 @@ impl Service for Manager {
             // the lock, so two adds cannot both claim the last free gigabytes.
             // `ignore_space`: the user knows better (files may be moved away before it starts).
             let hold = match (info.size, req.ignore_space) {
-                (Some(size), false) => self.check_room(&subdir, size).inspect_err(|e| {
+                (Some(size), false) => self.check_room(&disk, &subdir, size).inspect_err(|e| {
                     tracing::info!(target: "activity", %name, error = %e, "download refused: it does not fit on the disk");
                 })?,
                 _ => false,
             };
-            let found = self.detect_conflict(&url, &subdir, &name).await?;
+            let found = self.detect_conflict(&url, &disk, &subdir, &name).await?;
             let (filename, overwrite) = match (found.conflict, req.on_conflict) {
                 (None, _) => (name, false),
                 (Some(c), OnConflict::Reject) => return Err(Error::Conflict(Box::new(c))),
@@ -1320,6 +1378,7 @@ impl Service for Manager {
                         overwrite,
                         ignore_space: req.ignore_space,
                         subdir,
+                        disk: disk.clone(),
                         start_at: req.start_at,
                         start_now: req.start_now,
                         checksum,
@@ -1346,6 +1405,7 @@ impl Service for Manager {
             id,
             name = %self.name_of(id),
             category = category.as_str(),
+            disk = %logfmt::disk_label(&disk),
             size = %info.size.map_or_else(|| "unknown".to_owned(), logfmt::bytes),
             from = %from,
             "download added"
@@ -1423,7 +1483,12 @@ impl Service for Manager {
             let ignore = self.with_db(|c| downloads::ignore_space_flag(c, id))?;
             let needed = size.saturating_sub(d.downloaded);
             if !ignore {
-                if let Ok(v) = fetchbox_http_engine::disk::volume(&self.engine.dir_for(&d.subdir)) {
+                // The disk has to be there: the nearest existing parent of a missing one is the
+                // system disk, whose space says nothing.
+                self.disk_dir(&d.disk)?;
+                if let Ok(v) = fetchbox_http_engine::disk::volume(
+                    &self.engine.dir_for(&rel_dir(&d.disk, &d.subdir)),
+                ) {
                     if needed > v.space.available {
                         return Err(Error::InsufficientSpace {
                             needed,
@@ -1572,11 +1637,31 @@ impl Service for Manager {
         self.get(id).map(|d| self.view(d))
     }
 
-    async fn disk_space(&self) -> Result<DiskSpace> {
-        let vol = fetchbox_http_engine::disk::volume(&self.dir).map_err(io_err)?;
+    async fn disk_space(&self, disk: Option<String>) -> Result<DiskSpace> {
+        let name = disk.unwrap_or_else(|| self.current_settings().default_disk);
+        let dir = self.disk_dir(&name)?;
+        let vol = fetchbox_http_engine::disk::volume(&dir).map_err(io_err)?;
         let mut space = vol.space;
         space.reserved = self.reserved_on(vol.dev)?;
         Ok(space)
+    }
+
+    async fn disks(&self) -> Result<Disks> {
+        let default = self.current_settings().default_disk;
+        let env = fetchbox_http_engine::disk::Environment::detect();
+        let mut disks = Vec::new();
+        disks.extend(self.disk_info("", &self.dir, &env));
+        for found in fetchbox_http_engine::disk::find_disks(&self.dir).map_err(io_err)? {
+            disks.extend(self.disk_info(&found.name, &found.path, &env));
+        }
+        let default_available = default.is_empty() || disks.iter().any(|d| d.name == default);
+        Ok(Disks {
+            choosable: disks.len() > 1,
+            disks,
+            default,
+            default_available,
+            unmounted: fetchbox_http_engine::disk::find_unmounted(&self.dir).unwrap_or_default(),
+        })
     }
 
     async fn stats(&self, range: StatsRange, offset_minutes: i32) -> Result<Stats> {
@@ -1607,6 +1692,16 @@ impl Service for Manager {
             )));
         }
         let old = self.current_settings();
+        // A new default has to be usable now; the one that is already stored may be gone for a
+        // while (a disk that is not mounted) without blocking every other change of the settings.
+        if new.default_disk != old.default_disk {
+            self.disk_dir(&new.default_disk)?;
+        }
+        if new.torrent_default_disk != old.torrent_default_disk {
+            if let Some(disk) = &new.torrent_default_disk {
+                self.disk_dir(disk)?;
+            }
+        }
         self.with_db(|c| settings::save(c, &new))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
         let changes = logfmt::settings_changes(&old, &new);
@@ -1644,8 +1739,8 @@ impl Service for Manager {
         self.torrent_add_magnet(req).await
     }
 
-    async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<Torrent> {
-        self.torrent_add_file(bytes).await
+    async fn add_torrent_file(&self, bytes: Vec<u8>, disk: Option<String>) -> Result<Torrent> {
+        self.torrent_add_file(bytes, disk).await
     }
 
     async fn pause_torrent(&self, id: Id) -> Result<Torrent> {
