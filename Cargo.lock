@@ -1318,15 +1318,21 @@ dependencies = [
 name = "fetchbox-plugins"
 version = "0.9.1"
 dependencies = [
+ "axum",
  "fetchbox-core",
+ "fetchbox-http-engine",
  "flate2",
+ "futures-util",
  "getrandom 0.3.4",
  "lzma-rust2",
+ "reqwest 0.12.28",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
  "zip",
 ]

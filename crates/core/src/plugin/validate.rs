@@ -594,6 +594,14 @@ pub fn validate(m: &Manifest) -> Check {
             if g.assets.is_empty() {
                 return Err(format!("{name}: `github.assets` is empty"));
             }
+            match &g.sha256_asset {
+                Some(a) if !a.is_empty() && !a.contains(['/', '\\']) => {}
+                _ => {
+                    return Err(format!(
+                        "{name}: `github.sha256_asset` is required (the release asset that lists the SHA-256 of the others)"
+                    ));
+                }
+            }
             for (p, a) in &g.assets {
                 if !PLATFORMS.contains(&p.as_str()) {
                     return Err(format!("{name}: unknown platform \"{p}\""));
@@ -808,8 +816,7 @@ mod tests {
         });
         assert!(e.contains("bin"), "{e}");
         let e = err_of(base(), |v| {
-            v["dependencies"][0]["github"] =
-                serde_json::json!({"repo": "o/r", "assets": {"linux-x86_64": "x"}});
+            v["dependencies"][0]["github"] = serde_json::json!({"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SUMS"});
         });
         assert!(e.contains("not both"), "{e}");
         let e = err_of(base(), |v| {
@@ -820,9 +827,26 @@ mod tests {
             v["dependencies"]
                 .as_array_mut()
                 .expect("array")
-                .push(serde_json::json!({"id": "tool", "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}}}));
+                .push(serde_json::json!({"id": "tool", "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SUMS"}}));
         });
         assert!(e.contains("twice"), "{e}");
+    }
+
+    #[test]
+    fn a_github_dependency_must_name_its_checksum_asset() {
+        let e = err_of(base(), |v| {
+            v["dependencies"][0] = serde_json::json!({
+                "id": "tool",
+                "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}}
+            });
+        });
+        assert!(e.contains("sha256_asset"), "{e}");
+        let mut v = base();
+        v["dependencies"][0] = serde_json::json!({
+            "id": "tool",
+            "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SHA2-256SUMS"}
+        });
+        check(v).expect("valid");
     }
 
     #[test]

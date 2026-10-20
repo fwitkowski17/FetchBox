@@ -3,6 +3,8 @@
 //! programs. The manifest types and the pure rules live in `fetchbox_core::plugin`.
 
 pub mod archive;
+pub mod deps;
+pub mod fetch;
 pub mod install;
 
 use std::io;
@@ -18,6 +20,10 @@ pub enum Error {
     /// `plugin.json` is missing, unreadable or invalid.
     #[error("{0}")]
     Manifest(String),
+    /// A download failed: the address is not allowed, the server refused, the file is the wrong
+    /// size, or its checksum does not match.
+    #[error("{0}")]
+    Fetch(String),
     /// The thing asked for is not there (an unknown staged token, a plugin that is not installed).
     #[error("{0}")]
     NotFound(String),
@@ -28,6 +34,7 @@ impl From<Error> for fetchbox_core::Error {
         match e {
             Error::Archive(m) | Error::Manifest(m) => fetchbox_core::Error::InvalidInput(m),
             Error::NotFound(m) => fetchbox_core::Error::Missing(m),
+            Error::Fetch(m) => fetchbox_core::Error::Engine(m),
             Error::Io(e) => fetchbox_core::Error::Internal(e.to_string()),
         }
     }
