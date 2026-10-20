@@ -895,3 +895,285 @@ async fn a_webhook_action_posts_to_the_address_in_the_settings() {
         .expect_err("unknown");
     assert!(invalid(e).contains("not an action"));
 }
+
+// ---- over HTTP --------------------------------------------------------------------
+
+async fn serve(mgr: Arc<Manager>, auth: Arc<fetchbox_api::Auth>) -> String {
+    let app = fetchbox_api::router(mgr, auth);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}/api", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    base
+}
+
+/// `reqwest` is built without its `json` feature here: a JSON body is a string and a header.
+trait JsonBody {
+    fn jbody(self, v: Value) -> Self;
+}
+
+impl JsonBody for reqwest::RequestBuilder {
+    fn jbody(self, v: Value) -> Self {
+        self.header("content-type", "application/json")
+            .body(v.to_string())
+    }
+}
+
+async fn answer(r: reqwest::Response) -> (u16, Value) {
+    let status = r.status().as_u16();
+    let text = r.text().await.unwrap_or_default();
+    (status, serde_json::from_str(&text).unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn the_plugin_routes_need_a_session() {
+    let rig = Rig::new().await;
+    let api = serve(
+        rig.mgr.clone(),
+        fetchbox_api::Auth::with_password("correct horse"),
+    )
+    .await;
+    let http = reqwest::Client::new();
+    for (method, path) in [
+        ("GET", "/plugins"),
+        ("POST", "/plugin-rescan"),
+        ("POST", "/plugin-staging"),
+        ("DELETE", "/plugin-staging/abc"),
+        ("PATCH", "/plugins/demo"),
+        ("DELETE", "/plugins/demo"),
+        ("PUT", "/plugins/demo/settings"),
+        ("POST", "/plugins/demo/actions/x"),
+        ("GET", "/plugins/demo/logs"),
+    ] {
+        let r = http
+            .request(method.parse().expect("method"), format!("{api}{path}"))
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(r.status().as_u16(), 401, "{method} {path}");
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_can_be_installed_used_and_removed_over_http() {
+    let rig = Rig::new().await;
+    let api = serve(rig.mgr.clone(), fetchbox_api::Auth::disabled()).await;
+    let http = reqwest::Client::new();
+    let m = manifest(
+        "demo",
+        json!({
+            "settings": [{"key": "name", "type": "text"}, {"key": "token", "type": "secret"}],
+            "ui": {"actions": [{"id": "open", "label": "Open", "kind": "open_dialog", "dialog": "d"}],
+                   "dialogs": [{"id": "d", "title": "D"}]}
+        }),
+    );
+
+    // The ZIP must say it is one.
+    let r = http
+        .post(format!("{api}/plugin-staging"))
+        .header("content-type", "text/plain")
+        .body(package(&m, false))
+        .send()
+        .await
+        .expect("post");
+    let (status, body) = answer(r).await;
+    assert_eq!(status, 400);
+    assert!(body["error"]
+        .as_str()
+        .expect("error")
+        .contains("application/zip"));
+
+    let r = http
+        .post(format!("{api}/plugin-staging"))
+        .header("content-type", "application/zip")
+        .body(package(&m, false))
+        .send()
+        .await
+        .expect("post");
+    let (status, staged) = answer(r).await;
+    assert_eq!(status, 201, "{staged}");
+    assert_eq!(staged["id"], "demo");
+    let token = staged["token"].as_str().expect("token").to_owned();
+
+    let (status, view) = answer(
+        http.post(format!("{api}/plugin-staging/{token}/install"))
+            .send()
+            .await
+            .expect("post"),
+    )
+    .await;
+    assert_eq!(status, 201, "{view}");
+    assert_eq!(view["state"], "disabled");
+
+    let (status, list) = answer(
+        http.get(format!("{api}/plugins"))
+            .send()
+            .await
+            .expect("get"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(list["available"], true);
+    assert_eq!(list["plugins"][0]["id"], "demo");
+
+    // JSON bodies must be JSON.
+    let r = http
+        .patch(format!("{api}/plugins/demo"))
+        .header("content-type", "text/plain")
+        .body(r#"{"enabled":true}"#)
+        .send()
+        .await
+        .expect("patch");
+    assert_eq!(r.status().as_u16(), 415);
+    let r = http
+        .patch(format!("{api}/plugins/demo"))
+        .jbody(json!({"enabled": true}))
+        .send()
+        .await
+        .expect("patch");
+    let (status, view) = answer(r).await;
+    assert_eq!(status, 200, "{view}");
+    rig.wait_for("demo", PluginState::Ready).await;
+
+    // Settings: store, then clear; the secret is never in an answer.
+    let r = http
+        .put(format!("{api}/plugins/demo/settings"))
+        .jbody(json!({"values": {"name": "Filip", "token": "s3cret-value"}}))
+        .send()
+        .await
+        .expect("put");
+    let (status, view) = answer(r).await;
+    assert_eq!(status, 200, "{view}");
+    assert!(!view.to_string().contains("s3cret-value"));
+    assert_eq!(view["settings"][1]["has_value"], true);
+    let r = http
+        .put(format!("{api}/plugins/demo/settings"))
+        .jbody(json!({"clear": ["name"]}))
+        .send()
+        .await
+        .expect("put");
+    let (_, view) = answer(r).await;
+    assert_eq!(view["settings"][0]["has_value"], false);
+    assert_eq!(view["settings"][1]["has_value"], true, "left out stays");
+    let r = http
+        .put(format!("{api}/plugins/demo/settings"))
+        .jbody(json!({"values": {"ghost": "x"}}))
+        .send()
+        .await
+        .expect("put");
+    assert_eq!(r.status().as_u16(), 400);
+
+    // An action: pressed by name, with input.
+    let r = http
+        .post(format!("{api}/plugins/demo/actions/open"))
+        .jbody(json!({}))
+        .send()
+        .await
+        .expect("post");
+    let (status, result) = answer(r).await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(result["open_dialog"], "d");
+    let r = http
+        .post(format!("{api}/plugins/demo/actions/nope"))
+        .jbody(json!({}))
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(r.status().as_u16(), 404);
+
+    let (status, logs) = answer(
+        http.get(format!("{api}/plugins/demo/logs"))
+            .send()
+            .await
+            .expect("get"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(logs["lines"], json!([]));
+
+    let r = http
+        .delete(format!("{api}/plugins/demo"))
+        .send()
+        .await
+        .expect("delete");
+    assert_eq!(r.status().as_u16(), 204);
+    let (_, list) = answer(
+        http.get(format!("{api}/plugins"))
+            .send()
+            .await
+            .expect("get"),
+    )
+    .await;
+    assert_eq!(list["plugins"], json!([]));
+    assert_eq!(
+        http.delete(format!("{api}/plugins/demo"))
+            .send()
+            .await
+            .expect("delete")
+            .status()
+            .as_u16(),
+        404
+    );
+}
+
+#[tokio::test]
+async fn an_oversized_upload_is_refused_before_it_is_read() {
+    let rig = Rig::new().await;
+    let api = serve(rig.mgr.clone(), fetchbox_api::Auth::disabled()).await;
+    let big = vec![0u8; fetchbox_core::plugin::MAX_PLUGIN_ZIP + 4096];
+    let r = reqwest::Client::new()
+        .post(format!("{api}/plugin-staging"))
+        .header("content-type", "application/zip")
+        .body(big)
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(r.status().as_u16(), 413);
+}
+
+#[tokio::test]
+async fn a_staged_package_can_be_cancelled_over_http() {
+    let rig = Rig::new().await;
+    let api = serve(rig.mgr.clone(), fetchbox_api::Auth::disabled()).await;
+    let http = reqwest::Client::new();
+    let r = http
+        .post(format!("{api}/plugin-staging"))
+        .header("content-type", "application/zip")
+        .body(package(&manifest("demo", json!({})), false))
+        .send()
+        .await
+        .expect("post");
+    let (_, staged) = answer(r).await;
+    let token = staged["token"].as_str().expect("token");
+    assert_eq!(
+        http.delete(format!("{api}/plugin-staging/{token}"))
+            .send()
+            .await
+            .expect("delete")
+            .status()
+            .as_u16(),
+        204
+    );
+    assert_eq!(
+        http.post(format!("{api}/plugin-staging/{token}/install"))
+            .send()
+            .await
+            .expect("post")
+            .status()
+            .as_u16(),
+        404
+    );
+    // Nothing that is not a token can name a path.
+    assert_eq!(
+        http.post(format!("{api}/plugin-staging/..%2F..%2Fetc/install"))
+            .send()
+            .await
+            .expect("post")
+            .status()
+            .as_u16(),
+        404
+    );
+}

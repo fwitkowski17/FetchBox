@@ -338,6 +338,234 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugin-rescan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look at the plugins directory again: a folder somebody put there appears as a plugin that needs
+         *     review, a folder that is gone takes its plugin with it, a changed manifest needs approval again.
+         */
+        post: operations["rescan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugin-staging": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a plugin: the raw bytes of its ZIP file (`Content-Type: application/zip`, at most 32 MiB).
+         * @description The package is unpacked and its manifest read, nothing of it runs. The answer says what the
+         *     plugin may do, for the user to review; `POST /plugin-staging/{token}/install` installs it and
+         *     `DELETE /plugin-staging/{token}` throws it away.
+         */
+        post: operations["stage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugin-staging/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Throw an uploaded plugin away. */
+        delete: operations["cancel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugin-staging/{token}/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install a plugin that was uploaded. A new plugin starts switched off; an update of an installed
+         *     plugin keeps its settings and whether it is on.
+         */
+        post: operations["install"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installed plugins, and whether the plugin system is on. Changes arrive as `plugin` and
+         *     `plugin_removed` events on `/api/events`; this is the state to start from.
+         */
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Uninstall a plugin: its program stops, its files and settings go. */
+        delete: operations["remove"];
+        options?: never;
+        head?: never;
+        /**
+         * Switch a plugin on or off. Switching on needs the required settings to be set and the plugin
+         *     not to be waiting for a review.
+         */
+        patch: operations["set_enabled"];
+        trace?: never;
+    };
+    "/api/plugins/{id}/actions/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Press a button of a plugin: the action is looked up in its manifest and done. */
+        post: operations["run_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept the files a plugin has on disk now, for a plugin that is waiting for a review (a folder
+         *     somebody put in the plugins directory, or files that changed).
+         */
+        post: operations["approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins/{id}/dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fetch a plugin's dependencies (again). The plugin's program restarts on the new files. */
+        post: operations["dependencies"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins/{id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The last lines the plugin's program wrote to its log. */
+        get: operations["logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins/{id}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start the plugin's program again, also after it gave up. */
+        post: operations["restart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins/{id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change settings of a plugin. Every value is checked against its field; nothing is stored if one
+         *     is refused. A running program is told (`settings_changed`).
+         */
+        put: operations["save_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/probe": {
         parameters: {
             query?: never;
@@ -608,6 +836,20 @@ export interface components {
          * @enum {string}
          */
         ActionKind: "run" | "webhook" | "process" | "builtin" | "open_dialog" | "open_url";
+        /** @description The answer to an action. */
+        ActionResult: {
+            /** @description Close the dialog the action came from. */
+            close?: boolean;
+            level?: null | components["schemas"]["NoticeLevel"];
+            message?: string | null;
+            ok: boolean;
+            /** @description Open this dialog next. */
+            open_dialog?: string | null;
+            /** @description Values for fields of the open dialog (an `output` field shows its text). */
+            set?: {
+                [key: string]: components["schemas"]["SettingValue"];
+            };
+        };
         /** @description An action without its command. */
         ActionView: {
             confirm?: string | null;
@@ -662,6 +904,11 @@ export interface components {
             disk?: string | null;
             /** @description A `magnet:?xt=urn:btih:...` link. */
             magnet: string;
+        };
+        /** @description Body of `POST /plugins/{id}/approve`. */
+        ApprovePlugin: {
+            /** @description The `manifest_hash` the user was shown: the approval is for exactly those files. */
+            hash: string;
         };
         /** @description What the UI needs to decide whether to show the login screen. */
         AuthStatus: {
@@ -1018,6 +1265,14 @@ export interface components {
             /** @enum {string} */
             type: "plugin_notice";
         };
+        /** @description Body of `POST /plugins/{id}/dependencies`. */
+        FetchDependencies: {
+            /**
+             * @description One dependency (an optional one is installed this way); without it every dependency that is
+             *     installed or required is fetched again, for its newest version.
+             */
+            dependency?: string | null;
+        };
         /** @description A setting of the plugin, or a field of one of its dialogs. */
         Field: {
             default?: null | components["schemas"]["SettingValue"];
@@ -1206,6 +1461,22 @@ export interface components {
          * @enum {string}
          */
         Placement: "card" | "settings";
+        /** @description The plugins, and whether the plugin system is on at all. */
+        PluginList: {
+            /**
+             * @description `false` when plugins are switched off (`--plugins off`) or the server runs without
+             *     authentication (a plugin runs programs; that must not be open to anyone).
+             */
+            available: boolean;
+            plugins: components["schemas"]["PluginView"][];
+            /** @description Why they are not available: `off` or `no_auth`. */
+            reason?: string | null;
+        };
+        /** @description What a plugin's program has logged. */
+        PluginLogs: {
+            /** @description The last lines, oldest first. */
+            lines: string[];
+        };
         /**
          * @description Where a plugin came from.
          * @enum {string}
@@ -1272,6 +1543,22 @@ export interface components {
             url: string;
             /** @description Version without a leading `v`. */
             version: string;
+        };
+        /** @description Body of `POST /plugins/{id}/actions/{action}`. */
+        RunPluginAction: {
+            /** @description The values of the fields of the dialog the button is in, by key. */
+            input?: {
+                [key: string]: components["schemas"]["SettingValue"];
+            };
+        };
+        /** @description Body of `PUT /plugins/{id}/settings`. */
+        SavePluginSettings: {
+            /** @description Settings to clear (back to the default, or no value for a secret). */
+            clear?: string[];
+            /** @description Settings to store, by key. A key that is left out stays as it is. */
+            values?: {
+                [key: string]: components["schemas"]["SettingValue"];
+            };
         };
         /** @description A group of settings and actions in a plugin's own tab. */
         Section: {
@@ -1426,6 +1713,27 @@ export interface components {
              *     `needed <= free - reserved`.
              */
             reserved: number;
+        };
+        /** @description A plugin that was uploaded and read but is not installed yet: the user reviews it first. */
+        StagedPlugin: {
+            author: string;
+            description: string;
+            homepage?: string | null;
+            icon?: string | null;
+            id: string;
+            license?: string | null;
+            name: string;
+            permissions: components["schemas"]["PermissionSummary"];
+            replaces?: null | components["schemas"]["StagedReplaces"];
+            source: components["schemas"]["PluginSource"];
+            /** @description Identifies the staged files for `install` and `cancel`. */
+            token: string;
+            version: string;
+        };
+        /** @description The installed plugin a staged one would replace. */
+        StagedReplaces: {
+            permissions: components["schemas"]["PermissionSummary"];
+            version: string;
         };
         /** @description A summary of the downloads of a period. */
         Stats: {
@@ -1698,6 +2006,11 @@ export interface components {
              *     not stopped when the hours close. Only for queued and running downloads (`409` otherwise).
              */
             start_now?: boolean | null;
+        };
+        /** @description Body of `PATCH /plugins/{id}`. */
+        UpdatePlugin: {
+            /** @description Switch the plugin on (its dependencies are fetched, its program started) or off. */
+            enabled: boolean;
         };
         /** @description What the remote server says about a URL: what an add request would work with. */
         UrlInfo: {
@@ -2589,6 +2902,661 @@ export interface operations {
             };
             /** @description Unknown id */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rescan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginList"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    stage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/zip": number[];
+            };
+        };
+        responses: {
+            /** @description Unpacked and read, waiting for the user's decision */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedPlugin"];
+                };
+            };
+            /** @description Not a usable plugin: not sent as application/zip, not a ZIP, an unsafe path in it, no valid plugin.json, or it cannot run here */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The file is too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description From the upload */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    install: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description From the upload */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Installed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginView"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such package (it is kept for 15 minutes) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginList"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+                /** @description Keep what the plugin wrote (its downloaded dependencies and state). Default: delete it. */
+                keep_data: boolean;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlugin"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginView"];
+                };
+            };
+            /** @description A required setting has no value */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description It needs a review first, cannot run here, or plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    run_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+                /** @description Action id from the plugin's manifest */
+                action: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunPluginAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionResult"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin or action */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The plugin is not running, or plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The command or the request failed; the message says how */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovePlugin"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginView"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The files changed since the user looked, or plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    dependencies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FetchDependencies"];
+            };
+        };
+        responses: {
+            /** @description Started; progress arrives as plugin events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginView"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin or dependency */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The plugin is not switched on, or plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    logs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginLogs"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    restart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginView"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The plugin is not switched on, or plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    save_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePluginSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginView"];
+                };
+            };
+            /** @description Not a setting of this plugin, or a value its field does not accept */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unknown plugin */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

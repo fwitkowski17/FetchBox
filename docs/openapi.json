@@ -1143,6 +1143,944 @@
         ]
       }
     },
+    "/api/plugin-rescan": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Look at the plugins directory again: a folder somebody put there appears as a plugin that needs\nreview, a folder that is gone takes its plugin with it, a changed manifest needs approval again.",
+        "operationId": "rescan",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugin-staging": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Upload a plugin: the raw bytes of its ZIP file (`Content-Type: application/zip`, at most 32 MiB).",
+        "description": "The package is unpacked and its manifest read, nothing of it runs. The answer says what the\nplugin may do, for the user to review; `POST /plugin-staging/{token}/install` installs it and\n`DELETE /plugin-staging/{token}` throws it away.",
+        "operationId": "stage",
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Unpacked and read, waiting for the user's decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedPlugin"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable plugin: not sent as application/zip, not a ZIP, an unsafe path in it, no valid plugin.json, or it cannot run here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The file is too large"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugin-staging/{token}": {
+      "delete": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Throw an uploaded plugin away.",
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "From the upload",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Gone"
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugin-staging/{token}/install": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Install a plugin that was uploaded. A new plugin starts switched off; an update of an installed\nplugin keeps its settings and whether it is on.",
+        "operationId": "install",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "From the upload",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such package (it is kept for 15 minutes)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "The installed plugins, and whether the plugin system is on. Changes arrive as `plugin` and\n`plugin_removed` events on `/api/events`; this is the state to start from.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins/{id}": {
+      "delete": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Uninstall a plugin: its program stops, its files and settings go.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keep_data",
+            "in": "path",
+            "description": "Keep what the plugin wrote (its downloaded dependencies and state). Default: delete it.",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Switch a plugin on or off. Switching on needs the required settings to be set and the plugin\nnot to be waiting for a review.",
+        "operationId": "set_enabled",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePlugin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A required setting has no value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "It needs a review first, cannot run here, or plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins/{id}/actions/{action}": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Press a button of a plugin: the action is looked up in its manifest and done.",
+        "operationId": "run_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "description": "Action id from the plugin's manifest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunPluginAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin or action",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The plugin is not running, or plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The command or the request failed; the message says how",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins/{id}/approve": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Accept the files a plugin has on disk now, for a plugin that is waiting for a review (a folder\nsomebody put in the plugins directory, or files that changed).",
+        "operationId": "approve",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovePlugin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The files changed since the user looked, or plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins/{id}/dependencies": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Fetch a plugin's dependencies (again). The plugin's program restarts on the new files.",
+        "operationId": "dependencies",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FetchDependencies"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Started; progress arrives as plugin events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin or dependency",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The plugin is not switched on, or plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins/{id}/logs": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "The last lines the plugin's program wrote to its log.",
+        "operationId": "logs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginLogs"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins/{id}/restart": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Start the plugin's program again, also after it gave up.",
+        "operationId": "restart",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The plugin is not switched on, or plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugins/{id}/settings": {
+      "put": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Change settings of a plugin. Every value is checked against its field; nothing is stored if one\nis refused. A running program is told (`settings_changed`).",
+        "operationId": "save_settings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePluginSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a setting of this plugin, or a value its field does not accept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/probe": {
       "post": {
         "tags": [
@@ -2104,6 +3042,55 @@
           "open_url"
         ]
       },
+      "ActionResult": {
+        "type": "object",
+        "description": "The answer to an action.",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "close": {
+            "type": "boolean",
+            "description": "Close the dialog the action came from."
+          },
+          "level": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NoticeLevel"
+              }
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "open_dialog": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Open this dialog next."
+          },
+          "set": {
+            "type": "object",
+            "description": "Values for fields of the open dialog (an `output` field shows its text).",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SettingValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ActionView": {
         "type": "object",
         "description": "An action without its command.",
@@ -2249,6 +3236,19 @@
           "magnet": {
             "type": "string",
             "description": "A `magnet:?xt=urn:btih:...` link."
+          }
+        }
+      },
+      "ApprovePlugin": {
+        "type": "object",
+        "description": "Body of `POST /plugins/{id}/approve`.",
+        "required": [
+          "hash"
+        ],
+        "properties": {
+          "hash": {
+            "type": "string",
+            "description": "The `manifest_hash` the user was shown: the approval is for exactly those files."
           }
         }
       },
@@ -3119,6 +4119,19 @@
         ],
         "description": "Live updates pushed to the UI (SSE)."
       },
+      "FetchDependencies": {
+        "type": "object",
+        "description": "Body of `POST /plugins/{id}/dependencies`.",
+        "properties": {
+          "dependency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One dependency (an optional one is installed this way); without it every dependency that is\ninstalled or required is fetched again, for its newest version."
+          }
+        }
+      },
       "Field": {
         "type": "object",
         "description": "A setting of the plugin, or a field of one of its dialogs.",
@@ -3610,6 +4623,49 @@
           "settings"
         ]
       },
+      "PluginList": {
+        "type": "object",
+        "description": "The plugins, and whether the plugin system is on at all.",
+        "required": [
+          "available",
+          "plugins"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "`false` when plugins are switched off (`--plugins off`) or the server runs without\nauthentication (a plugin runs programs; that must not be open to anyone)."
+          },
+          "plugins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PluginView"
+            }
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why they are not available: `off` or `no_auth`."
+          }
+        }
+      },
+      "PluginLogs": {
+        "type": "object",
+        "description": "What a plugin's program has logged.",
+        "required": [
+          "lines"
+        ],
+        "properties": {
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The last lines, oldest first."
+          }
+        }
+      },
       "PluginSource": {
         "type": "string",
         "description": "Where a plugin came from.",
@@ -3836,6 +4892,45 @@
           "version": {
             "type": "string",
             "description": "Version without a leading `v`."
+          }
+        }
+      },
+      "RunPluginAction": {
+        "type": "object",
+        "description": "Body of `POST /plugins/{id}/actions/{action}`.",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "The values of the fields of the dialog the button is in, by key.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SettingValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SavePluginSettings": {
+        "type": "object",
+        "description": "Body of `PUT /plugins/{id}/settings`.",
+        "properties": {
+          "clear": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Settings to clear (back to the default, or no value for a secret)."
+          },
+          "values": {
+            "type": "object",
+            "description": "Settings to store, by key. A key that is left out stays as it is.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SettingValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },
@@ -4068,6 +5163,92 @@
             "format": "int64",
             "description": "Part of `free` that the running downloads still have to write. The download fits when\n`needed <= free - reserved`.",
             "minimum": 0
+          }
+        }
+      },
+      "StagedPlugin": {
+        "type": "object",
+        "description": "A plugin that was uploaded and read but is not installed yet: the user reviews it first.",
+        "required": [
+          "token",
+          "id",
+          "name",
+          "version",
+          "description",
+          "author",
+          "source",
+          "permissions"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "homepage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "license": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/PermissionSummary"
+          },
+          "replaces": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StagedReplaces",
+                "description": "What it replaces: the installed version and what that one was allowed."
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/PluginSource"
+          },
+          "token": {
+            "type": "string",
+            "description": "Identifies the staged files for `install` and `cancel`."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "StagedReplaces": {
+        "type": "object",
+        "description": "The installed plugin a staged one would replace.",
+        "required": [
+          "version",
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "$ref": "#/components/schemas/PermissionSummary"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -4641,6 +5822,19 @@
           }
         }
       },
+      "UpdatePlugin": {
+        "type": "object",
+        "description": "Body of `PATCH /plugins/{id}`.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Switch the plugin on (its dependencies are fetched, its program started) or off."
+          }
+        }
+      },
       "UrlInfo": {
         "type": "object",
         "description": "What the remote server says about a URL: what an add request would work with.",
@@ -4797,6 +5991,10 @@
     {
       "name": "torrents",
       "description": "BitTorrent: magnet links and .torrent files, peers, files"
+    },
+    {
+      "name": "plugins",
+      "description": "Plugins: install, switch on and off, settings, actions"
     },
     {
       "name": "sources",
