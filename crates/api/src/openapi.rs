@@ -11,13 +11,13 @@ use crate::auth::{
 use crate::error::{ConflictBody, ErrorBody, HostKeyBody, SpaceBody};
 use crate::plugins::{
     self, ApprovePlugin, FetchDependencies, PluginLogs, RunPluginAction, SavePluginSettings,
-    UpdatePlugin,
+    StageFromStore, UpdatePlugin,
 };
 use crate::routes::{self, Health, UpdateDownload};
 use crate::sse;
 use crate::torrents;
 
-use fetchbox_core::plugin::{ActionResult, PluginList, PluginView, StagedPlugin};
+use fetchbox_core::plugin::{ActionResult, PluginList, PluginView, StagedPlugin, StoreList};
 use fetchbox_core::{
     AddRequest, AddTorrentRequest, Category, CategoryStat, ChecksumAlgo, ChecksumInput,
     ChecksumState, Conflict, ConflictKind, Credentials, DayStat, DiskInfo, DiskSpace, DiskWarning,
@@ -69,6 +69,9 @@ token as `Authorization: Bearer`.",
         plugins::list,
         plugins::rescan,
         plugins::stage,
+        plugins::stage_store,
+        plugins::store,
+        plugins::store_refresh,
         plugins::install,
         plugins::cancel,
         plugins::set_enabled,
@@ -94,7 +97,7 @@ token as `Authorization: Bearer`.",
         Torrent, TorrentStatus, TorrentPeer, TorrentPeers, TorrentFile, PeerState, PeerTransport, AddTorrentRequest,
         Credentials, HostKeyBody, HostKeyProblem, HostKeyProblemKind, KnownHost, TrustHost,
         PluginList, PluginView, StagedPlugin, ActionResult, UpdatePlugin, ApprovePlugin,
-        SavePluginSettings, RunPluginAction, FetchDependencies, PluginLogs,
+        SavePluginSettings, RunPluginAction, FetchDependencies, PluginLogs, StoreList, StageFromStore,
     )),
     modifiers(&Runtime),
     tags(
@@ -175,6 +178,9 @@ mod tests {
             ("/api/plugins", "get"),
             ("/api/plugin-rescan", "post"),
             ("/api/plugin-staging", "post"),
+            ("/api/plugin-staging/store", "post"),
+            ("/api/plugin-store", "get"),
+            ("/api/plugin-store/refresh", "post"),
             ("/api/plugin-staging/{token}", "delete"),
             ("/api/plugin-staging/{token}/install", "post"),
             ("/api/plugins/{id}", "patch"),

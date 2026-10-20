@@ -380,6 +380,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugin-staging/store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unpack a plugin of the store, like an upload: the answer says what it may do, for the user to
+         *     review; then install it with `POST /plugin-staging/{token}/install`. A plugin from the remote
+         *     catalog is downloaded and checked against its checksum first.
+         */
+        post: operations["stage_store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/plugin-staging/{token}": {
         parameters: {
             query?: never;
@@ -411,6 +432,45 @@ export interface paths {
          *     plugin keeps its settings and whether it is on.
          */
         post: operations["install"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugin-store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What can be installed from the store: the plugins that ship with FetchBox (they work offline) and
+         *     the remote catalog, one entry per plugin, marked with what is installed and what has an update.
+         *     The catalog is fetched when it is stale; if that fails the answer still lists the bundled plugins,
+         *     with the reason in `error`.
+         */
+        get: operations["store"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugin-store/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fetch the remote catalog again now (not more often than every 30 seconds). */
+        post: operations["store_refresh"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1460,7 +1520,7 @@ export interface components {
          * @description Where an action is offered.
          * @enum {string}
          */
-        Placement: "card" | "settings";
+        Placement: "card" | "settings" | "hidden";
         /** @description The plugins, and whether the plugin system is on at all. */
         PluginList: {
             /**
@@ -1714,6 +1774,11 @@ export interface components {
              */
             reserved: number;
         };
+        /** @description Body of `POST /plugin-staging/store`. */
+        StageFromStore: {
+            /** @description The plugin's id, from `GET /plugin-store`. */
+            id: string;
+        };
         /** @description A plugin that was uploaded and read but is not installed yet: the user reviews it first. */
         StagedPlugin: {
             author: string;
@@ -1799,6 +1864,49 @@ export interface components {
          * @enum {string}
          */
         Status: "queued" | "downloading" | "paused" | "verifying" | "completed" | "failed" | "cancelled";
+        /** @description Where a store entry is fetched from. */
+        StoreDownload: {
+            sha256: string;
+            /** Format: int64 */
+            size?: number | null;
+            url: string;
+        };
+        /** @description A plugin offered in the store. */
+        StoreEntry: {
+            author: string;
+            /** @description Shipped inside the program (works offline). */
+            bundled: boolean;
+            description: string;
+            download?: null | components["schemas"]["StoreDownload"];
+            homepage?: string | null;
+            icon?: string | null;
+            id: string;
+            /** @description The version that is installed, if any. */
+            installed?: string | null;
+            license?: string | null;
+            min_fetchbox?: string | null;
+            name: string;
+            platforms: string[];
+            tags: string[];
+            /** @description This platform or FetchBox version cannot run it. */
+            unsupported: boolean;
+            /** @description A newer version than the installed one exists. */
+            update_available: boolean;
+            version: string;
+        };
+        /** @description The plugin store: what can be installed. */
+        StoreList: {
+            entries: components["schemas"]["StoreEntry"][];
+            /** @description Why the remote catalog could not be fetched, if the last try failed. */
+            error?: string | null;
+            /**
+             * Format: int64
+             * @description When the remote catalog was last fetched (unix seconds).
+             */
+            fetched_at?: number | null;
+            /** @description A remote catalog is configured (the entries that ship with FetchBox are always there). */
+            remote: boolean;
+        };
         /** @description A tab of its own in Settings. */
         Tab: {
             icon?: string | null;
@@ -3006,6 +3114,75 @@ export interface operations {
             };
         };
     };
+    stage_store: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageFromStore"];
+            };
+        };
+        responses: {
+            /** @description Unpacked and read, waiting for the user's decision */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedPlugin"];
+                };
+            };
+            /** @description It cannot run here, or the package is not the plugin the catalog named */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The store has no such plugin */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The download failed or does not match its checksum */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     cancel: {
         parameters: {
             query?: never;
@@ -3077,6 +3254,80 @@ export interface operations {
             };
             /** @description No such package (it is kept for 15 minutes) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    store: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreList"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugins are switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    store_refresh: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreList"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

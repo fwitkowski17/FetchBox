@@ -287,6 +287,9 @@ async fn run() -> anyhow::Result<()> {
             },
             allow_plain_http: false,
             github_api: None,
+            // `FETCHBOX_PLUGIN_INDEX_URL` points the plugin store somewhere else (a mirror, your own
+            // list); empty switches the remote catalog off.
+            index_url: std::env::var("FETCHBOX_PLUGIN_INDEX_URL").ok(),
         })
         .await;
     let auth = resolve_auth(&args, manager.clone())?;

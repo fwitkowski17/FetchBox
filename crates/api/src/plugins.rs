@@ -16,7 +16,7 @@ use axum::{
     Json, Router,
 };
 use fetchbox_core::plugin::{
-    ActionResult, PluginList, PluginView, SettingValue, StagedPlugin, MAX_PLUGIN_ZIP,
+    ActionResult, PluginList, PluginView, SettingValue, StagedPlugin, StoreList, MAX_PLUGIN_ZIP,
 };
 use fetchbox_core::Error;
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,10 @@ pub(crate) fn routes() -> Router<Arc<dyn Service>> {
             "/plugin-staging",
             post(stage).layer(DefaultBodyLimit::max(MAX_PLUGIN_ZIP + 1024)),
         )
+        .route("/plugin-staging/store", post(stage_store))
         .route("/plugin-staging/{token}", delete(cancel))
+        .route("/plugin-store", get(store))
+        .route("/plugin-store/refresh", post(store_refresh))
         .route("/plugin-staging/{token}/install", post(install))
         .route("/plugins/{id}", patch(set_enabled).delete(remove))
         .route("/plugins/{id}/approve", post(approve))
@@ -125,6 +128,76 @@ pub(crate) async fn stage(
     Ok((
         StatusCode::CREATED,
         Json(svc.plugin_stage(body.to_vec()).await?),
+    ))
+}
+
+/// What can be installed from the store: the plugins that ship with FetchBox (they work offline) and
+/// the remote catalog, one entry per plugin, marked with what is installed and what has an update.
+/// The catalog is fetched when it is stale; if that fails the answer still lists the bundled plugins,
+/// with the reason in `error`.
+#[utoipa::path(
+    get,
+    path = "/api/plugin-store",
+    tag = "plugins",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, body = StoreList),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 409, description = "Plugins are switched off", body = ErrorBody),
+    )
+)]
+pub(crate) async fn store(State(svc): Svc) -> ApiResult<Json<StoreList>> {
+    Ok(Json(svc.plugin_store(false).await?))
+}
+
+/// Fetch the remote catalog again now (not more often than every 30 seconds).
+#[utoipa::path(
+    post,
+    path = "/api/plugin-store/refresh",
+    tag = "plugins",
+    security(("session" = []), ("bearer" = [])),
+    responses(
+        (status = 200, body = StoreList),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 409, description = "Plugins are switched off", body = ErrorBody),
+    )
+)]
+pub(crate) async fn store_refresh(State(svc): Svc) -> ApiResult<Json<StoreList>> {
+    Ok(Json(svc.plugin_store(true).await?))
+}
+
+/// Body of `POST /plugin-staging/store`.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct StageFromStore {
+    /// The plugin's id, from `GET /plugin-store`.
+    pub id: String,
+}
+
+/// Unpack a plugin of the store, like an upload: the answer says what it may do, for the user to
+/// review; then install it with `POST /plugin-staging/{token}/install`. A plugin from the remote
+/// catalog is downloaded and checked against its checksum first.
+#[utoipa::path(
+    post,
+    path = "/api/plugin-staging/store",
+    tag = "plugins",
+    security(("session" = []), ("bearer" = [])),
+    request_body = StageFromStore,
+    responses(
+        (status = 201, description = "Unpacked and read, waiting for the user's decision", body = StagedPlugin),
+        (status = 400, description = "It cannot run here, or the package is not the plugin the catalog named", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "The store has no such plugin", body = ErrorBody),
+        (status = 409, description = "Plugins are switched off", body = ErrorBody),
+        (status = 502, description = "The download failed or does not match its checksum", body = ErrorBody),
+    )
+)]
+pub(crate) async fn stage_store(
+    State(svc): Svc,
+    Json(req): Json<StageFromStore>,
+) -> ApiResult<(StatusCode, Json<StagedPlugin>)> {
+    Ok((
+        StatusCode::CREATED,
+        Json(svc.plugin_stage_store(req.id).await?),
     ))
 }
 

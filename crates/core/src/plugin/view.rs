@@ -381,6 +381,19 @@ pub struct StoreEntry {
     pub unsupported: bool,
 }
 
+/// The plugin store: what can be installed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StoreList {
+    pub entries: Vec<StoreEntry>,
+    /// A remote catalog is configured (the entries that ship with FetchBox are always there).
+    pub remote: bool,
+    /// When the remote catalog was last fetched (unix seconds).
+    pub fetched_at: Option<i64>,
+    /// Why the remote catalog could not be fetched, if the last try failed.
+    pub error: Option<String>,
+}
+
 /// The answer to an action.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -1270,6 +1270,95 @@
         ]
       }
     },
+    "/api/plugin-staging/store": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Unpack a plugin of the store, like an upload: the answer says what it may do, for the user to\nreview; then install it with `POST /plugin-staging/{token}/install`. A plugin from the remote\ncatalog is downloaded and checked against its checksum first.",
+        "operationId": "stage_store",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StageFromStore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Unpacked and read, waiting for the user's decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedPlugin"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "It cannot run here, or the package is not the plugin the catalog named",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The store has no such plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The download failed or does not match its checksum",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/plugin-staging/{token}": {
       "delete": {
         "tags": [
@@ -1364,6 +1453,104 @@
           },
           "404": {
             "description": "No such package (it is kept for 15 minutes)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugin-store": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "What can be installed from the store: the plugins that ship with FetchBox (they work offline) and\nthe remote catalog, one entry per plugin, marked with what is installed and what has an update.\nThe catalog is fetched when it is stale; if that fails the answer still lists the bundled plugins,\nwith the reason in `error`.",
+        "operationId": "store",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plugins are switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/plugin-store/refresh": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Fetch the remote catalog again now (not more often than every 30 seconds).",
+        "operationId": "store_refresh",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
             "content": {
               "application/json": {
                 "schema": {
@@ -4620,7 +4807,8 @@
         "description": "Where an action is offered.",
         "enum": [
           "card",
-          "settings"
+          "settings",
+          "hidden"
         ]
       },
       "PluginList": {
@@ -5166,6 +5354,19 @@
           }
         }
       },
+      "StageFromStore": {
+        "type": "object",
+        "description": "Body of `POST /plugin-staging/store`.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin's id, from `GET /plugin-store`."
+          }
+        }
+      },
       "StagedPlugin": {
         "type": "object",
         "description": "A plugin that was uploaded and read but is not installed yet: the user reviews it first.",
@@ -5375,6 +5576,164 @@
           "failed",
           "cancelled"
         ]
+      },
+      "StoreDownload": {
+        "type": "object",
+        "description": "Where a store entry is fetched from.",
+        "required": [
+          "url",
+          "sha256"
+        ],
+        "properties": {
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "StoreEntry": {
+        "type": "object",
+        "description": "A plugin offered in the store.",
+        "required": [
+          "id",
+          "name",
+          "version",
+          "description",
+          "author",
+          "tags",
+          "platforms",
+          "bundled",
+          "update_available",
+          "unsupported"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "bundled": {
+            "type": "boolean",
+            "description": "Shipped inside the program (works offline)."
+          },
+          "description": {
+            "type": "string"
+          },
+          "download": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StoreDownload",
+                "description": "Where a third-party entry is fetched from; none for a bundled one."
+              }
+            ]
+          },
+          "homepage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "installed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The version that is installed, if any."
+          },
+          "license": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "min_fetchbox": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unsupported": {
+            "type": "boolean",
+            "description": "This platform or FetchBox version cannot run it."
+          },
+          "update_available": {
+            "type": "boolean",
+            "description": "A newer version than the installed one exists."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "StoreList": {
+        "type": "object",
+        "description": "The plugin store: what can be installed.",
+        "required": [
+          "entries",
+          "remote"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoreEntry"
+            }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the remote catalog could not be fetched, if the last try failed."
+          },
+          "fetched_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the remote catalog was last fetched (unix seconds)."
+          },
+          "remote": {
+            "type": "boolean",
+            "description": "A remote catalog is configured (the entries that ship with FetchBox are always there)."
+          }
+        }
       },
       "Tab": {
         "type": "object",

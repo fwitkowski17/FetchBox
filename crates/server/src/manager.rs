@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+mod plugin_store;
 mod plugins;
 mod torrents;
 
@@ -1782,6 +1783,14 @@ impl Service for Manager {
 
     async fn plugin_stage(&self, zip: Vec<u8>) -> Result<fetchbox_core::plugin::StagedPlugin> {
         self.plugins_stage(zip).await
+    }
+
+    async fn plugin_store(&self, refresh: bool) -> Result<fetchbox_core::plugin::StoreList> {
+        self.plugins_store(refresh).await
+    }
+
+    async fn plugin_stage_store(&self, id: String) -> Result<fetchbox_core::plugin::StagedPlugin> {
+        self.plugins_stage_store(id).await
     }
 
     async fn plugin_install(&self, token: String) -> Result<fetchbox_core::plugin::PluginView> {

@@ -23,7 +23,7 @@ pub use validate::{check_setting_value, validate, EVENT_NAMES, MAX_TEXT_SETTING}
 pub use view::{
     derive_permissions, ActionResult, ActionView, DependencyProgress, DependencyView, FieldView,
     NoticeLevel, PermissionSummary, PluginList, PluginSource, PluginState, PluginView, Provides,
-    StagedPlugin, StagedReplaces, StoreDownload, StoreEntry, UiView,
+    StagedPlugin, StagedReplaces, StoreDownload, StoreEntry, StoreList, UiView,
 };
 
 /// The manifest format this build understands (`Manifest::api_version`).

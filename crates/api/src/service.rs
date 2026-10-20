@@ -2,7 +2,9 @@
 //! so `api` depends on neither the database nor the engine.
 
 use async_trait::async_trait;
-use fetchbox_core::plugin::{ActionResult, PluginList, PluginView, SettingValue, StagedPlugin};
+use fetchbox_core::plugin::{
+    ActionResult, PluginList, PluginView, SettingValue, StagedPlugin, StoreList,
+};
 use fetchbox_core::{
     AddRequest, AddTorrentRequest, Category, Credentials, DiskSpace, Download, Event, Id,
     KnownHost, Result, Settings, Stats, StatsRange, Torrent, TorrentFile, TorrentPeers, TrustHost,
@@ -81,6 +83,11 @@ pub trait Service: Send + Sync + 'static {
     /// Unpack a plugin's ZIP and read its manifest; nothing of it runs. The user reviews the
     /// result, then installs it (`plugin_install`) or throws it away (`plugin_cancel`).
     async fn plugin_stage(&self, zip: Vec<u8>) -> Result<StagedPlugin>;
+    /// What can be installed from the store: the plugins that ship with FetchBox and the remote
+    /// catalog (fetched when it is stale, or when `refresh` asks, but never faster than every 30 s).
+    async fn plugin_store(&self, refresh: bool) -> Result<StoreList>;
+    /// Unpack a plugin of the store, ready for review (like an upload).
+    async fn plugin_stage_store(&self, id: String) -> Result<StagedPlugin>;
     /// Install a staged package. A new plugin starts switched off.
     async fn plugin_install(&self, token: String) -> Result<PluginView>;
     /// Throw a staged package away.

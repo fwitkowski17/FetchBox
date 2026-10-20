@@ -63,6 +63,11 @@ impl Fetcher {
         self
     }
 
+    /// Whether `http://` addresses are accepted (tests only).
+    pub fn allows_plain_http(&self) -> bool {
+        self.allow_http
+    }
+
     pub(crate) fn github_api(&self) -> &str {
         &self.github_api
     }

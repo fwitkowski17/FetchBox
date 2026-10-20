@@ -419,6 +419,8 @@ pub enum Placement {
     Card,
     /// In the plugin's settings.
     Settings,
+    /// Nowhere on its own: only a button of a dialog runs it.
+    Hidden,
 }
 
 /// What an action does.

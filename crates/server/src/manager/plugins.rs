@@ -29,6 +29,7 @@ use fetchbox_plugins::install::{self, Layout, Staged};
 use fetchbox_plugins::oneshot::{Runner, Spec};
 use fetchbox_plugins::proc::ChildEnv;
 use fetchbox_plugins::process::{self, Process};
+use fetchbox_plugins::store::Catalog;
 use fetchbox_plugins::webhook;
 use fetchbox_storage::plugins::{self as store, NewPlugin, StoredPlugin};
 use tokio::task::AbortHandle;
@@ -47,6 +48,9 @@ pub struct PluginSetup {
     pub allow_plain_http: bool,
     /// Another server for the GitHub releases API. Only for tests.
     pub github_api: Option<String>,
+    /// Where the catalog of third-party plugins is: `None` is the project's own, `Some("")` none at
+    /// all (only the plugins that ship with FetchBox are offered).
+    pub index_url: Option<String>,
 }
 
 /// Whether plugins may run at all.
@@ -75,18 +79,19 @@ const STAGED_FOR: Duration = Duration::from_secs(15 * 60);
 /// How long a request to the plugin's program may take.
 const INVOKE_TIMEOUT: Duration = Duration::from_secs(60);
 
-struct Host {
+pub(super) struct Host {
     mode: PluginsMode,
-    layout: Layout,
-    fetcher: Fetcher,
+    pub(super) layout: Layout,
+    pub(super) fetcher: Fetcher,
     installer: Arc<Installer>,
     runner: Runner,
+    pub(super) catalog: Catalog,
 }
 
 /// A plugin as the manager holds it.
-struct Entry {
+pub(super) struct Entry {
     /// `None` when `plugin.json` cannot be used (`broken` says why).
-    manifest: Option<Manifest>,
+    pub(super) manifest: Option<Manifest>,
     broken: Option<String>,
     /// SHA-256 of the manifest on disk.
     hash: String,
@@ -116,7 +121,7 @@ impl Entry {
 
 #[derive(Default)]
 pub(crate) struct Plugins {
-    host: OnceLock<Host>,
+    pub(super) host: OnceLock<Host>,
     entries: Mutex<BTreeMap<String, Entry>>,
     /// Serialises installs, removals and switching on and off.
     lifecycle: tokio::sync::Mutex<()>,
@@ -240,9 +245,15 @@ impl Manager {
             }
         };
         let installer = Arc::new(Installer::new(fetcher.clone(), layout.clone()));
+        let index = match setup.index_url {
+            Some(url) if url.trim().is_empty() => None,
+            Some(url) => Some(url),
+            None => Some(super::plugin_store::DEFAULT_INDEX_URL.to_owned()),
+        };
         let host = Host {
             mode,
             layout,
+            catalog: Catalog::new(fetcher.clone(), index),
             fetcher,
             installer,
             runner: Runner::default(),
@@ -300,7 +311,7 @@ impl Manager {
 
     // ---- small helpers ---------------------------------------------------------------
 
-    fn plugin_entries(&self) -> MutexGuard<'_, BTreeMap<String, Entry>> {
+    pub(super) fn plugin_entries(&self) -> MutexGuard<'_, BTreeMap<String, Entry>> {
         self.plugins
             .entries
             .lock()
@@ -315,7 +326,7 @@ impl Manager {
     }
 
     /// The host, if plugins may be used.
-    fn plugin_host(&self) -> Result<&Host> {
+    pub(super) fn plugin_host(&self) -> Result<&Host> {
         let Some(host) = self.plugins.host.get() else {
             return Err(Error::InvalidState("plugins are not switched on".into()));
         };
@@ -646,7 +657,7 @@ impl Manager {
             ui,
             dependencies,
             progress,
-            update_available: None,
+            update_available: self.store_update_for(id, &m.version),
             i18n: m.i18n.clone(),
         })
     }

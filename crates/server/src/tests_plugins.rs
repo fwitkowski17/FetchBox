@@ -99,12 +99,17 @@ impl Rig {
 
     async fn with_mode(mode: PluginsMode) -> Self {
         let root = tempfile::tempdir().expect("tmp");
-        let mgr = Self::boot(root.path(), mode, None).await;
+        let mgr = Self::boot(root.path(), mode, None, "").await;
         Rig { mgr, root }
     }
 
     /// A manager on the files of `root` (a second call is a restart of the server).
-    async fn boot(root: &Path, mode: PluginsMode, github_api: Option<String>) -> Arc<Manager> {
+    async fn boot(
+        root: &Path,
+        mode: PluginsMode,
+        github_api: Option<String>,
+        index_url: &str,
+    ) -> Arc<Manager> {
         let db = fetchbox_storage::open(&root.join("fetchbox.db")).expect("db");
         let policy = UrlPolicy::default();
         let mgr = Manager::start(db, root.join("downloads"), policy)
@@ -116,6 +121,8 @@ impl Rig {
             policy,
             allow_plain_http: true,
             github_api,
+            // The tests never go to the real catalog: empty is none.
+            index_url: Some(index_url.to_owned()),
         })
         .await;
         mgr
@@ -722,7 +729,7 @@ async fn an_enabled_plugin_runs_again_after_a_restart_of_the_server() {
     rig.mgr.stop_plugins().await;
 
     let again = Rig {
-        mgr: Rig::boot(rig.root.path(), PluginsMode::On, None).await,
+        mgr: Rig::boot(rig.root.path(), PluginsMode::On, None, "").await,
         root: rig.root,
     };
     let v = again.view("demo").await;
@@ -781,7 +788,7 @@ fn needing() -> Value {
 
 async fn rig_with_github(api: String) -> Rig {
     let root = tempfile::tempdir().expect("tmp");
-    let mgr = Rig::boot(root.path(), PluginsMode::On, Some(api)).await;
+    let mgr = Rig::boot(root.path(), PluginsMode::On, Some(api), "").await;
     Rig { mgr, root }
 }
 
@@ -1176,4 +1183,341 @@ async fn a_staged_package_can_be_cancelled_over_http() {
             .as_u16(),
         404
     );
+}
+
+// ---- the store --------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_store_offers_the_plugins_that_ship_with_fetchbox_offline() {
+    let rig = Rig::new().await;
+    let list = rig.mgr.plugin_store(false).await.expect("store");
+    assert!(!list.remote, "no remote catalog is configured");
+    assert!(list.error.is_none());
+    let e = list
+        .entries
+        .iter()
+        .find(|e| e.id == "webhook-notify")
+        .expect("bundled");
+    assert!(e.bundled && e.download.is_none());
+    assert_eq!(
+        (e.installed.as_deref(), e.update_available, e.unsupported),
+        (None, false, false)
+    );
+}
+
+#[tokio::test]
+async fn a_bundled_plugin_is_installed_through_the_same_review() {
+    let rig = Rig::new().await;
+    let staged = rig
+        .mgr
+        .plugin_stage_store("webhook-notify".into())
+        .await
+        .expect("stage");
+    assert_eq!(staged.source, PluginSource::Bundled);
+    assert_eq!(staged.permissions.webhook_hosts, ["{setting:url}"]);
+    assert_eq!(
+        staged.permissions.events,
+        ["download.completed", "download.failed"]
+    );
+    assert!(
+        rig.list().await.plugins.is_empty(),
+        "staging installs nothing"
+    );
+    let v = rig.mgr.plugin_install(staged.token).await.expect("install");
+    assert_eq!(
+        (v.source, v.state),
+        (PluginSource::Bundled, PluginState::Disabled)
+    );
+    assert_eq!(v.settings.len(), 2);
+    let list = rig.mgr.plugin_store(false).await.expect("store");
+    let e = list
+        .entries
+        .iter()
+        .find(|e| e.id == "webhook-notify")
+        .expect("entry");
+    assert_eq!(e.installed.as_deref(), Some("1.0.0"));
+    assert!(!e.update_available);
+    let e = rig
+        .mgr
+        .plugin_stage_store("nope".into())
+        .await
+        .expect_err("unknown");
+    assert!(matches!(e, Error::Missing(_)), "{e:?}");
+    let e = rig
+        .mgr
+        .plugin_stage_store("../etc".into())
+        .await
+        .expect_err("bad id");
+    assert!(matches!(e, Error::Missing(_)), "{e:?}");
+}
+
+/// A catalog server: `/index.json` and the ZIPs it lists.
+async fn catalog(plugins: Vec<(Value, Vec<u8>)>) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let mut index = Vec::new();
+    let mut app = axum::Router::new();
+    for (i, (mut entry, zip)) in plugins.into_iter().enumerate() {
+        let zip: &'static [u8] = Box::leak(zip.into_boxed_slice());
+        if entry["download"].is_null() {
+            entry["download"] =
+                json!({"url": format!("{base}/{i}.zip"), "sha256": sha(zip), "size": zip.len()});
+        } else {
+            entry["download"]["url"] = json!(format!("{base}/{i}.zip"));
+        }
+        index.push(entry);
+        app = app.route(
+            &format!("/{i}.zip"),
+            axum::routing::get(move || async move { zip }),
+        );
+    }
+    let doc = json!({"format": 1, "plugins": index}).to_string();
+    app = app.route(
+        "/index.json",
+        axum::routing::get(move || {
+            let d = doc.clone();
+            async move { d }
+        }),
+    );
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    format!("{base}/index.json")
+}
+
+fn listed(id: &str, version: &str) -> Value {
+    json!({"id": id, "name": format!("Plugin {id}"), "version": version, "description": "From the catalog",
+           "download": null})
+}
+
+async fn rig_with_catalog(index: &str) -> Rig {
+    let root = tempfile::tempdir().expect("tmp");
+    let mgr = Rig::boot(root.path(), PluginsMode::On, None, index).await;
+    Rig { mgr, root }
+}
+
+#[tokio::test]
+async fn the_remote_catalog_adds_plugins_and_the_newer_version_wins() {
+    let mut newer = manifest("webhook-notify", json!({"settings": []}));
+    newer["version"] = json!("2.0.0");
+    let index = catalog(vec![
+        (
+            listed("remote-one", "1.0.0"),
+            package(&manifest("remote-one", json!({})), false),
+        ),
+        (listed("webhook-notify", "2.0.0"), package(&newer, false)),
+    ])
+    .await;
+    let rig = rig_with_catalog(&index).await;
+    let list = rig.mgr.plugin_store(false).await.expect("store");
+    assert!(list.remote && list.fetched_at.is_some() && list.error.is_none());
+    let find = |id: &str| list.entries.iter().find(|e| e.id == id).expect(id).clone();
+    assert!(!find("remote-one").bundled);
+    let hook = find("webhook-notify");
+    assert_eq!(hook.version, "2.0.0");
+    assert!(
+        hook.download.is_some() && !hook.bundled,
+        "the catalog's newer version replaces the bundled one"
+    );
+}
+
+#[tokio::test]
+async fn a_catalog_plugin_is_downloaded_checked_and_installed() {
+    let index = catalog(vec![(
+        listed("remote-one", "1.0.0"),
+        package(&manifest("remote-one", json!({})), false),
+    )])
+    .await;
+    let rig = rig_with_catalog(&index).await;
+    let staged = rig
+        .mgr
+        .plugin_stage_store("remote-one".into())
+        .await
+        .expect("stage");
+    assert_eq!(staged.source, PluginSource::Store);
+    let v = rig.mgr.plugin_install(staged.token).await.expect("install");
+    assert_eq!(v.source, PluginSource::Store);
+    assert!(v.update_available.is_none());
+    let list = rig.mgr.plugin_store(false).await.expect("store");
+    assert_eq!(
+        list.entries
+            .iter()
+            .find(|e| e.id == "remote-one")
+            .expect("entry")
+            .installed
+            .as_deref(),
+        Some("1.0.0")
+    );
+}
+
+#[tokio::test]
+async fn an_installed_plugin_learns_about_a_newer_version_in_the_store() {
+    let rig_dir = tempfile::tempdir().expect("tmp");
+    // First: only the bundled webhook-notify (1.0.0) is installed.
+    let offline = Rig::boot(rig_dir.path(), PluginsMode::On, None, "").await;
+    let staged = offline
+        .plugin_stage_store("webhook-notify".into())
+        .await
+        .expect("stage");
+    offline.plugin_install(staged.token).await.expect("install");
+    offline.stop_plugins().await;
+    // Then the server starts with a catalog that has 2.0.0.
+    let mut newer = manifest("webhook-notify", json!({}));
+    newer["version"] = json!("2.0.0");
+    let index = catalog(vec![(
+        listed("webhook-notify", "2.0.0"),
+        package(&newer, false),
+    )])
+    .await;
+    let online = Rig::boot(rig_dir.path(), PluginsMode::On, None, &index).await;
+    let list = online.plugin_store(false).await.expect("store");
+    let e = list
+        .entries
+        .iter()
+        .find(|e| e.id == "webhook-notify")
+        .expect("entry");
+    assert_eq!(
+        (e.installed.as_deref(), e.update_available),
+        (Some("1.0.0"), true)
+    );
+    let plugins = online.plugins().await.expect("list");
+    assert_eq!(
+        plugins.plugins[0].update_available.as_deref(),
+        Some("2.0.0")
+    );
+
+    // Updating is a review like any install: it shows what the old version could do.
+    let staged = online
+        .plugin_stage_store("webhook-notify".into())
+        .await
+        .expect("stage");
+    assert_eq!(staged.replaces.expect("replaces").version, "1.0.0");
+    assert_eq!(staged.version, "2.0.0");
+}
+
+#[tokio::test]
+async fn a_download_that_does_not_match_the_catalog_is_refused() {
+    let zip = package(&manifest("remote-one", json!({})), false);
+    let mut entry = listed("remote-one", "1.0.0");
+    entry["download"] = json!({"url": "x", "sha256": "0".repeat(64)});
+    let index = catalog(vec![(entry, zip)]).await;
+    let rig = rig_with_catalog(&index).await;
+    let e = rig
+        .mgr
+        .plugin_stage_store("remote-one".into())
+        .await
+        .expect_err("mismatch");
+    assert!(
+        matches!(&e, Error::Engine(m) if m.contains("does not match")),
+        "{e:?}"
+    );
+    // Nothing was left lying around.
+    let staging = rig.root.path().join("data/plugins/.staging");
+    assert_eq!(
+        std::fs::read_dir(staging).map(|d| d.count()).unwrap_or(0),
+        0
+    );
+}
+
+#[tokio::test]
+async fn a_package_that_is_not_the_plugin_the_catalog_named_is_refused() {
+    let index = catalog(vec![(
+        listed("alpha", "1.0.0"),
+        package(&manifest("beta", json!({})), false),
+    )])
+    .await;
+    let rig = rig_with_catalog(&index).await;
+    let e = rig
+        .mgr
+        .plugin_stage_store("alpha".into())
+        .await
+        .expect_err("mislabeled");
+    assert!(invalid(e).contains("not \"alpha\""));
+    assert!(rig.list().await.plugins.is_empty());
+}
+
+#[tokio::test]
+async fn a_catalog_entry_that_cannot_run_here_is_marked_and_refused() {
+    let mut entry = listed("too-new", "1.0.0");
+    entry["min_fetchbox"] = json!("99.0.0");
+    let index = catalog(vec![(
+        entry,
+        package(&manifest("too-new", json!({})), false),
+    )])
+    .await;
+    let rig = rig_with_catalog(&index).await;
+    let list = rig.mgr.plugin_store(false).await.expect("store");
+    assert!(
+        list.entries
+            .iter()
+            .find(|e| e.id == "too-new")
+            .expect("entry")
+            .unsupported
+    );
+    let e = rig
+        .mgr
+        .plugin_stage_store("too-new".into())
+        .await
+        .expect_err("unsupported");
+    assert!(invalid(e).contains("cannot be used here"));
+}
+
+#[tokio::test]
+async fn an_unreachable_catalog_still_lists_the_bundled_plugins() {
+    let rig = rig_with_catalog("http://127.0.0.1:9/index.json").await;
+    let list = rig.mgr.plugin_store(false).await.expect("store");
+    assert!(list.remote);
+    assert!(list.error.is_some(), "the reason is shown");
+    assert!(list.entries.iter().any(|e| e.id == "webhook-notify"));
+}
+
+#[tokio::test]
+async fn the_store_routes_list_stage_and_refuse() {
+    let rig = Rig::new().await;
+    let api = serve(rig.mgr.clone(), fetchbox_api::Auth::disabled()).await;
+    let http = reqwest::Client::new();
+    let (status, store) = answer(
+        http.get(format!("{api}/plugin-store"))
+            .send()
+            .await
+            .expect("get"),
+    )
+    .await;
+    assert_eq!(status, 200, "{store}");
+    assert_eq!(store["remote"], false);
+    assert_eq!(store["entries"][0]["id"], "webhook-notify");
+
+    let (status, _) = answer(
+        http.post(format!("{api}/plugin-store/refresh"))
+            .send()
+            .await
+            .expect("post"),
+    )
+    .await;
+    assert_eq!(status, 200);
+
+    let r = http
+        .post(format!("{api}/plugin-staging/store"))
+        .jbody(json!({"id": "webhook-notify"}))
+        .send()
+        .await
+        .expect("post");
+    let (status, staged) = answer(r).await;
+    assert_eq!(status, 201, "{staged}");
+    assert_eq!(staged["source"], "bundled");
+    let token = staged["token"].as_str().expect("token");
+    let r = http
+        .post(format!("{api}/plugin-staging/{token}/install"))
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(r.status().as_u16(), 201);
+
+    let r = http
+        .post(format!("{api}/plugin-staging/store"))
+        .jbody(json!({"id": "nope"}))
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(r.status().as_u16(), 404);
 }

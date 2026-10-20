@@ -61,7 +61,11 @@ pub async fn send(
     }
     let mut headers = Vec::new();
     for (k, v) in &hook.headers {
-        headers.push((k.clone(), expand::expand_string(v, ctx)?));
+        // A header whose setting is empty (an optional token) is left out, not sent empty.
+        let value = expand::expand_string(v, ctx)?;
+        if !value.trim().is_empty() {
+            headers.push((k.clone(), value));
+        }
     }
     let (body, content_type) = match hook.body {
         WebhookBody::Event => (doc.to_string(), "application/json"),
