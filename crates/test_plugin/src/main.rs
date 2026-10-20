@@ -3,7 +3,8 @@
 //! --workspace` builds it, and a test run of one crate builds it by name. The first argument picks
 //! what it does.
 //!
-//! One-shot modes: `print-json` (a playlist), `print-single` (one video), `fail`, `sleep`, `flood`, `cat`, `env`, `args`, `child <pidfile>`
+//! One-shot modes: `run <out_dir> [key=value ...]` (makes a file like a downloader: see `run`),
+//! `print-json` (a playlist), `print-single` (one video), `fail`, `sleep`, `flood`, `cat`, `env`, `args`, `child <pidfile>`
 //! (starts a child, then sleeps), `exit-leaving-child` (prints the pid of a child it leaves running).
 //!
 //! Long-lived modes speak the JSON-lines protocol of `fetchbox_plugins::protocol`: `echo`,
@@ -170,10 +171,70 @@ fn server(mode: &str) {
     }
 }
 
+/// `run <out_dir> [key=value ...]`: writes `<name>.part` in `out_dir` chunk by chunk, printing
+/// `@fetchbox progress <downloaded> <total> <speed>` after each, and renames it to `<name>` at the end.
+/// It continues a `.part` that is already there, like a downloader does.
+///
+/// Keys: `name` (default `video.mp4`), `size` (4000), `chunks` (4), `delay` (milliseconds between
+/// chunks, 30), `fail=<message>` (print it to standard error and exit with 3 after the first chunk),
+/// `hang=1` (stop after the first chunk and wait for ever), `announce=1` (print
+/// `@fetchbox file <path>` at the end) or `announce=<path>` (print that path instead), `na=1`
+/// (progress numbers as `NA`).
+fn run(args: &mut impl Iterator<Item = String>) {
+    use std::collections::HashMap;
+    let out = PathBuf::from(args.next().unwrap_or_default());
+    let opts: HashMap<String, String> = args
+        .filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned())))
+        .collect();
+    let get = |k: &str| opts.get(k).map(String::as_str);
+    let num = |k: &str, d: u64| get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let name = get("name").unwrap_or("video.mp4").to_owned();
+    let (size, chunks, delay) = (num("size", 4000), num("chunks", 4).max(1), num("delay", 30));
+    let part = out.join(format!("{name}.part"));
+    let mut have = std::fs::metadata(&part).map_or(0, |m| m.len());
+    let mut first = true;
+    while have < size {
+        std::thread::sleep(Duration::from_millis(delay));
+        let step = (size / chunks).max(1).min(size - have);
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&part)
+            .expect("part file");
+        f.write_all(&vec![b'x'; usize::try_from(step).unwrap_or(1)])
+            .expect("write");
+        have += step;
+        if get("na").is_some() {
+            println!("@fetchbox progress NA NA NA");
+        } else {
+            println!("@fetchbox progress {have} {size} 1000.5");
+        }
+        let _ = std::io::stdout().flush();
+        if first {
+            first = false;
+            if let Some(msg) = get("fail") {
+                eprintln!("ERROR: {msg}");
+                std::process::exit(3);
+            }
+            if get("hang").is_some() {
+                forever();
+            }
+        }
+    }
+    let done = out.join(&name);
+    std::fs::rename(&part, &done).expect("rename");
+    match get("announce") {
+        Some("1") => println!("@fetchbox file {}", done.display()),
+        Some(other) => println!("@fetchbox file {other}"),
+        None => {}
+    }
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let mode = args.next().unwrap_or_default();
     match mode.as_str() {
+        "run" => run(&mut args),
         "print-json" => say(&json!({
             "title": "A video",
             "filesize": 1234,

@@ -127,6 +127,8 @@ pub(crate) struct Plugins {
     lifecycle: tokio::sync::Mutex<()>,
     /// Where each staged package came from (token to source and store checksum).
     staged: Mutex<HashMap<String, (PluginSource, Option<String>)>>,
+    /// Downloads whose program is running (see `plugin_runner`).
+    pub(super) runs: super::plugin_runner::Runs,
 }
 
 /// Which dependencies a preparation fetches.
@@ -261,7 +263,11 @@ impl Manager {
             installer,
             runner: Runner::default(),
         };
-        if self.plugins.host.set(host).is_err() || mode != PluginsMode::On {
+        if self.plugins.host.set(host).is_err() {
+            return;
+        }
+        if mode != PluginsMode::On {
+            self.fail_plugin_downloads("plugins are switched off on this server");
             return;
         }
         match self.load_plugins().await {
@@ -293,6 +299,7 @@ impl Manager {
 
     /// Stop every plugin's program (the server is going down).
     pub async fn stop_plugins(&self) {
+        self.stop_runners().await;
         let procs: Vec<Arc<Process>> = self
             .plugin_entries()
             .values_mut()
@@ -793,6 +800,7 @@ impl Manager {
             }
             self.publish_plugin(id);
             tracing::info!(target: "activity", plugin = %id, "plugin ready");
+            self.wake_downloads_of(id);
             return Ok(());
         };
         let env = self.run_env(id)?;
@@ -873,6 +881,7 @@ impl Manager {
     fn on_process_event(&self, id: &str, generation: u64, ev: process::Event) {
         match ev {
             process::Event::State(s) => {
+                let mut woke = false;
                 {
                     let mut entries = self.plugin_entries();
                     let Some(e) = entries.get_mut(id) else { return };
@@ -886,6 +895,7 @@ impl Manager {
                         process::State::Running => {
                             e.state = PluginState::Running;
                             e.error = None;
+                            woke = true;
                         }
                         process::State::Failed(why) => {
                             e.state = PluginState::Failed;
@@ -898,6 +908,9 @@ impl Manager {
                     }
                 }
                 self.publish_plugin(id);
+                if woke {
+                    self.wake_downloads_of(id);
+                }
             }
             process::Event::Status(text) => {
                 if let Some(e) = self.plugin_entries().get_mut(id) {
@@ -917,8 +930,17 @@ impl Manager {
         }
     }
 
+    /// Downloads that waited for this plugin may start now.
+    fn wake_downloads_of(&self, id: &str) {
+        if let Some(me) = self.this.get().and_then(std::sync::Weak::upgrade) {
+            tokio::spawn(me.wake_plugin_downloads(id.to_owned()));
+        }
+    }
+
     /// End a plugin's preparation and program (it is being switched off, replaced or removed).
     async fn stop_runtime(&self, id: &str) {
+        // What the plugin is downloading stops with it; those downloads wait, paused.
+        self.pause_runs_of(id);
         let proc = {
             let mut entries = self.plugin_entries();
             let Some(e) = entries.get_mut(id) else { return };

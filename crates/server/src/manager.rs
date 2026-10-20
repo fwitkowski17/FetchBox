@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 mod plugin_resolve;
+mod plugin_runner;
 mod plugin_store;
 mod plugins;
 mod torrents;
@@ -326,7 +327,9 @@ impl Manager {
     /// Fresh numbers from the engine for running downloads.
     fn view(&self, mut d: Download) -> Download {
         if d.status == Status::Downloading {
-            let p = self.engine.progress(d.id);
+            let p = self
+                .runner_progress(d.id)
+                .unwrap_or_else(|| self.engine.progress(d.id));
             if p.downloaded > 0 {
                 d.downloaded = p.downloaded;
             }
@@ -501,7 +504,7 @@ impl Manager {
             let downloading = matches!(self.get(id), Ok(d) if d.status == Status::Downloading);
             if stop && downloading {
                 self.suspended().insert(id);
-                if self.engine.pause(id).await.is_err() {
+                if self.pause_any(id).await.is_err() {
                     self.suspended().remove(&id);
                 }
             }
@@ -668,7 +671,9 @@ impl Manager {
                     segments::update_offsets(c, id, &pairs)
                 });
                 self.log_err("progress", id, r);
-                let p = self.engine.progress(id);
+                let p = self
+                    .runner_progress(id)
+                    .unwrap_or_else(|| self.engine.progress(id));
                 self.note_speed(p.speed);
                 self.publish(Event::Progress {
                     id,
@@ -934,6 +939,9 @@ impl Manager {
         match self.engine.cancel(d.id).await {
             Ok(()) | Err(Error::NotFound(_)) => {}
             Err(e) => return Err(e),
+        }
+        if d.plugin.is_some() {
+            self.runner_cancel(d).await;
         }
         self.remove_part(d.id, &rel_dir(&d.disk, &d.subdir), &d.filename)
             .await;
@@ -1507,7 +1515,7 @@ impl Service for Manager {
         self.suspended().remove(&id);
         if self.sched().is_running(id) {
             // The engine answers with a `Paused` event that persists offsets and frees the slot.
-            self.engine.pause(id).await?;
+            self.pause_any(id).await?;
         } else {
             self.held().remove(&id);
             let next = self.sched().release(id);
@@ -1665,6 +1673,11 @@ impl Service for Manager {
                 "a {} download has no speed to limit",
                 d.status.as_str()
             )));
+        }
+        if d.plugin.is_some() {
+            return Err(Error::InvalidState(
+                "a download made by a plugin has no speed limit of its own: the plugin's program does the transfer".into(),
+            ));
         }
         self.with_db(|c| downloads::set_speed_limit(c, id, rate))?;
         self.engine.set_speed_limit(id, rate); // live, if it is running

@@ -1565,11 +1565,11 @@ fn resolving() -> Value {
                     "probe": {"command": "bin/fake", "args": ["print-single"]},
                     "result": {"single": {"name": "/title", "size": "/filesize"}},
                     "choices": [
-                        {"id": "best", "label": "Best quality", "category": "video", "ext": "mp4", "requires": ["ffmpeg"], "args": []},
-                        {"id": "single", "label": "Best single file", "category": "video", "args": []},
-                        {"id": "audio", "label": "Audio only", "category": "music", "ext": "m4a", "args": []}
+                        {"id": "best", "label": "Best quality", "category": "video", "ext": "mp4", "requires": ["ffmpeg"], "args": ["name=best.mp4"]},
+                        {"id": "single", "label": "Best single file", "category": "video", "args": ["name=single.webm", "size=3000", "chunks=3", "delay=20", "announce=1"]},
+                        {"id": "audio", "label": "Audio only", "category": "music", "ext": "m4a", "args": ["name=audio.m4a", "size=2000", "chunks=2", "delay=20"]}
                     ],
-                    "run": {"command": "bin/fake", "args": ["print-json"]}
+                    "run": {"command": "bin/fake", "args": ["run", "${out_dir}", "${choice.args}"]}
                 }
             ]
         }),
@@ -1890,4 +1890,320 @@ async fn a_via_that_cannot_work_is_refused_before_anything_is_added() {
         .await
         .expect_err("off");
     assert!(invalid(e).contains("is not running"));
+}
+
+// ---- downloads made by a plugin's program -----------------------------------------
+
+use fetchbox_core::{Download, Status};
+
+/// A plugin whose presets make files in different ways (see the stand-in's `run` mode).
+fn maker() -> Value {
+    let preset = |id: &str, ext: Option<&str>, args: &[&str]| {
+        let mut c = json!({"id": id, "label": id, "category": "video", "args": args});
+        if let Some(e) = ext {
+            c["ext"] = json!(e);
+        }
+        c
+    };
+    manifest(
+        "maker",
+        json!({
+            "resolvers": [{
+                "id": "media", "match": ["https://make.example/*"],
+                "probe": {"command": "bin/fake", "args": ["print-single"]},
+                "result": {"single": {"name": "/title"}},
+                "choices": [
+                    preset("ok", None, &["name=Made.bin", "size=3000", "chunks=3", "delay=30", "announce=1"]),
+                    preset("ticking", None, &["name=Made.bin", "size=3000", "chunks=3", "delay=500", "announce=1"]),
+                    preset("webm", Some("mp4"), &["name=real.webm", "size=1000", "chunks=2", "delay=20"]),
+                    preset("slow", None, &["name=Slow.bin", "size=4000", "chunks=20", "delay=100"]),
+                    preset("hang", None, &["name=Hang.bin", "size=4000", "delay=10", "hang=1"]),
+                    preset("fail", None, &["name=Fail.bin", "delay=10", "fail=boom: the site said no"]),
+                    preset("outside", None, &["name=Out.bin", "size=500", "chunks=1", "delay=10", "announce=/etc/hostname"]),
+                    preset("na", None, &["name=Na.bin", "size=1000", "chunks=2", "delay=20", "na=1"])
+                ],
+                "run": {"command": "bin/fake", "args": ["run", "${out_dir}", "${choice.args}"]}
+            }]
+        }),
+    )
+}
+
+async fn rig_with_maker() -> Rig {
+    let rig = Rig::new().await;
+    rig.install(&maker(), true).await;
+    rig.mgr
+        .plugin_set_enabled("maker".into(), true)
+        .await
+        .expect("enable");
+    rig.wait_for("maker", PluginState::Ready).await;
+    rig
+}
+
+impl Rig {
+    async fn make(&self, preset: &str, name: &str) -> Download {
+        self.mgr
+            .add(add_request(
+                "https://make.example/clip",
+                Some(via("maker", "media", preset)),
+                Some(name),
+            ))
+            .await
+            .expect("add")
+    }
+
+    async fn download(&self, id: i64) -> Download {
+        self.mgr
+            .list()
+            .await
+            .expect("list")
+            .into_iter()
+            .find(|d| d.id == id)
+            .expect("download")
+    }
+
+    async fn wait_status(&self, id: i64, want: Status) -> Download {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let d = self.download(id).await;
+            if d.status == want {
+                return d;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "download {id} never became {want:?}: {:?} ({:?})",
+                d.status,
+                d.error
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    fn downloads_dir(&self) -> PathBuf {
+        self.root.path().join("downloads")
+    }
+
+    fn working_folder(&self, id: i64) -> PathBuf {
+        self.downloads_dir().join(format!(".fetchbox-job-{id}"))
+    }
+}
+
+#[tokio::test]
+async fn a_download_made_by_a_plugin_runs_and_ends_in_the_download_folder() {
+    let rig = rig_with_maker().await;
+    let mut events = rig.mgr.subscribe();
+    let d = rig.make("ticking", "Title").await;
+    assert_eq!(d.plugin.as_deref(), Some("maker"));
+    let done = rig.wait_status(d.id, Status::Completed).await;
+    // The file got the extension the program really made, and the size it reported.
+    assert_eq!(done.filename, "Title.bin");
+    assert_eq!(done.size, Some(3000));
+    assert_eq!(done.downloaded, 3000);
+    let file = rig.downloads_dir().join("Title.bin");
+    assert_eq!(std::fs::metadata(&file).expect("file").len(), 3000);
+    assert!(
+        !rig.working_folder(d.id).exists(),
+        "the working folder is gone"
+    );
+
+    let mut totals = Vec::new();
+    while let Ok(ev) = events.try_recv() {
+        if let Event::Progress { id, total, .. } = ev {
+            if id == d.id {
+                totals.push(total);
+            }
+        }
+    }
+    assert!(
+        totals.contains(&Some(3000)),
+        "the interface saw the size: {totals:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_real_extension_replaces_the_one_the_preset_guessed() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("webm", "Clip").await;
+    assert_eq!(d.filename, "Clip.mp4", "the preset's guess while it runs");
+    let done = rig.wait_status(d.id, Status::Completed).await;
+    assert_eq!(done.filename, "Clip.webm");
+    assert!(rig.downloads_dir().join("Clip.webm").is_file());
+}
+
+#[tokio::test]
+async fn a_file_that_exists_is_never_replaced() {
+    let rig = rig_with_maker().await;
+    std::fs::create_dir_all(rig.downloads_dir()).expect("dir");
+    std::fs::write(rig.downloads_dir().join("Title.bin"), "mine").expect("write");
+    let d = rig.make("ok", "Title").await;
+    let done = rig.wait_status(d.id, Status::Completed).await;
+    assert_eq!(done.filename, "Title (1).bin");
+    assert_eq!(
+        std::fs::read_to_string(rig.downloads_dir().join("Title.bin")).expect("read"),
+        "mine"
+    );
+}
+
+#[tokio::test]
+async fn progress_without_numbers_keeps_the_download_running() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("na", "Unknown").await;
+    let done = rig.wait_status(d.id, Status::Completed).await;
+    assert_eq!(
+        done.size,
+        Some(1000),
+        "the size is the file's when the program never said"
+    );
+}
+
+#[tokio::test]
+async fn pausing_stops_the_program_and_resuming_continues_its_work() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("slow", "Slow").await;
+    // Wait until some of it is there.
+    let part = rig.working_folder(d.id).join("Slow.bin.part");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::fs::metadata(&part).map_or(0, |m| m.len()) < 600 {
+        assert!(std::time::Instant::now() < deadline, "nothing was written");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    rig.mgr.pause(d.id).await.expect("pause");
+    let paused = rig.wait_status(d.id, Status::Paused).await;
+    let kept = std::fs::metadata(&part).expect("part kept").len();
+    assert!(kept > 0 && kept < 4000, "{kept}");
+    assert!(
+        paused.downloaded <= kept,
+        "what is stored is not more than what is there"
+    );
+    // Nothing keeps writing after the pause.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(std::fs::metadata(&part).expect("part").len(), kept);
+
+    rig.mgr.resume(d.id).await.expect("resume");
+    let done = rig.wait_status(d.id, Status::Completed).await;
+    assert_eq!(done.size, Some(4000));
+    assert_eq!(
+        std::fs::metadata(rig.downloads_dir().join("Slow.bin"))
+            .expect("file")
+            .len(),
+        4000
+    );
+}
+
+#[tokio::test]
+async fn cancelling_removes_the_working_folder() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("hang", "Stuck").await;
+    rig.wait_status(d.id, Status::Downloading).await;
+    let folder = rig.working_folder(d.id);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !folder.join("Hang.bin.part").exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the program never wrote"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    rig.mgr.cancel(d.id).await.expect("cancel");
+    let c = rig.wait_status(d.id, Status::Cancelled).await;
+    assert_eq!(c.status, Status::Cancelled);
+    assert!(!folder.exists());
+    assert!(!rig.downloads_dir().join("Stuck.bin").exists());
+}
+
+#[tokio::test]
+async fn a_failing_program_fails_the_download_with_its_reason_and_can_be_retried() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("fail", "Nope").await;
+    let failed = rig.wait_status(d.id, Status::Failed).await;
+    assert_eq!(
+        failed.error.as_deref(),
+        Some("ERROR: boom: the site said no")
+    );
+    assert!(
+        rig.working_folder(d.id).exists(),
+        "what it had is kept for the retry"
+    );
+    rig.mgr.resume(d.id).await.expect("retry");
+    let again = rig.wait_status(d.id, Status::Failed).await;
+    assert!(again.error.expect("error").contains("the site said no"));
+}
+
+#[tokio::test]
+async fn a_file_outside_the_working_folder_is_refused() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("outside", "Evil").await;
+    let failed = rig.wait_status(d.id, Status::Failed).await;
+    assert!(failed.error.expect("error").contains("outside its folder"));
+    assert!(!rig.downloads_dir().join("hostname").exists());
+}
+
+#[tokio::test]
+async fn switching_the_plugin_off_pauses_what_it_is_downloading() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("hang", "Stuck").await;
+    rig.wait_status(d.id, Status::Downloading).await;
+    rig.mgr
+        .plugin_set_enabled("maker".into(), false)
+        .await
+        .expect("off");
+    rig.wait_status(d.id, Status::Paused).await;
+
+    // While it is off the download cannot be resumed, and says why.
+    let e = rig.mgr.resume(d.id).await;
+    assert!(e.is_ok(), "resume only queues it");
+    let failed = rig.wait_status(d.id, Status::Failed).await;
+    assert!(failed.error.expect("error").contains("is not running"));
+
+    rig.mgr
+        .plugin_set_enabled("maker".into(), true)
+        .await
+        .expect("on");
+    rig.wait_for("maker", PluginState::Ready).await;
+    rig.mgr.resume(d.id).await.expect("resume");
+    rig.wait_status(d.id, Status::Downloading).await;
+    rig.mgr.cancel(d.id).await.expect("cancel");
+}
+
+#[tokio::test]
+async fn a_plugin_download_has_no_speed_limit_of_its_own() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("hang", "Stuck").await;
+    let e = rig
+        .mgr
+        .set_speed_limit(d.id, 1000)
+        .await
+        .expect_err("refused");
+    assert!(invalid(e).contains("made by a plugin"));
+    rig.mgr.cancel(d.id).await.expect("cancel");
+}
+
+#[tokio::test]
+async fn a_download_waits_for_its_plugin_after_a_restart_of_the_server() {
+    let rig = rig_with_maker().await;
+    let d = rig.make("slow", "Slow").await;
+    let part = rig.working_folder(d.id).join("Slow.bin.part");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::fs::metadata(&part).map_or(0, |m| m.len()) < 400 {
+        assert!(std::time::Instant::now() < deadline, "nothing was written");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    // The server goes down (quietly: the download stays "downloading" in the database) ...
+    rig.mgr.stop_plugins().await;
+    let had = std::fs::metadata(&part).expect("part").len();
+
+    // ... and comes back: the queue starts before the plugins are loaded, so the download waits
+    // for its plugin instead of failing, then goes on from what is there.
+    let again = Rig {
+        mgr: Rig::boot(rig.root.path(), PluginsMode::On, None, "").await,
+        root: rig.root,
+    };
+    let done = again.wait_status(d.id, Status::Completed).await;
+    assert_eq!(done.size, Some(4000));
+    assert!(had > 0);
+    assert_eq!(
+        std::fs::metadata(again.downloads_dir().join("Slow.bin"))
+            .expect("file")
+            .len(),
+        4000
+    );
 }

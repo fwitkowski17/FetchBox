@@ -84,7 +84,7 @@ impl Manager {
     }
 
     /// Can the preset run now (the dependencies it needs are installed)? `Err` names what is missing.
-    fn choice_ready(
+    pub(super) fn choice_ready(
         &self,
         host: &Host,
         plugin: &str,
@@ -376,12 +376,5 @@ impl Manager {
             filename: sanitize(&last),
             content_type: None,
         })
-    }
-
-    /// Start a download that a plugin's program makes. Not available yet.
-    pub(super) async fn plugins_start_download(&self, _id: fetchbox_core::Id) -> Result<bool> {
-        Err(Error::Engine(
-            "downloads made by a plugin cannot be started by this build yet".into(),
-        ))
     }
 }
