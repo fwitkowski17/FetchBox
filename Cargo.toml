@@ -5,6 +5,7 @@ members = [
     "crates/http_engine",
     "crates/torrent_engine",
     "crates/plugins",
+    "crates/test_plugin",
     "crates/storage",
     "crates/api",
     "crates/server",

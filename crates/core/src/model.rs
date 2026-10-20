@@ -237,6 +237,9 @@ pub struct Download {
     /// once they keep it the status is `completed` and this stays, to be shown as a warning.
     #[serde(default)]
     pub verify_failed: bool,
+    /// The id of the plugin whose program makes the file (SPEC 6.15); none for an ordinary download.
+    #[serde(default)]
+    pub plugin: Option<String>,
 }
 
 /// Why a queued download is waiting instead of running.
@@ -539,6 +542,10 @@ pub struct AddRequest {
     /// written into the address (`ftp://user:password@host/file`), which is moved here anyway.
     #[serde(default)]
     pub credentials: Option<Credentials>,
+    /// A plugin makes the file (SPEC 6.15): `url` is then the address the plugin understands (a
+    /// video page), not a file for the engine. Taken from the entry of a plugin's listing.
+    #[serde(default)]
+    pub via: Option<Via>,
 }
 
 /// What a release changed, as its author wrote it on GitHub (Markdown).
@@ -653,6 +660,19 @@ pub enum UrlKind {
     Listing,
 }
 
+/// Where a download or a listing entry comes from when a plugin handles the address (SPEC 6.15):
+/// the plugin, its resolver and the preset (quality, audio only, ...). Sent back with the add
+/// request, so the server knows which of the plugin's programs makes the file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Via {
+    pub plugin: String,
+    pub resolver: String,
+    /// The preset to use; the first one that can run when absent.
+    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+}
+
 /// One item of a directory index page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -666,6 +686,9 @@ pub struct ListingEntry {
     pub is_dir: bool,
     /// What the file name says it is (`Other` for a directory).
     pub category: Category,
+    /// Set when a plugin resolved the address: add this entry with `via`, not as a plain address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<Via>,
 }
 
 /// What the remote server says about a URL: what an add request would work with.

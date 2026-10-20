@@ -296,46 +296,52 @@ fn check_resolver(r: &Resolver, ctx: &Ctx<'_>) -> Check {
             },
             ctx,
         )?;
-        let Some(result) = &r.result else {
-            return Err(format!("{name} has a `probe` but no `result` mapping"));
-        };
-        if result.items.is_some() && result.item.is_none() {
-            return Err(format!("{name}: `result.items` needs `result.item`"));
+    }
+    // The answer of the probe (or of the process) is JSON; the manifest says how to read it.
+    let Some(result) = &r.result else {
+        return Err(format!("{name} needs a `result` mapping"));
+    };
+    if result.items.is_some() && result.item.is_none() {
+        return Err(format!("{name}: `result.items` needs `result.item`"));
+    }
+    if result.items.is_none() && result.single.is_none() {
+        return Err(format!("{name}: `result` needs `items` or `single`"));
+    }
+    if r.run.is_none() && result.items.is_none() {
+        return Err(format!(
+            "{name} has no `run`, so FetchBox downloads what it finds itself and the answer must be a list: `result.items` is needed"
+        ));
+    }
+    if let Some(p) = &result.items {
+        if !p.is_empty() && !p.starts_with('/') {
+            return Err(format!("{name}: \"{p}\" is not a JSON pointer"));
         }
-        if result.items.is_none() && result.single.is_none() {
-            return Err(format!("{name}: `result` needs `items` or `single`"));
+    }
+    let pointers = result
+        .item
+        .iter()
+        .flat_map(|i| {
+            i.name
+                .iter()
+                .chain(i.url.iter())
+                .chain(i.size.iter().flat_map(|s| s.iter()))
+        })
+        .chain(
+            result
+                .single
+                .iter()
+                .flat_map(|s| s.name.iter().chain(s.size.iter().flat_map(|z| z.iter()))),
+        );
+    for p in pointers {
+        if !p.is_empty() && !p.starts_with('/') {
+            return Err(format!("{name}: \"{p}\" is not a JSON pointer"));
         }
-        if let Some(p) = &result.items {
-            if !p.is_empty() && !p.starts_with('/') {
-                return Err(format!("{name}: \"{p}\" is not a JSON pointer"));
-            }
-        }
-        let pointers = result
-            .item
-            .iter()
-            .flat_map(|i| {
-                i.name
-                    .iter()
-                    .chain(i.url.iter())
-                    .chain(i.size.iter().flat_map(|s| s.iter()))
-            })
-            .chain(
-                result
-                    .single
-                    .iter()
-                    .flat_map(|s| s.name.iter().chain(s.size.iter().flat_map(|z| z.iter()))),
-            );
-        for p in pointers {
-            if !p.is_empty() && !p.starts_with('/') {
-                return Err(format!("{name}: \"{p}\" is not a JSON pointer"));
-            }
-        }
-        if let Some(k) = &result.default_choice_setting {
-            if !ctx.settings.contains(k.as_str()) {
-                return Err(format!(
-                    "{name}: `default_choice_setting` names the undeclared setting \"{k}\""
-                ));
-            }
+    }
+    if let Some(k) = &result.default_choice_setting {
+        if !ctx.settings.contains(k.as_str()) {
+            return Err(format!(
+                "{name}: `default_choice_setting` names the undeclared setting \"{k}\""
+            ));
         }
     }
     unique(
@@ -773,6 +779,7 @@ pub fn check_setting_value(field: &Field, value: &SettingValue) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     const SHA: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -973,6 +980,39 @@ mod tests {
             v["resolvers"][0]["choices"][0]["requires"] = serde_json::json!(["ffmpeg"]);
         });
         assert!(e.contains("ffmpeg"), "{e}");
+    }
+
+    #[test]
+    fn a_resolver_without_run_must_return_a_list() {
+        // Direct downloads: FetchBox fetches the addresses the plugin finds, so there must be some.
+        let e = err_of(base(), |v| {
+            v["resolvers"][0]
+                .as_object_mut()
+                .expect("object")
+                .remove("run");
+            v["resolvers"][0]["result"] = serde_json::json!({"single": {"name": "/title"}});
+        });
+        assert!(e.contains("result.items"), "{e}");
+        let mut v = base();
+        v["resolvers"][0]
+            .as_object_mut()
+            .expect("object")
+            .remove("run");
+        v["resolvers"][0]["result"] = serde_json::json!({
+            "items": "/entries", "item": {"name": "/title", "url": "/url"}
+        });
+        check(v).expect("a list of direct addresses is fine");
+        // A process resolver is read the same way.
+        let e = err_of(base(), |v| {
+            v["process"] = serde_json::json!({"command": "bin/d"});
+            v["resolvers"][0]["probe"] = Value::Null;
+            v["resolvers"][0]["process"] = true.into();
+            v["resolvers"][0]
+                .as_object_mut()
+                .expect("object")
+                .remove("result");
+        });
+        assert!(e.contains("`result` mapping"), "{e}");
     }
 
     #[test]

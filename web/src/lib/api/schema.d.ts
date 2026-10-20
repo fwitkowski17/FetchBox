@@ -951,6 +951,7 @@ export interface components {
             /** @description "Download now": do not wait for the download hours, which apply to this download otherwise. */
             start_now?: boolean;
             url: string;
+            via?: null | components["schemas"]["Via"];
         };
         /**
          * @description Add a torrent by magnet link. A `.torrent` file is sent as the raw body of
@@ -1219,6 +1220,8 @@ export interface components {
             hold?: null | components["schemas"]["Hold"];
             /** Format: int64 */
             id: number;
+            /** @description The id of the plugin whose program makes the file (SPEC 6.15); none for an ordinary download. */
+            plugin?: string | null;
             resumable: boolean;
             /**
              * Format: int64
@@ -1459,6 +1462,7 @@ export interface components {
             size?: number | null;
             /** @description Absolute address; a file is added with it, a directory is opened with it. */
             url: string;
+            via?: null | components["schemas"]["Via"];
         };
         /** @description Too many failed logins. */
         LockedBody: {
@@ -2168,6 +2172,17 @@ export interface components {
             release_url?: string | null;
             /** @description `latest` is newer than `current`. */
             update_available: boolean;
+        };
+        /**
+         * @description Where a download or a listing entry comes from when a plugin handles the address (SPEC 6.15):
+         *     the plugin, its resolver and the preset (quality, audio only, ...). Sent back with the add
+         *     request, so the server knows which of the plugin's programs makes the file.
+         */
+        Via: {
+            plugin: string;
+            /** @description The preset to use; the first one that can run when absent. */
+            ref?: string | null;
+            resolver: string;
         };
     };
     responses: never;

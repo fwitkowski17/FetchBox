@@ -24,7 +24,7 @@ pub use model::{
     AddRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace, Download, Event, Handle,
     Hold, HostKeyProblem, HostKeyProblemKind, Id, InstallMethod, Job, KnownHost, ListingEntry,
     OnConflict, OnHoursEnd, ProbeRequest, Progress, ReleaseNote, SegmentState, Settings,
-    SourceKind, Status, TrustHost, UrlInfo, UrlKind, VersionInfo,
+    SourceKind, Status, TrustHost, UrlInfo, UrlKind, VersionInfo, Via,
 };
 pub use stats::{CategoryStat, DayStat, LargestFile, Stats, StatsRange};
 pub use torrent::{

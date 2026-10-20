@@ -1,7 +1,9 @@
-//! A stand-in for a plugin's program, used by the tests of this crate (like
-//! `torrent_engine/examples/seed.rs` is for BitTorrent). The first argument picks what it does.
+//! A stand-in for a plugin's program, used by the tests of the plugin system (the plugins crate and
+//! the server). It is a crate of its own so that building it is the same everywhere: `cargo test
+//! --workspace` builds it, and a test run of one crate builds it by name. The first argument picks
+//! what it does.
 //!
-//! One-shot modes: `print-json`, `fail`, `sleep`, `flood`, `cat`, `env`, `args`, `child <pidfile>`
+//! One-shot modes: `print-json` (a playlist), `print-single` (one video), `fail`, `sleep`, `flood`, `cat`, `env`, `args`, `child <pidfile>`
 //! (starts a child, then sleeps), `exit-leaving-child` (prints the pid of a child it leaves running).
 //!
 //! Long-lived modes speak the JSON-lines protocol of `fetchbox_plugins::protocol`: `echo`,
@@ -180,6 +182,7 @@ fn main() {
                 {"title": "Two", "url": "https://v.example/2"}
             ]
         })),
+        "print-single" => say(&json!({"title": "A video", "filesize": 1234})),
         "fail" => {
             eprintln!("starting up");
             eprintln!("boom: something went wrong");

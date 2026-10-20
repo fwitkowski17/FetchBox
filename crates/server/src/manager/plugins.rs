@@ -83,8 +83,8 @@ pub(super) struct Host {
     mode: PluginsMode,
     pub(super) layout: Layout,
     pub(super) fetcher: Fetcher,
-    installer: Arc<Installer>,
-    runner: Runner,
+    pub(super) installer: Arc<Installer>,
+    pub(super) runner: Runner,
     pub(super) catalog: Catalog,
 }
 
@@ -97,11 +97,11 @@ pub(super) struct Entry {
     hash: String,
     /// What the database says; `None` for a folder nobody has accepted yet.
     stored: Option<StoredPlugin>,
-    state: PluginState,
+    pub(super) state: PluginState,
     error: Option<String>,
     status_text: Option<String>,
     progress: Option<DependencyProgress>,
-    process: Option<Arc<Process>>,
+    pub(super) process: Option<Arc<Process>>,
     prepare: Option<AbortHandle>,
     /// Bumped whenever the plugin is (re)prepared, so a task that was overtaken cannot touch it.
     generation: u64,
@@ -141,7 +141,7 @@ enum Fetch {
 }
 
 /// What a command needs to be filled in and run.
-struct RunEnv {
+pub(super) struct RunEnv {
     id: String,
     plugin_dir: std::path::PathBuf,
     data_dir: std::path::PathBuf,
@@ -152,7 +152,7 @@ struct RunEnv {
 }
 
 impl RunEnv {
-    fn context(&self) -> Context<'_> {
+    pub(super) fn context(&self) -> Context<'_> {
         Context {
             plugin_dir: &self.plugin_dir,
             data_dir: &self.data_dir,
@@ -165,7 +165,7 @@ impl RunEnv {
         }
     }
 
-    fn child_env(&self, extra: BTreeMap<String, String>) -> ChildEnv {
+    pub(super) fn child_env(&self, extra: BTreeMap<String, String>) -> ChildEnv {
         ChildEnv {
             plugin_id: self.id.clone(),
             plugin_dir: self.plugin_dir.clone(),
@@ -185,7 +185,10 @@ fn stored_text(v: &SettingValue) -> String {
 }
 
 /// The settings a plugin runs with: the manifest's defaults, then what the user saved.
-fn effective(m: &Manifest, stored: &BTreeMap<String, String>) -> BTreeMap<String, SettingValue> {
+pub(super) fn effective(
+    m: &Manifest,
+    stored: &BTreeMap<String, String>,
+) -> BTreeMap<String, SettingValue> {
     let mut out = BTreeMap::new();
     for f in &m.settings {
         if let Some(d) = &f.default {
@@ -341,12 +344,12 @@ impl Manager {
         }
     }
 
-    fn plugin_stored_settings(&self, id: &str) -> BTreeMap<String, String> {
+    pub(super) fn plugin_stored_settings(&self, id: &str) -> BTreeMap<String, String> {
         self.with_db(|c| store::settings(c, id)).unwrap_or_default()
     }
 
     /// The paths and values a command of this plugin is run with.
-    fn run_env(&self, id: &str) -> Result<RunEnv> {
+    pub(super) fn run_env(&self, id: &str) -> Result<RunEnv> {
         let host = self.plugin_host()?;
         let manifest = self
             .plugin_entries()

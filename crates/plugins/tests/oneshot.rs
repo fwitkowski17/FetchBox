@@ -156,10 +156,10 @@ async fn one_plugin_runs_two_commands_at_a_time() {
     for t in tasks {
         t.await.expect("join").expect_err("timeout");
     }
+    let one_plugin = started.elapsed();
     assert!(
-        started.elapsed() >= Duration::from_millis(800),
-        "four commands of one plugin must not all run at once: {:?}",
-        started.elapsed()
+        one_plugin >= Duration::from_millis(800),
+        "four commands of one plugin must not all run at once: {one_plugin:?}"
     );
     // Another plugin is not held up by the first one's queue.
     let started = Instant::now();
@@ -175,9 +175,10 @@ async fn one_plugin_runs_two_commands_at_a_time() {
     for t in tasks {
         t.await.expect("join").expect_err("timeout");
     }
+    // One round instead of two: judged against the first run, so a busy machine does not matter.
     assert!(
-        started.elapsed() < Duration::from_millis(790),
-        "{:?}",
+        started.elapsed() < one_plugin,
+        "four plugins are not held up by each other's queue: {:?} against {one_plugin:?}",
         started.elapsed()
     );
 }

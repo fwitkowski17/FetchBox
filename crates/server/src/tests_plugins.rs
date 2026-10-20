@@ -17,33 +17,25 @@ use serde_json::{json, Value};
 
 use crate::manager::{Manager, PluginSetup, PluginsMode};
 
-/// The stand-in plugin program (`crates/plugins/examples/fake_plugin.rs`), built if needed.
-fn fake_plugin() -> PathBuf {
+/// The stand-in plugin program (`crates/test_plugin`). `cargo test --workspace` builds it, a run of
+/// one crate does not, so it is built here by name (a no-op when it is current).
+pub fn fake_plugin() -> PathBuf {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
         let exe = std::env::current_exe().expect("test exe");
         let profile = exe.parent().and_then(Path::parent).expect("target dir");
-        let path = profile
-            .join("examples")
-            .join(format!("fake_plugin{}", std::env::consts::EXE_SUFFIX));
-        if !path.exists() {
-            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-            let mut cmd = std::process::Command::new(cargo);
-            cmd.args([
-                "build",
-                "--example",
-                "fake_plugin",
-                "-p",
-                "fetchbox-plugins",
-            ]);
-            if profile.ends_with("release") {
-                cmd.arg("--release");
-            }
-            assert!(
-                cmd.status().expect("cargo").success(),
-                "building the example failed"
-            );
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let mut cmd = std::process::Command::new(cargo);
+        cmd.args(["build", "--quiet", "-p", "fetchbox-test-plugin"]);
+        if profile.ends_with("release") {
+            cmd.arg("--release");
         }
+        assert!(
+            cmd.status().expect("cargo").success(),
+            "building the stand-in plugin failed"
+        );
+        let path = profile.join(format!("fake-plugin{}", std::env::consts::EXE_SUFFIX));
+        assert!(path.exists(), "no {}", path.display());
         path
     })
     .clone()
@@ -1520,4 +1512,382 @@ async fn the_store_routes_list_stage_and_refuse() {
         .await
         .expect("post");
     assert_eq!(r.status().as_u16(), 404);
+}
+
+// ---- resolvers --------------------------------------------------------------------
+
+use fetchbox_core::{AddRequest, Category, OnConflict, UrlKind, Via};
+
+fn add_request(url: &str, via: Option<Via>, filename: Option<&str>) -> AddRequest {
+    AddRequest {
+        url: url.into(),
+        filename: filename.map(str::to_owned),
+        category: None,
+        on_conflict: OnConflict::Reject,
+        ignore_space: false,
+        start_at: None,
+        start_now: false,
+        checksum: None,
+        disk: None,
+        credentials: None,
+        via,
+    }
+}
+
+fn via(plugin: &str, resolver: &str, choice: &str) -> Via {
+    Via {
+        plugin: plugin.into(),
+        resolver: resolver.into(),
+        reference: Some(choice.into()),
+    }
+}
+
+/// A plugin with two resolvers, both run by the stand-in program: `site` finds addresses for the
+/// engine to download, `media` makes files itself, in three presets (one needs ffmpeg).
+fn resolving() -> Value {
+    manifest(
+        "finder",
+        json!({
+            "platforms": [platform_key()],
+            "settings": [{"key": "extra", "type": "textarea"}],
+            "dependencies": [{
+                "id": "ffmpeg", "label": "ffmpeg", "optional": true,
+                "platforms": {platform_key(): {"url": "https://example.com/ffmpeg", "sha256": "0".repeat(64)}}
+            }],
+            "resolvers": [
+                {
+                    "id": "site", "match": ["https://site.example/*"],
+                    "probe": {"command": "bin/fake", "args": ["print-json", "${url}"]},
+                    "result": {"items": "/entries", "item": {"name": "/title", "url": "/url"}}
+                },
+                {
+                    "id": "media", "match": ["https://video.example/*", "${setting:extra}"],
+                    "probe": {"command": "bin/fake", "args": ["print-single"]},
+                    "result": {"single": {"name": "/title", "size": "/filesize"}},
+                    "choices": [
+                        {"id": "best", "label": "Best quality", "category": "video", "ext": "mp4", "requires": ["ffmpeg"], "args": []},
+                        {"id": "single", "label": "Best single file", "category": "video", "args": []},
+                        {"id": "audio", "label": "Audio only", "category": "music", "ext": "m4a", "args": []}
+                    ],
+                    "run": {"command": "bin/fake", "args": ["print-json"]}
+                }
+            ]
+        }),
+    )
+}
+
+async fn rig_with_resolvers() -> Rig {
+    let rig = Rig::new().await;
+    rig.install(&resolving(), true).await;
+    rig.mgr
+        .plugin_set_enabled("finder".into(), true)
+        .await
+        .expect("enable");
+    rig.wait_for("finder", PluginState::Ready).await;
+    rig
+}
+
+#[tokio::test]
+async fn a_resolver_that_finds_addresses_lists_them_for_the_engine() {
+    let rig = rig_with_resolvers().await;
+    let info = rig
+        .mgr
+        .probe("https://site.example/gallery", None)
+        .await
+        .expect("probe");
+    assert_eq!(info.kind, UrlKind::Listing);
+    let names: Vec<_> = info
+        .entries
+        .iter()
+        .map(|e| (e.name.as_str(), e.url.as_str()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("One", "https://v.example/1"),
+            ("Two", "https://v.example/2")
+        ]
+    );
+    assert!(
+        info.entries.iter().all(|e| e.via.is_none()),
+        "the engine downloads these as they are"
+    );
+}
+
+#[tokio::test]
+async fn a_resolver_that_makes_files_offers_one_entry_per_preset_that_can_run() {
+    let rig = rig_with_resolvers().await;
+    let info = rig
+        .mgr
+        .probe("https://video.example/watch?v=1", None)
+        .await
+        .expect("probe");
+    assert_eq!(info.kind, UrlKind::Listing);
+    assert_eq!(info.filename, "A video");
+    // "Best quality" needs ffmpeg, which is not installed: it is not offered.
+    let got: Vec<_> = info
+        .entries
+        .iter()
+        .map(|e| {
+            (
+                e.name.as_str(),
+                e.category,
+                e.size,
+                e.url.as_str(),
+                e.via.as_ref().and_then(|v| v.reference.as_deref()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (
+                "A video - Best single file",
+                Category::Video,
+                Some(1234),
+                "https://video.example/watch?v=1",
+                Some("single")
+            ),
+            (
+                "A video - Audio only",
+                Category::Music,
+                Some(1234),
+                "https://video.example/watch?v=1",
+                Some("audio")
+            ),
+        ]
+    );
+    assert!(info.entries.iter().all(|e| e
+        .via
+        .as_ref()
+        .is_some_and(|v| v.plugin == "finder" && v.resolver == "media")));
+}
+
+#[tokio::test]
+async fn addresses_nobody_wants_go_to_the_engine_as_before() {
+    let rig = rig_with_resolvers().await;
+    let app = axum::Router::new().route("/f.bin", axum::routing::get(|| async { vec![1u8; 100] }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let url = format!("http://{}/f.bin", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    let info = rig.mgr.probe(&url, None).await.expect("probe");
+    assert_eq!(info.kind, UrlKind::File);
+    assert_eq!(info.filename, "f.bin");
+}
+
+#[tokio::test]
+async fn sites_the_user_adds_in_a_setting_are_matched_too() {
+    let rig = rig_with_resolvers().await;
+    // Not claimed yet: the engine tries and cannot reach the made-up host.
+    let before = rig
+        .mgr
+        .probe("https://other.example/clip", None)
+        .await
+        .expect_err("engine");
+    assert!(matches!(before, Error::Engine(_)), "{before:?}");
+    rig.mgr
+        .plugin_save_settings(
+            "finder".into(),
+            values(&[(
+                "extra",
+                Some(text(
+                    "https://nope.example/*\nhttps://other.example/*, https://third.example/*",
+                )),
+            )]),
+        )
+        .await
+        .expect("save");
+    for url in ["https://other.example/clip", "https://third.example/x"] {
+        let info = rig.mgr.probe(url, None).await.expect("claimed");
+        assert_eq!(info.entries.len(), 2, "{url}");
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_that_is_off_or_a_login_keeps_the_engine_in_charge() {
+    let rig = rig_with_resolvers().await;
+    let creds = Some(fetchbox_core::Credentials {
+        username: "u".into(),
+        password: "p".into(),
+    });
+    let e = rig
+        .mgr
+        .probe("https://video.example/x", creds)
+        .await
+        .expect_err("engine");
+    assert!(matches!(e, Error::Engine(_)), "{e:?}");
+    rig.mgr
+        .plugin_set_enabled("finder".into(), false)
+        .await
+        .expect("off");
+    let e = rig
+        .mgr
+        .probe("https://video.example/x", None)
+        .await
+        .expect_err("engine");
+    assert!(matches!(e, Error::Engine(_)), "{e:?}");
+}
+
+#[tokio::test]
+async fn when_no_preset_can_run_the_answer_says_what_to_install() {
+    let rig = rig_with_resolvers().await;
+    // Make every preset need ffmpeg.
+    let mut m = resolving();
+    for c in m["resolvers"][1]["choices"]
+        .as_array_mut()
+        .expect("choices")
+    {
+        c["requires"] = json!(["ffmpeg"]);
+    }
+    let staged = rig
+        .mgr
+        .plugin_stage(package(&m, true))
+        .await
+        .expect("stage");
+    rig.mgr.plugin_install(staged.token).await.expect("install");
+    rig.wait_for("finder", PluginState::Ready).await;
+    let e = rig
+        .mgr
+        .probe("https://video.example/x", None)
+        .await
+        .expect_err("nothing can run");
+    assert!(invalid(e).contains("install ffmpeg first"));
+}
+
+#[tokio::test]
+async fn a_program_that_prints_nonsense_is_a_clear_error() {
+    let rig = Rig::new().await;
+    let m = manifest(
+        "garbled",
+        json!({"resolvers": [{
+            "id": "r", "match": ["https://x.example/*"],
+            "probe": {"command": "bin/fake", "args": ["fail"]},
+            "result": {"items": "/entries", "item": {"name": "/t", "url": "/u"}}
+        }]}),
+    );
+    rig.install(&m, true).await;
+    rig.mgr
+        .plugin_set_enabled("garbled".into(), true)
+        .await
+        .expect("enable");
+    rig.wait_for("garbled", PluginState::Ready).await;
+    let e = rig
+        .mgr
+        .probe("https://x.example/a", None)
+        .await
+        .expect_err("fails");
+    assert!(
+        matches!(&e, Error::Engine(m) if m.starts_with("garbled:") && m.contains("boom")),
+        "{e:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_download_added_via_a_plugin_remembers_which_one_makes_it() {
+    let rig = rig_with_resolvers().await;
+    // A start time far ahead keeps it queued, so it stays a live download to collide with.
+    let later = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_secs() as i64
+        + 3600;
+    let mut first = add_request(
+        "https://video.example/watch?v=1",
+        Some(via("finder", "media", "audio")),
+        Some("A video - Audio only"),
+    );
+    first.start_at = Some(later);
+    let d = rig.mgr.add(first).await.expect("add");
+    assert_eq!(d.plugin.as_deref(), Some("finder"));
+    assert_eq!(
+        d.filename, "A video - Audio only.m4a",
+        "the preset's extension is added"
+    );
+    assert_eq!(d.category, Category::Music);
+    assert_eq!(d.url, "https://video.example/watch?v=1");
+    assert_eq!(d.source_kind, fetchbox_core::SourceKind::Http);
+
+    // The same video again, the same way: a duplicate. As another preset: not.
+    let again = rig
+        .mgr
+        .add(add_request(
+            "https://video.example/watch?v=1",
+            Some(via("finder", "media", "audio")),
+            Some("A video - Audio only"),
+        ))
+        .await
+        .expect_err("duplicate");
+    assert!(matches!(again, Error::Conflict(_)), "{again:?}");
+    let other = rig
+        .mgr
+        .add(add_request(
+            "https://video.example/watch?v=1",
+            Some(via("finder", "media", "single")),
+            Some("A video - Best single file"),
+        ))
+        .await
+        .expect("another preset is another download");
+    assert_eq!(other.category, Category::Video);
+    assert_ne!(other.id, d.id);
+}
+
+#[tokio::test]
+async fn a_via_that_cannot_work_is_refused_before_anything_is_added() {
+    let rig = rig_with_resolvers().await;
+    let add = |v: Via, url: &str| {
+        let rig = &rig;
+        let url = url.to_owned();
+        async move { rig.mgr.add(add_request(&url, Some(v), None)).await }
+    };
+    let e = add(via("nobody", "media", "audio"), "https://video.example/x")
+        .await
+        .expect_err("plugin");
+    assert!(matches!(e, Error::InvalidInput(_)), "{e:?}");
+    let e = add(via("finder", "nope", "audio"), "https://video.example/x")
+        .await
+        .expect_err("resolver");
+    assert!(matches!(e, Error::InvalidInput(_)), "{e:?}");
+    // `site` finds addresses; it does not make files.
+    let e = add(via("finder", "site", "audio"), "https://video.example/x")
+        .await
+        .expect_err("no run");
+    assert!(matches!(e, Error::InvalidInput(_)), "{e:?}");
+    let e = add(via("finder", "media", "nope"), "https://video.example/x")
+        .await
+        .expect_err("preset");
+    assert!(invalid(e).contains("no preset"));
+    let e = add(via("finder", "media", "best"), "https://video.example/x")
+        .await
+        .expect_err("needs ffmpeg");
+    assert!(invalid(e).contains("needs ffmpeg"));
+    let e = add(via("finder", "media", "audio"), "ftp://video.example/x")
+        .await
+        .expect_err("scheme");
+    assert!(matches!(e, Error::InvalidInput(_)), "{e:?}");
+    let mut with_login = add_request(
+        "https://video.example/x",
+        Some(via("finder", "media", "audio")),
+        None,
+    );
+    with_login.credentials = Some(fetchbox_core::Credentials {
+        username: "u".into(),
+        password: "p".into(),
+    });
+    assert!(matches!(
+        rig.mgr.add(with_login).await,
+        Err(Error::InvalidInput(_))
+    ));
+    assert!(rig.mgr.list().await.expect("downloads").is_empty());
+
+    // A plugin that is off cannot be used either.
+    rig.mgr
+        .plugin_set_enabled("finder".into(), false)
+        .await
+        .expect("off");
+    let e = add(via("finder", "media", "audio"), "https://video.example/x")
+        .await
+        .expect_err("off");
+    assert!(invalid(e).contains("is not running"));
 }

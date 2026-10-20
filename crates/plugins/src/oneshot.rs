@@ -150,6 +150,10 @@ impl Runner {
             .map_err(|_| Error::Run("the plugin runner is shut down".into()))?;
 
         let name = name_of(&spec.program);
+        // The program runs in its own folder; the first command of a plugin may be before any
+        // other code has made it.
+        proc::prepare_dirs(&spec.env.data_dir)
+            .map_err(|e| Error::Run(format!("cannot prepare the folders of {name}: {e}")))?;
         let mut child = proc::command(&spec.program, &spec.args, &spec.env)
             .spawn()
             .map_err(|e| Error::Run(format!("cannot run {name}: {e}")))?;

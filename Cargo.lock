@@ -1349,6 +1349,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fetchbox-test-plugin"
+version = "0.9.1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "fetchbox-torrent-engine"
 version = "0.9.1"
 dependencies = [

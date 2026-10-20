@@ -118,6 +118,7 @@ impl Harness {
             checksum: None,
             credentials: None,
             disk: None,
+            via: None,
         }
     }
 
@@ -201,6 +202,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         checksum: None,
         credentials: None,
         disk: None,
+        via: None,
     };
     assert!(matches!(h.mgr.add(bad).await, Err(Error::InvalidInput(_))));
     let dead = AddRequest {
@@ -214,6 +216,7 @@ async fn invalid_and_unreachable_urls_are_rejected() {
         checksum: None,
         credentials: None,
         disk: None,
+        via: None,
     };
     assert!(matches!(h.mgr.add(dead).await, Err(Error::Engine(_))));
 }
@@ -2719,6 +2722,7 @@ fn killed_process_resumes_from_saved_offsets() {
             checksum: None,
             credentials: None,
             disk: None,
+            via: None,
         };
         let id = mgr.add(req).await.expect("add").id;
         let probe = fetchbox_storage::open(&db_path).expect("second connection");
@@ -3596,6 +3600,7 @@ mod remote_sources {
             checksum: None,
             credentials,
             disk: None,
+            via: None,
         }
     }
 

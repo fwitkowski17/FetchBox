@@ -3403,6 +3403,17 @@
           },
           "url": {
             "type": "string"
+          },
+          "via": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Via",
+                "description": "A plugin makes the file (SPEC 6.15): `url` is then the address the plugin understands (a\nvideo page), not a file for the engine. Taken from the entry of a plugin's listing."
+              }
+            ]
           }
         }
       },
@@ -4012,6 +4023,13 @@
           "id": {
             "type": "integer",
             "format": "int64"
+          },
+          "plugin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The id of the plugin whose program makes the file (SPEC 6.15); none for an ordinary download."
           },
           "resumable": {
             "type": "boolean"
@@ -4644,6 +4662,17 @@
           "url": {
             "type": "string",
             "description": "Absolute address; a file is added with it, a directory is opened with it."
+          },
+          "via": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Via",
+                "description": "Set when a plugin resolved the address: add this entry with `via`, not as a plain address."
+              }
+            ]
           }
         }
       },
@@ -6322,6 +6351,29 @@
           "update_available": {
             "type": "boolean",
             "description": "`latest` is newer than `current`."
+          }
+        }
+      },
+      "Via": {
+        "type": "object",
+        "description": "Where a download or a listing entry comes from when a plugin handles the address (SPEC 6.15):\nthe plugin, its resolver and the preset (quality, audio only, ...). Sent back with the add\nrequest, so the server knows which of the plugin's programs makes the file.",
+        "required": [
+          "plugin",
+          "resolver"
+        ],
+        "properties": {
+          "plugin": {
+            "type": "string"
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The preset to use; the first one that can run when absent."
+          },
+          "resolver": {
+            "type": "string"
           }
         }
       }

@@ -8,32 +8,24 @@ use std::sync::OnceLock;
 
 use fetchbox_plugins::proc::ChildEnv;
 
-/// The `fake_plugin` example, built if `cargo test` did not (it does not for `--test x` runs).
+/// The stand-in plugin program (`crates/test_plugin`). `cargo test --workspace` builds it, a run of
+/// one crate does not, so it is built here by name (a no-op when it is current).
 pub fn fake_plugin() -> PathBuf {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
         let exe = std::env::current_exe().expect("test exe");
         let profile_dir = exe.parent().and_then(Path::parent).expect("target dir");
-        let name = format!("fake_plugin{}", std::env::consts::EXE_SUFFIX);
-        let path = profile_dir.join("examples").join(&name);
-        if !path.exists() {
-            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-            let mut cmd = std::process::Command::new(cargo);
-            cmd.args([
-                "build",
-                "--example",
-                "fake_plugin",
-                "-p",
-                "fetchbox-plugins",
-            ]);
-            if profile_dir.ends_with("release") {
-                cmd.arg("--release");
-            }
-            assert!(
-                cmd.status().expect("cargo").success(),
-                "building the example failed"
-            );
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let mut cmd = std::process::Command::new(cargo);
+        cmd.args(["build", "--quiet", "-p", "fetchbox-test-plugin"]);
+        if profile_dir.ends_with("release") {
+            cmd.arg("--release");
         }
+        assert!(
+            cmd.status().expect("cargo").success(),
+            "building the stand-in plugin failed"
+        );
+        let path = profile_dir.join(format!("fake-plugin{}", std::env::consts::EXE_SUFFIX));
         assert!(path.exists(), "no {}", path.display());
         path
     })

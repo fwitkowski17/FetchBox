@@ -33,7 +33,7 @@ pub struct NewDownload {
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, disk";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, disk, runner";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
@@ -401,6 +401,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let verify_failed = row.get(20)?;
     let username = row.get(21)?;
     let disk = row.get(22)?;
+    let runner: Option<String> = row.get(23)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -439,6 +440,8 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             },
             verified,
             verify_failed,
+            // `<plugin>/<resolver>`: the plugin is the part before the slash.
+            plugin: runner.map(|r| r.split('/').next().unwrap_or_default().to_owned()),
         })
     })();
     Ok(mapped)
