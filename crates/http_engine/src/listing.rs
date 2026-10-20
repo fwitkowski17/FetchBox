@@ -52,6 +52,7 @@ pub(crate) fn from_raw(folder: &Url, raw: Vec<RawEntry>) -> Listing {
         }
         let entry = ListingEntry {
             via: None,
+            detail: None,
             url: child_url(folder, &e.name, e.is_dir),
             category: if e.is_dir {
                 Category::Other
@@ -199,6 +200,7 @@ pub fn parse_index(base: &Url, html: &str) -> Option<Listing> {
         }
         let entry = ListingEntry {
             via: None,
+            detail: None,
             category: if is_dir {
                 Category::Other
             } else {

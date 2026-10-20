@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "Sends a request to a web address when a download finishes or fails: Home Assistant, ntfy, Gotify, n8n, Discord through a bridge, or your own script.",
   "author": "FetchBox",
-  "homepage": "https://github.com/fwitkowski17/FetchBox/tree/main/plugins/official/webhook-notify",
+  "homepage": "https://github.com/fwitkowski17/WebDownloadManager/tree/main/plugins/official/webhook-notify",
   "license": "MIT",
   "permissions": {
     "network": ["{setting:url}"]
@@ -38,7 +38,7 @@
     }
   ],
   "ui": {
-    "icon": "alert",
+    "icon": "bell",
     "actions": [
       {
         "id": "test",

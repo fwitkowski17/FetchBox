@@ -589,6 +589,13 @@ pub fn validate(m: &Manifest) -> Check {
             if s.strip > 8 {
                 return Err(format!("{name}: `strip` is at most 8"));
             }
+            if let Some(b) = &s.bin {
+                if !is_safe_relative(b) {
+                    return Err(format!(
+                        "{name}: `bin` \"{b}\" for {p} must be a path inside the download"
+                    ));
+                }
+            }
         }
         if let Some(g) = &d.github {
             let ok_repo = g.repo.split_once('/').is_some_and(|(o, n)| {
@@ -883,6 +890,10 @@ mod tests {
             v["dependencies"][0]["bin"] = "../../etc/passwd".into();
         });
         assert!(e.contains("bin"), "{e}");
+        let e = err_of(base(), |v| {
+            v["dependencies"][0]["platforms"]["linux-x86_64"]["bin"] = "/etc/passwd".into();
+        });
+        assert!(e.contains("bin") && e.contains("linux-x86_64"), "{e}");
         let e = err_of(base(), |v| {
             v["dependencies"][0]["github"] = serde_json::json!({"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SUMS"});
         });

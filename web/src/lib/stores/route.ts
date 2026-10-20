@@ -26,6 +26,8 @@ export const route = readable<Route>(parse(location.hash), (set) => {
 
 /** What follows the page in the hash: `#/settings/extensions` is `['extensions']`. */
 export const routeTail = readable<string[]>(splitHash(location.hash).tail, (set) => {
+  // The first subscriber may come long after this module was loaded: read the hash again.
+  set(splitHash(location.hash).tail);
   const onChange = () => set(splitHash(location.hash).tail);
   window.addEventListener('hashchange', onChange);
   return () => window.removeEventListener('hashchange', onChange);

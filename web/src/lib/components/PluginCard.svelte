@@ -26,6 +26,11 @@
   let logsError = $state<string | null>(null);
 
   const L = (text: string) => tr(plugin.i18n, i18n.locale, text);
+  const meta = $derived(
+    [t('ext.by', { author: plugin.author }), t(`ext.source.${plugin.source}`), plugin.license]
+      .filter((x): x is string => !!x)
+      .join(' · '),
+  );
   const blocked = $derived(cannotEnable(plugin));
   const percent = $derived(dependencyPercent(plugin));
   const missing = $derived(plugin.dependencies.filter((d) => !d.installed && !d.optional));
@@ -85,7 +90,7 @@
         <PluginStateBadge state={plugin.state} />
       </h2>
       <p class="hint">
-        {t('ext.by', { author: plugin.author })} · {t(`ext.source.${plugin.source}`)}{#if plugin.license} · {plugin.license}{/if}
+        {meta}
         {#if isSafeExternalUrl(plugin.homepage)}
           · <a href={plugin.homepage} target="_blank" rel="noopener noreferrer">{t('ext.homepage')}</a>
         {/if}
@@ -118,7 +123,9 @@
           <li class="flex items-center gap-2 text-sm" data-dependency={d.id}>
             <Icon name={d.installed ? 'checkCircle' : 'down'} size={16} />
             <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">
-              {d.label}{#if d.version} <span class="text-muted">{d.version}</span>{/if}{#if d.optional} <span class="text-muted">({t('ext.deps.optional')})</span>{/if}
+              {L(d.label)}
+              {#if d.version}<span class="ml-1 text-muted">{d.version}</span>{/if}
+              {#if d.optional}<span class="ml-1 text-muted">({t('ext.deps.optional')})</span>{/if}
             </span>
             <span class="text-muted">{d.installed ? t('ext.deps.installed') : t('ext.deps.missing')}</span>
           </li>

@@ -242,7 +242,8 @@ impl Manager {
                 let entries = ready
                     .iter()
                     .map(|c| ListingEntry {
-                        name: format!("{name} - {}", c.label),
+                        name: name.clone(),
+                        detail: Some(c.label.clone()),
                         url: url.to_owned(),
                         size,
                         is_dir: false,
@@ -280,6 +281,7 @@ impl Manager {
                         ListingEntry {
                             category: category_of(choice, &i.name),
                             via: via(choice),
+                            detail: choice.map(|c| c.label.clone()),
                             name: i.name,
                             url: i.url,
                             size: i.size,

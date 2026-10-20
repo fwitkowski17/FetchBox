@@ -50,7 +50,7 @@
               <h2 class="font-semibold tracking-tight [overflow-wrap:anywhere]">
                 {e.name} <span class="text-sm font-normal text-muted">{e.version}</span>
               </h2>
-              <p class="hint">{t('ext.by', { author: e.author })}{#if e.license} · {e.license}{/if}</p>
+              <p class="hint">{[t('ext.by', { author: e.author }), e.license].filter(Boolean).join(' · ')}</p>
             </div>
           </div>
           <p class="[overflow-wrap:anywhere]">{e.description}</p>

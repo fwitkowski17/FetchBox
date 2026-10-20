@@ -689,6 +689,10 @@ pub struct ListingEntry {
     /// Set when a plugin resolved the address: add this entry with `via`, not as a plain address.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via: Option<Via>,
+    /// What tells entries of the same name apart (the preset of a video: "Audio only"); shown beside
+    /// the name, never part of the file name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// What the remote server says about a URL: what an add request would work with.

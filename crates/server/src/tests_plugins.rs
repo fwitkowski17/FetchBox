@@ -1479,7 +1479,18 @@ async fn the_store_routes_list_stage_and_refuse() {
     .await;
     assert_eq!(status, 200, "{store}");
     assert_eq!(store["remote"], false);
-    assert_eq!(store["entries"][0]["id"], "webhook-notify");
+    let mut ids: Vec<_> = store["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .map(|e| e["id"].as_str().expect("id").to_owned())
+        .collect();
+    ids.sort();
+    assert_eq!(
+        ids,
+        ["webhook-notify", "yt-dlp"],
+        "what ships with the program"
+    );
 
     let (status, _) = answer(
         http.post(format!("{api}/plugin-store/refresh"))
@@ -1632,7 +1643,7 @@ async fn a_resolver_that_makes_files_offers_one_entry_per_preset_that_can_run() 
         .iter()
         .map(|e| {
             (
-                e.name.as_str(),
+                (e.name.as_str(), e.detail.as_deref()),
                 e.category,
                 e.size,
                 e.url.as_str(),
@@ -1644,14 +1655,14 @@ async fn a_resolver_that_makes_files_offers_one_entry_per_preset_that_can_run() 
         got,
         [
             (
-                "A video - Best single file",
+                ("A video", Some("Best single file")),
                 Category::Video,
                 Some(1234),
                 "https://video.example/watch?v=1",
                 Some("single")
             ),
             (
-                "A video - Audio only",
+                ("A video", Some("Audio only")),
                 Category::Music,
                 Some(1234),
                 "https://video.example/watch?v=1",

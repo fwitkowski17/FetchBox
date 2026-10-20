@@ -4643,6 +4643,13 @@
             "$ref": "#/components/schemas/Category",
             "description": "What the file name says it is (`Other` for a directory)."
           },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What tells entries of the same name apart (the preset of a video: \"Audio only\"); shown beside\nthe name, never part of the file name."
+          },
           "is_dir": {
             "type": "boolean"
           },

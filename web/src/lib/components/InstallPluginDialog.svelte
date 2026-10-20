@@ -33,7 +33,7 @@
           </span>
         </p>
         <p class="hint">
-          {t('ext.by', { author: shown.author })}{#if shown.license} · {shown.license}{/if} · {t(`ext.source.${shown.source}`)}
+          {[t('ext.by', { author: shown.author }), t(`ext.source.${shown.source}`), shown.license].filter(Boolean).join(' · ')}
         </p>
         {#if shown.description}<p class="mt-1">{shown.description}</p>{/if}
         {#if isSafeExternalUrl(shown.homepage)}

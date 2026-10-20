@@ -142,8 +142,17 @@ impl Installer {
 
     /// The dependency's program.
     pub fn bin_path(&self, plugin: &str, dep: &Dependency) -> PathBuf {
-        self.dep_dir(plugin, &dep.id)
-            .join(dep.bin.as_deref().unwrap_or(&dep.id))
+        self.dep_dir(plugin, &dep.id).join(self.program_name(dep))
+    }
+
+    /// Where the program is inside the download: this platform's own `bin`, else the dependency's,
+    /// else its id.
+    fn program_name<'a>(&self, dep: &'a Dependency) -> &'a str {
+        dep.platforms
+            .get(&self.platform)
+            .and_then(|s| s.bin.as_deref())
+            .or(dep.bin.as_deref())
+            .unwrap_or(&dep.id)
     }
 
     /// What is installed, if the dependency is in place (its record is there and so is its program).
@@ -321,7 +330,7 @@ impl Installer {
         }
 
         let out = work.join("out");
-        let bin = dep.bin.clone().unwrap_or_else(|| dep.id.clone());
+        let bin = self.program_name(dep).to_owned();
         let (kind, strip) = (r.archive, r.strip);
         let (file2, out2, bin2) = (file.clone(), out.clone(), bin.clone());
         tokio::task::spawn_blocking(move || {
@@ -419,6 +428,7 @@ mod tests {
                 archive,
                 strip,
                 size: Some(body.len() as u64),
+                bin: None,
             },
         );
         Dependency {
@@ -592,6 +602,42 @@ mod tests {
             .expect_err("no program");
         assert!(err.to_string().contains("does not contain"), "{err}");
         assert_eq!(inst.state("demo", &wrong), None);
+    }
+
+    #[tokio::test]
+    async fn a_platform_can_name_its_program_itself() {
+        let archive = targz(&[
+            ("pkg/bin/ffmpeg-linux-x86_64-v7", b"ELF", 0o644),
+            ("pkg/README", b"hi", 0o644),
+        ]);
+        let served = archive.clone();
+        let base =
+            serve(Router::new().route("/w.whl", get(move || async move { served.clone() }))).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inst = installer(tmp.path(), None);
+        let mut dep = pinned(
+            "ffmpeg",
+            format!("{base}/w.whl"),
+            &archive,
+            ArchiveKind::TarGz,
+            0,
+        );
+        dep.bin = Some("elsewhere/ffmpeg".into());
+        if let Some(src) = dep.platforms.get_mut("linux-x86_64") {
+            src.bin = Some("pkg/bin/ffmpeg-linux-x86_64-v7".into());
+        }
+        inst.install("demo", &dep, &nothing).await.expect("install");
+        assert_eq!(
+            inst.bin_path("demo", &dep),
+            inst.dep_dir("demo", "ffmpeg")
+                .join("pkg/bin/ffmpeg-linux-x86_64-v7"),
+            "the platform's own path wins over the dependency's"
+        );
+        assert_eq!(
+            std::fs::read(inst.bin_path("demo", &dep)).expect("read"),
+            b"ELF"
+        );
+        assert!(inst.state("demo", &dep).is_some());
     }
 
     #[tokio::test]

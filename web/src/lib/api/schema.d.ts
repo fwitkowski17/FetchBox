@@ -1452,6 +1452,11 @@ export interface components {
         ListingEntry: {
             /** @description What the file name says it is (`Other` for a directory). */
             category: components["schemas"]["Category"];
+            /**
+             * @description What tells entries of the same name apart (the preset of a video: "Audio only"); shown beside
+             *     the name, never part of the file name.
+             */
+            detail?: string | null;
             is_dir: boolean;
             /** @description Name as shown on the page (decoded), without a trailing slash. */
             name: string;

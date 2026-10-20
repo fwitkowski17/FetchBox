@@ -103,8 +103,11 @@
             />
             <CategoryIcon category={e.category} size={20} />
             <span class="min-w-0 flex-1 truncate" title={e.name}>{e.name}</span>
+            {#if e.detail}
+              <span class="max-w-[45%] shrink-0 truncate rounded-md bg-accent-soft px-1.5 py-0.5 text-xs text-accent" data-part="listing-detail" title={e.detail}>{e.detail}</span>
+            {/if}
             {#if e.via}
-              <span class="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-xs text-muted" data-part="listing-via">
+              <span class="hidden shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-xs text-muted sm:inline" data-part="listing-via">
                 {t('add.via.badge', { plugin: plugins.get(e.via.plugin)?.name ?? e.via.plugin })}
               </span>
             {/if}

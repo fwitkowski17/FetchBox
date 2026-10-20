@@ -102,6 +102,10 @@ pub struct DepSource {
     /// Expected size in bytes, an upper bound for the download.
     #[serde(default)]
     pub size: Option<u64>,
+    /// Path of the program inside what was extracted, for this platform. Overrides
+    /// `Dependency::bin` where a package names its program differently per platform.
+    #[serde(default)]
+    pub bin: Option<String>,
 }
 
 /// A dependency that follows the releases of a GitHub repository.

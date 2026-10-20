@@ -253,3 +253,36 @@ impl Manager {
         self.finish_stage(staged, source, sha)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bundled manifest that does not validate is only logged at run time, so a typo would ship
+    /// silently: this is where it is caught.
+    #[test]
+    fn every_bundled_plugin_is_valid() {
+        let mut broken = Vec::new();
+        let mut ids = Vec::new();
+        for path in Bundled::iter() {
+            let Some(folder) = path.strip_suffix("/plugin.json") else {
+                continue;
+            };
+            let file = Bundled::get(&path).expect("listed file");
+            match install::parse_manifest(&file.data) {
+                Ok(m) if m.id == folder => ids.push(m.id),
+                Ok(m) => broken.push(format!("{folder}: the id is {}", m.id)),
+                Err(e) => broken.push(format!("{folder}: {e}")),
+            }
+        }
+        assert!(broken.is_empty(), "{broken:?}");
+        ids.sort();
+        assert_eq!(ids, ["webhook-notify", "yt-dlp"]);
+    }
+
+    #[test]
+    fn the_store_lists_what_ships_with_the_program() {
+        let names: Vec<_> = bundled_entries().iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(names, ["webhook-notify", "yt-dlp"]);
+    }
+}
