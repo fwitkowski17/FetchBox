@@ -28,6 +28,10 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 - Single-user authentication (password or token).
 - BitTorrent (6.13): magnet links and `.torrent` files, on a page of their own, with the statuses of a BitTorrent client and a
   details panel (peers, files, speed).
+- Extensions (6.15): add-ons made of a JSON manifest and external programs, installed from a built-in store or from a ZIP or
+  a folder on disk; they can add sources of downloads (the reference extension is YouTube and other video sites through
+  yt-dlp), react to events (webhooks, programs), download the programs they need, and bring settings, dialogs and a tab in
+  Settings of their own. A page "Extensions" in the side menu above Settings; Settings has the tabs General and Extensions.
 
 ## 3. Future
 
@@ -60,20 +64,23 @@ FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,disks,error}.rs
+│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,disks,version,error}.rs and plugin/{manifest,view,validate,template,text}.rs
 │   ├── http_engine/src/{lib,segments,worker,source,ftp,sftp,hostkeys,net,listing,probe}.rs   # also FTP(S) and SFTP, see 6.12
 │   ├── torrent_engine/{src/{lib,parse,error}.rs,examples/seed.rs}   # BitTorrent over librqbit, see 6.13
-│   ├── storage/{migrations/,src/{lib,downloads,known_hosts,segments,settings,stats,torrents}.rs}
-│   ├── api/src/{lib,routes,torrents,sse,auth,openapi}.rs
+│   ├── storage/{migrations/,src/{lib,downloads,known_hosts,plugins,segments,settings,stats,torrents}.rs}
+│   ├── plugins/{src/{lib,archive,install,fetch,deps,expand,mapping,proc,oneshot,protocol,process,webhook,store}.rs,tests/}   # extensions, see 6.15
+│   ├── test_plugin/src/main.rs        # a stand-in plugin program for the tests (`fake-plugin`), see 6.15
+│   ├── api/src/{lib,routes,torrents,plugins,sse,auth,openapi}.rs
 │   └── server/src/main.rs
 ├── web/
 │   ├── src/
 │   │   ├── lib/{api/,components/,stores/}
-│   │   ├── routes/            # Downloads, Statistics, Settings (+ Setup wizard); adding is a dialog
+│   │   ├── routes/            # Downloads, Torrents, Statistics, Extensions, Settings (+ Setup wizard); adding is a dialog
 │   │   └── main.ts
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
 │   └── vite.config.ts
+├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), see 6.15
 ├── vendor/librqbit-tracker-comms/   # one upstream crate with a one-function patch, see 6.13
 ├── scripts/build.sh
 ├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
@@ -335,6 +342,9 @@ mount points). Each such folder is a **disk**; the download directory itself (em
   ends or is cancelled); rows backfilled from before the table existed have `0` and stay out of the average speed.
 - `settings`: key/value (connections, max_concurrent, speed_per_download, speed_global, category_subdirs, check_updates, schedule_enabled, schedule_from, schedule_to, schedule_timezone, schedule_on_end, check_prereleases, torrent_down_limit, torrent_up_limit, torrent_schedule_enabled, torrent_schedule_from, torrent_schedule_to, torrent_schedule_timezone, default_disk)
 - `torrents`: see 6.13.
+- `plugins` (id, version, enabled, source, approved_hash, store_sha256, installed_at, updated_at) and `plugin_settings` (plugin_id, key,
+  value as a JSON scalar; secrets too, never returned): see 6.15. `downloads.runner` (`<plugin>/<resolver>`) and `runner_ref` (the preset)
+  are set for a download that an extension's own program makes; NULL for every other.
 
 Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`, `cancelled`.
 
@@ -372,6 +382,10 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   checked_at?, check_failed, notes, install_method?}`; the `POST` looks again now, at most every 30 s
 - `GET /api/torrents`, `POST /api/torrents {magnet}`, `POST /api/torrents/file` (raw `.torrent` body), `POST /api/torrents/:id/pause|resume|start-now`,
   `DELETE /api/torrents/:id[?delete_files=true]`, `GET /api/torrents/:id/peers|files` (6.13)
+- Extensions (6.15): `GET /api/plugins`, `POST /api/plugin-rescan`, `POST /api/plugin-staging` (raw ZIP), `POST /api/plugin-staging/store`,
+  `POST /api/plugin-staging/:token/install`, `DELETE /api/plugin-staging/:token`, `GET /api/plugin-store`, `POST /api/plugin-store/refresh`,
+  `PATCH|DELETE /api/plugins/:id`, `POST /api/plugins/:id/approve|actions/:action|restart|dependencies`, `PUT /api/plugins/:id/settings`,
+  `GET /api/plugins/:id/logs`. `AddRequest.via`, `ListingEntry.via` and `.detail` and `Download.plugin` are how an add goes through an extension.
 - `GET /api/events` (SSE: progress, status changes)
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/password`
 - Name conflicts on `POST /api/downloads`: the server checks (a) same URL already queued/running/paused/completed,
@@ -390,7 +404,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
   answered with `201` and a download that is `paused` with `waiting_space: true`; `POST .../resume` on it answers `507`
   until there is room.
 - SSE events (`GET /api/events`): `download` (created/status/metadata changed), `progress` (id, downloaded, total, speed),
-  `removed`, `settings`, `torrent` and `torrent_removed` (6.13), and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
+  `removed`, `settings`, `torrent` and `torrent_removed` (6.13), `plugin`, `plugin_removed` and `plugin_notice` (6.15), and `resync` (client lagged: reload the list). Data is JSON with a `type` field.
 - OpenAPI generated with `utoipa` (derive only, no bundled UI), served at `GET /api/openapi.json` (public) and committed as
   `docs/openapi.json`; `fetchbox --print-openapi` prints it. `utoipa` is an optional feature of `fetchbox-core`, so the core
   crate stays free of it unless the API enables it. Frontend types are generated with `openapi-typescript` into
@@ -772,6 +786,10 @@ logged; the per-event lines below are `info` lines with the tracing target `acti
 - Download hours: they opened or closed, how many downloads were released or stopped, and what the end does.
 - Torrents (6.13): the engine started (port, DHT), a torrent added, its description received, stopped, started, finished downloading,
   failed and removed; the torrent hours opening and closing, and the torrents they stop and start. A torrent is named, never its peers or trackers.
+- Extensions (6.15): how many plugins were loaded at start-up, a plugin installed, switched on or off, approved, removed, its files gone,
+  ready or failing to start, its settings changed (the keys, never the values), an address resolved by a plugin (host only), an action run,
+  and a hook that failed. Hooks that fell behind the event bus are a `warn`. Never the values of settings, or what a program printed except
+  the warnings and errors it reports through `log`.
 - Sign-in and sign-out; a newer version found by the update check; an SSH host key accepted or forgotten (host, port, fingerprint).
 - Never logged: passwords, tokens, setup codes, session ids, and the path and query of a URL (only its host, because an address
   may carry a token). Progress ticks and the 15 s hours check log nothing unless something changes.
@@ -967,12 +985,136 @@ no web UI of its own). It does not implement the `Downloader` trait of 6.1, whos
   `util/torrentInput`, `util/settingsForm`). `crates/torrent_engine/examples/seed.rs` is a seeder
   for trying the screens by hand.
 
+### 6.15 Extensions (plugins)
+
+An extension adds sources of downloads, reactions to events, programs that run next to FetchBox, and buttons, dialogs
+and settings of its own, without being part of FetchBox. The author's guide is [`plugins/README.md`](../plugins/README.md);
+this section is what the program does. Chosen with the maintainer: **a manifest plus external processes** (no WASM, no
+code in the page), a **JSON** manifest, a **declarative** interface drawn by the host (`ui.kind = "iframe"` is reserved for
+later), and for the first version the foundation, a built-in store and one reference extension (`yt-dlp`). Metrics for
+VictoriaMetrics and an MCP bridge are later extensions that need nothing new from the format.
+
+- **Crates.** `core::plugin` (`manifest`, `view`, `validate`, `template`, `text`; no I/O) holds the types of the manifest and of
+  what the API shows, and the pure rules (ids, platforms, globs, templates, translation lookup, which events a hook gets).
+  `crates/plugins` (`fetchbox-plugins`, no SQL and no axum) holds what needs the file system and processes: unpacking
+  (`archive`, `install`), fetching with the URL policy (`fetch`), dependencies (`deps`), templates filled in (`expand`),
+  JSON Pointer mapping (`mapping`), one-shot commands (`oneshot`, `proc`), the long-running program (`process`, `protocol`),
+  webhooks (`webhook`) and the store catalog (`store`). `server::manager::plugins*.rs` is the `PluginHost` (life cycle, settings,
+  actions), `plugin_store` (staging, the bundled list), `plugin_resolve` (probe and `via` in the add path), `plugin_runner`
+  (downloads made by a program) and `plugin_hooks` (events). `crates/test_plugin` is a stand-in program for the tests.
+- **Files.** `<data>/plugins/<id>/` is the code (written only by the host), `<data>/plugins/.staging/<token>/` holds a
+  package that was unpacked and awaits approval (swept after 15 minutes), `<data>/plugin-data/<id>/{deps,tmp,home,state}` is
+  the extension's own, kept across updates. Storage: tables `plugins` (id, enabled, approved manifest hash, source,
+  installed version) and `plugin_settings` (migration 0016), and `downloads.runner` (`<plugin>/<resolver>`) for downloads made by
+  a program; the preset is kept in the download's `runner_ref`.
+- **Trust.** Installing an extension lets it run programs as the FetchBox user. So: the whole system is off with `--plugins
+  off` (`FETCHBOX_PLUGINS`) and **while the server runs with `--no-auth`** (a warning says so; the API answers `available:
+  false` with `reason`); every route is behind sign-in; a package is unpacked and read first and the user sees a permission
+  summary derived from the manifest (`PermissionSummary`: programs, download hosts, webhook hosts, events, API parts, a
+  process, downloads made by the extension), with what an update adds marked; the approved SHA-256 of `plugin.json` is stored and
+  a manifest that differs on disk puts the extension in `needs_review` (it does not run); dependencies are checked by SHA-256
+  before use. `permissions.network` is informational for programs and enforced for what FetchBox fetches itself.
+- **Archives.** Zip, tar, tar.gz and tar.xz are unpacked by `archive` only inside the target folder: absolute paths, drive
+  letters, `..`, links, duplicates, more than 2000 entries, 512 MiB unpacked, a ratio above 200:1 or 16 levels are refused. A
+  ZIP of a plugin is at most 32 MiB and has `plugin.json` at its top or in its only top-level folder.
+- **Dependencies** (`deps`): per platform, pinned (`url` + `sha256`, `archive`, `strip`, `bin`, `size`) or following a GitHub
+  repository (`github.repo`, per-platform asset names, a mandatory `sha256_asset` that lists the checksums). Downloaded through
+  the URL policy, hashed while arriving, unpacked into a temporary folder, made executable and swapped in atomically with a
+  record (`.fetchbox-dependency.json`); one install at a time; progress is published as `plugin` events. A platform entry may
+  have its own `bin`. `optional` dependencies gate presets through `requires`.
+- **Commands** (`oneshot`) run without a shell, with a minimal environment (no FetchBox secrets), a timeout (30 s by default, 120
+  s at most), 8 MiB of standard output and 64 KiB of standard error kept, at most 4 at once overall and 2 per plugin, and the
+  whole process group is killed on timeout or drop. Arguments are templates (`core::plugin::template`): `${url}`,
+  `${setting:k}`, `${dep:id}`, `${dep_dir:id}`, `${choice.args}`, `${plugin_dir}`, `${data_dir}`, `${tmp}`, `${out_dir}`, `$$` and
+  `{when, args}` groups; a placeholder that is not available where it is used is a validation error at install time. `command`
+  must be `${dep:id}` or a path inside the plugin.
+- **Resolvers.** `POST /api/probe` and `POST /api/downloads` ask the resolvers whose `match` fits the address before the
+  engine looks at it. A resolver's `probe` prints JSON (or a long-running program answers `resolve`); `result` maps it with JSON
+  Pointers into a list of items or a single file; the answer is a `kind: "listing"` whose entries carry `via` (`plugin`,
+  `resolver`, `ref`) and `detail` (the preset's label), a single result being one entry per preset that can run. Presets whose
+  `requires` are missing are not offered. A resolver without `run` only finds addresses, which the engine downloads as usual. An
+  error of a resolver is `502` and never stops an ordinary address from being added.
+- **Downloads made by a program** (`run`, `plugin_runner`). A download added with `via` is stored with the page address and
+  `runner`/`runner_ref`; it takes a scheduler slot like any other, so queue, hours, start times, statistics and history work
+  unchanged. Starting it runs the command in `<download dir>/.fetchbox-job-<id>` (next to the target, so the final move is a
+  rename). The program's standard output is read for `@fetchbox progress <downloaded> <total> <speed>` (bytes, bytes/s, `NA` for
+  unknown) and `@fetchbox file <path>`; the rest is ignored and the tail of standard error is the failure message. On exit `0` the
+  announced file (else the biggest finished file; never a `.part`, `.ytdl` or hidden file) is moved into place under the name
+  chosen when adding with the extension the program really made, taking the next free name. Pause kills the process group and keeps
+  the folder; resume runs the command again in it; cancel and remove delete it. A restart re-queues what was running; the
+  download is failed when its plugin is off or removed, and started when the plugin turns ready. The speed limits do not apply
+  (`409` for a download's own limit) and no space is reserved (the size is unknown).
+- **Hooks** (`plugin_hooks`): one subscription to the event bus turns events into named ones (`download.added|started|paused|
+  resumed|completed|failed|cancelled|removed|progress`, `torrent.added|started|paused|completed|removed|progress`,
+  `settings.changed`; `*`, `download.*` and `torrent.*` exclude progress) by comparing with what was seen last, and puts each on a
+  bounded queue (256) per plugin; a full queue drops the newest, a lag of the bus re-seeds the state. Actions: `webhook` (sent by
+  FetchBox, `https` or `http`, URL policy, 10 s), `run` (the document on standard input) and `process`. The document is `{event, at,
+  download|torrent|settings...}`; progress is thinned by `every_s` (5 s by default).
+- **The long-running program** (`process`): JSON lines over standard input and output, 1 MiB per line. `initialize` (10 s),
+  `resolve` and `invoke` (60 s) are requests; `event` and `settings_changed` are notifications; the program may send `log`,
+  `status` and `notify`. Restarted with a back-off of 1 s doubling to 5 min; five failed starts within ten minutes make it
+  `failed` until the user presses Restart; three unanswered requests in a row restart it. Stopping is `shutdown`, then `SIGTERM`,
+  then `SIGKILL` of the group, each after 3 s. Calls from the program into FetchBox are reserved and answered "not implemented".
+- **Isolation.** A call into a plugin never holds the manager's database lock, the scheduler or the add lock; every call has a
+  timeout and a limit; a plugin in trouble fails its own downloads and nothing else, and the downloads of the engine do not depend
+  on any plugin being healthy.
+- **State.** `disabled`, `preparing` (dependencies), `ready`, `starting`, `running`, `failed`, `needs_review`, `unsupported` (platform
+  or `min_fetchbox`).
+- **Interface schema.** Settings fields: `text`, `secret` (never returned: `has_value`), `textarea`, `number`, `toggle`, `select`,
+  `info`, `output`; `show_if`. `ui.actions` (`run`, `webhook`, `process`, `builtin` (`update_dependencies`, `restart`), `open_dialog`,
+  `open_url`; placement `card`, `settings`, `hidden`; `confirm`), `ui.dialogs` (fields, buttons with `closes`), `ui.tab` (a tab of
+  its own in Settings with sections). Texts are translated through the manifest's `i18n` (the English text is the key).
+- **Store.** The extensions in `plugins/official/` are embedded in the binary (`rust-embed`; the `Dockerfile` also copies the
+  folder), so the store works offline; a remote catalog (`plugins/index.json` of this repository, `FETCHBOX_PLUGIN_INDEX_URL`
+  overrides it) is fetched like the update check (5 s, 1 MiB, cached 6 h, 15 min after a failure, 30 s between manual refreshes,
+  `https` only) and merged in; an entry needs a `download` with a SHA-256, which the staged ZIP must match. An update is offered
+  when the store's version is newer than the installed one.
+- **API** (all behind sign-in): `GET /api/plugins`, `POST /api/plugin-rescan`, `POST /api/plugin-staging` (a raw ZIP,
+  `application/zip`), `POST /api/plugin-staging/store {id}`, `POST /api/plugin-staging/{token}/install`, `DELETE
+  /api/plugin-staging/{token}`, `GET /api/plugin-store`, `POST /api/plugin-store/refresh`, `PATCH /api/plugins/{id} {enabled}`, `DELETE
+  /api/plugins/{id}[?keep_data=true]`, `POST /api/plugins/{id}/approve {hash}`, `PUT /api/plugins/{id}/settings {values, clear}`,
+  `POST /api/plugins/{id}/actions/{action} {input}`, `POST /api/plugins/{id}/restart`, `POST /api/plugins/{id}/dependencies
+  {dependency?}`, `GET /api/plugins/{id}/logs`. Events `plugin`, `plugin_removed` and `plugin_notice` travel on `/api/events`.
+  `AddRequest.via`, `ListingEntry.via`/`detail` and `Download.plugin` are the only changes to the download API.
+- **Frontend.** The side menu has **Extensions** above Settings (a dot when something needs attention). `routes/Extensions.svelte`
+  has the tabs *Installed* (`PluginCard`: state, dependencies with progress, enable switch, approve or review, update, restart, log,
+  remove, the extension's own card actions) and *Store* (`PluginStore`), "Install from file" and "Rescan". Installing opens
+  `InstallPluginDialog` with the permission list (`PermissionList`, an update marks what is new). Settings has the tabs *General*
+  (the old form with its save bar), *Extensions* (a card per extension that has settings, `PluginSettingsForm`, saved by the
+  plugin's own endpoint) and one tab for each extension that declares `ui.tab`; the routes are `#/settings`,
+  `#/settings/extensions`, `#/settings/ext/<id>`, `#/extensions`, `#/extensions/store`. Plugin interface is drawn from the schema
+  (`PluginFields`, `PluginActions`, `PluginDialogHost`) with all plugin text rendered as text, links only through
+  `isSafeExternalUrl` and icons only from the app's own set. In the add dialog the entries made by an extension carry the preset
+  as a label and "via <extension>", are keyed by address and preset (`entryKey`), and are added with `via` and the title as the
+  file name; while the look takes long the dialog says which extensions it is asking.
+- **Extensions that ship.** `webhook-notify` (a request when a download finishes or fails: settings, a test dialog, a hook; no
+  program) and `yt-dlp` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds; yt-dlp from its GitHub
+  releases checked against `SHA2-256SUMS`, and an optional static ffmpeg pinned to the `imageio-ffmpeg` 0.6.0 wheels on PyPI, whose
+  hashes are those PyPI publishes; presets: best merged, up to 720p merged, best single file, audio, MP3). Both are declarative; the
+  tests of the `server` crate check that every bundled manifest is valid.
+- **Not covered in this version.** A sandbox beyond the OS user (seccomp, namespaces, resource limits), signatures beyond SHA-256,
+  custom headers or cookies in the engine, an iframe interface, extensions that register sources in `core`, calls from one
+  extension to another, calls from a program into FetchBox, Windows and macOS beyond "best effort" (process groups, the
+  `windows-x86_64` dependency form), and a hard-killed FetchBox can leave a program running (a restart re-queues the download;
+  the program of a download that was running is not tracked).
+- **Tests.** `core::plugin` (manifest, validation, templates, text), `fetchbox-plugins` unit tests and integration tests
+  (`tests/oneshot.rs`, `tests/process.rs`, against the stand-in `crates/test_plugin`: limits, timeouts, crash back-off, killed
+  groups, flood, protocol errors), and `server/src/tests_plugins.rs` through the manager and the HTTP API (ZIP to enabled,
+  dependencies from a local server, resolvers, a download made by a program with progress, pause and resume, cancel and
+  restart, hooks and webhooks, the store routes, refusals, `--no-auth`). Frontend: `util/plugins`, `util/pluginUi`,
+  `util/permissions`, `util/routeParts`, `util/listing` and the client. The `yt-dlp` extension was run by hand end to end against a
+  local server (probe, three presets with a real ffmpeg including MP3); sites on the internet were not reachable from the build
+  machine, so YouTube itself was not tried.
+
 ## 7. Dependencies (Rust)
 
 `tokio`, `axum`, `reqwest` (stream, rustls), `rusqlite` or `sqlx` (SQLite), `serde`, `serde_json`, `tracing`, `tracing-subscriber`, `clap`, `thiserror`, `anyhow`, `async-trait`, `governor` (or custom bucket), `rust-embed`, `mime_guess`, `utoipa`, `tower-http`, `argon2` (password hash), `jiff` (time zones for the download hours, with its tz database bundled so no `tzdata` is needed), `rustix` (free disk space via `statvfs`, no `unsafe`; Unix), `russh` and `russh-sftp` (SFTP; pure Rust with the `ring` backend, about a hundred
 mostly RustCrypto crates, about 4 MB of the binary), `tokio-rustls`, `rustls` and `webpki-roots` (FTPS; already built for `reqwest`) and `bytes`.
 `librqbit` (BitTorrent, 6.13; `default-features = false`, `rust-tls`; with its own ~125 crates, among them `aws-lc-rs`, whose C code needs a C compiler at
 build time, which every builder of this project has).
+`zip` (deflate only), `tar`, `flate2` and `lzma-rust2` (extensions, 6.15: reading a plugin's ZIP and the `.zip`, `.tar.gz` and `.tar.xz` archives of its
+dependencies in pure Rust; no compression code is built for writing; five small crates in all), the `process` feature of `tokio` and of `rustix` (running
+a plugin's programs and killing their whole process group, 6.15).
 Tests: `rcgen` and `rand` (a throwaway certificate and a host key) behind the engine's `test-servers` feature.
 
 ## 8. Milestones
