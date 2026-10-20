@@ -159,5 +159,50 @@ describe('api client', () => {
       expect(fn).toHaveBeenCalledTimes(1);
     });
   });
+  describe('plugins', () => {
+    it('uploads a ZIP as it is, with its own content type', async () => {
+      const fn = mockFetch(respond(201, { token: 't', id: 'demo' }));
+      const bytes = new Uint8Array([80, 75, 3, 4]).buffer;
+      await api.stagePlugin(bytes);
+      const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe('/api/plugin-staging');
+      expect(init.method).toBe('POST');
+      expect((init.headers as Record<string, string>)['content-type']).toBe('application/zip');
+      expect(init.body).toBe(bytes);
+    });
+
+    it('names what to change in the settings: values store, clear empties', async () => {
+      const fn = mockFetch(respond(200, { id: 'demo' }));
+      await api.savePluginSettings('demo', { name: 'Filip', port: 8080, on: true }, ['token']);
+      const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe('/api/plugins/demo/settings');
+      expect(init.method).toBe('PUT');
+      expect(JSON.parse(String(init.body))).toEqual({
+        values: { name: 'Filip', port: 8080, on: true },
+        clear: ['token'],
+      });
+    });
+
+    it('never lets an id or a token change the path', async () => {
+      const fn = mockFetch(respond(204));
+      await api.removePlugin('../x', true);
+      await api.cancelStaged('a/b');
+      await api.runPluginAction('p q', 'do/it', { m: 'x' });
+      const calls = fn.mock.calls.map((c) => (c as unknown as [string, RequestInit])[0]);
+      expect(calls[0]).toBe('/api/plugins/..%2Fx?keep_data=true');
+      expect(calls[1]).toBe('/api/plugin-staging/a%2Fb');
+      expect(calls[2]).toBe('/api/plugins/p%20q/actions/do%2Fit');
+    });
+
+    it('asks for one dependency, or for all of them', async () => {
+      const fn = mockFetch(respond(200, { id: 'demo' }));
+      await api.fetchPluginDependencies('demo', 'ffmpeg');
+      await api.fetchPluginDependencies('demo');
+      const bodies = fn.mock.calls.map((c) =>
+        JSON.parse(String((c as unknown as [string, RequestInit])[1].body)),
+      );
+      expect(bodies).toEqual([{ dependency: 'ffmpeg' }, {}]);
+    });
+  });
 });
 

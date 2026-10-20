@@ -39,6 +39,28 @@ export type TorrentFile = Schemas['TorrentFile'];
 export type PeerState = Schemas['PeerState'];
 export type PeerTransport = Schemas['PeerTransport'];
 
+// Plugins (SPEC 6.15).
+export type PluginView = Schemas['PluginView'];
+export type PluginList = Schemas['PluginList'];
+export type PluginState = Schemas['PluginState'];
+export type PluginSource = Schemas['PluginSource'];
+export type PermissionSummary = Schemas['PermissionSummary'];
+export type StagedPlugin = Schemas['StagedPlugin'];
+export type StoreEntry = Schemas['StoreEntry'];
+export type StoreList = Schemas['StoreList'];
+export type ActionResult = Schemas['ActionResult'];
+export type ActionView = Schemas['ActionView'];
+export type DependencyView = Schemas['DependencyView'];
+export type NoticeLevel = Schemas['NoticeLevel'];
+/** A setting or a field of a plugin's dialog. */
+export type PluginField = Schemas['Field'];
+export type PluginFieldView = Schemas['FieldView'];
+export type FieldKind = Schemas['FieldKind'];
+export type SettingValue = Schemas['SettingValue'];
+export type PluginDialog = Schemas['Dialog'];
+export type PluginTab = Schemas['Tab'];
+export type Via = Schemas['Via'];
+
 export const CATEGORIES: readonly Category[] = [
   'photo',
   'music',
