@@ -12,6 +12,7 @@ pub mod oneshot;
 pub mod proc;
 pub mod process;
 pub mod protocol;
+pub mod webhook;
 
 use std::io;
 

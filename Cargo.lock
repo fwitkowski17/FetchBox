@@ -4168,6 +4168,7 @@ dependencies = [
  "fetchbox-api",
  "fetchbox-core",
  "fetchbox-http-engine",
+ "fetchbox-plugins",
  "fetchbox-storage",
  "fetchbox-torrent-engine",
  "futures-util",
@@ -4181,6 +4182,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]

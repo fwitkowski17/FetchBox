@@ -55,6 +55,16 @@ impl Layout {
     }
 }
 
+impl Layout {
+    /// A fresh hidden file inside the staging folder, to write an uploaded ZIP to before it is
+    /// unpacked (swept with the old staged packages if it is left behind).
+    pub fn upload_path(&self) -> Result<PathBuf> {
+        let dir = self.staging_dir();
+        fs::create_dir_all(&dir)?;
+        Ok(dir.join(format!(".upload-{}.zip", new_token()?)))
+    }
+}
+
 /// SHA-256 of `bytes`, as lowercase hexadecimal.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))

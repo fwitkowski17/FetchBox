@@ -273,6 +273,18 @@ pub struct DependencyView {
     pub version: Option<String>,
 }
 
+/// The plugins, and whether the plugin system is on at all.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginList {
+    /// `false` when plugins are switched off (`--plugins off`) or the server runs without
+    /// authentication (a plugin runs programs; that must not be open to anyone).
+    pub available: bool,
+    /// Why they are not available: `off` or `no_auth`.
+    pub reason: Option<String>,
+    pub plugins: Vec<PluginView>,
+}
+
 /// An installed plugin.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -280,6 +292,9 @@ pub struct PluginView {
     pub id: String,
     pub name: String,
     pub version: String,
+    /// SHA-256 of the `plugin.json` on disk. A plugin in `needs_review` is approved by sending this
+    /// back, which says the user looked at exactly this manifest.
+    pub manifest_hash: String,
     pub description: String,
     pub author: String,
     pub homepage: Option<String>,

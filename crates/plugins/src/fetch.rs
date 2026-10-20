@@ -69,10 +69,13 @@ impl Fetcher {
 
     /// Parse an address and check that it may be fetched.
     pub fn check(&self, url: &str) -> Result<Url> {
+        self.check_scheme(url, self.allow_http)
+    }
+
+    fn check_scheme(&self, url: &str, allow_http: bool) -> Result<Url> {
         let parsed = Url::parse(url)
             .map_err(|e| Error::Fetch(format!("\"{url}\" is not an address: {e}")))?;
-        let scheme_ok =
-            parsed.scheme() == "https" || (self.allow_http && parsed.scheme() == "http");
+        let scheme_ok = parsed.scheme() == "https" || (allow_http && parsed.scheme() == "http");
         if !scheme_ok {
             return Err(Error::Fetch(format!(
                 "\"{url}\" is not an https:// address"
@@ -87,6 +90,44 @@ impl Fetcher {
             .check(&parsed)
             .map_err(|e| Error::Fetch(format!("{}: {e}", host_for_message(&parsed))))?;
         Ok(parsed)
+    }
+
+    /// Send a request on behalf of a plugin (a webhook). Unlike a download, it may go to `http://`:
+    /// the services a homelab notifies are often on the LAN without TLS. The URL policy still
+    /// applies. Returns the status when it is a success.
+    pub async fn send(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+        content_type: &str,
+        timeout: Duration,
+    ) -> Result<u16> {
+        let url = self.check_scheme(url, true)?;
+        let host = host_for_message(&url);
+        let method = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| Error::Fetch(format!("\"{method}\" is not an HTTP method")))?;
+        let mut req = self
+            .client
+            .request(method, url)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body)
+            .timeout(timeout);
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| Error::Fetch(format!("{host}: {}", error_text(&e))))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(Error::Fetch(format!(
+                "{host}: the server answered {status}"
+            )));
+        }
+        Ok(status.as_u16())
     }
 
     async fn open(&self, url: &str, accept: Option<&str>) -> Result<reqwest::Response> {

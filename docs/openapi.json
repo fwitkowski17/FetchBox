@@ -3641,6 +3641,7 @@
           "id",
           "name",
           "version",
+          "manifest_hash",
           "description",
           "author",
           "source",
@@ -3705,6 +3706,10 @@
               "string",
               "null"
             ]
+          },
+          "manifest_hash": {
+            "type": "string",
+            "description": "SHA-256 of the `plugin.json` on disk. A plugin in `needs_review` is approved by sending this\nback, which says the user looked at exactly this manifest."
           },
           "name": {
             "type": "string"

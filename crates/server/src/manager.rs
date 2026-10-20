@@ -11,8 +11,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+mod plugins;
 mod torrents;
 
+pub use plugins::{PluginSetup, PluginsMode};
 pub use torrents::TorrentSetup;
 
 use crate::clock;
@@ -105,6 +107,8 @@ pub struct Manager {
     url_policy: UrlPolicy,
     /// BitTorrent: the engine and what is kept about it between ticks (see `torrents`).
     torrents: torrents::Torrents,
+    /// Plugins: what is installed and what runs (see `plugins`).
+    plugins: plugins::Plugins,
 }
 
 impl Manager {
@@ -172,6 +176,7 @@ impl Manager {
             install_method,
             url_policy: policy,
             torrents: torrents::Torrents::default(),
+            plugins: plugins::Plugins::default(),
             held: Mutex::new(HashSet::new()),
             suspended: Mutex::new(HashSet::new()),
             hours_seen: Mutex::new(None),
@@ -1765,6 +1770,79 @@ impl Service for Manager {
 
     async fn torrent_files(&self, id: Id) -> Result<Vec<TorrentFile>> {
         self.torrent_files_of(id).await
+    }
+
+    async fn plugins(&self) -> Result<fetchbox_core::plugin::PluginList> {
+        self.plugins_list().await
+    }
+
+    async fn plugin_rescan(&self) -> Result<fetchbox_core::plugin::PluginList> {
+        self.plugins_rescan().await
+    }
+
+    async fn plugin_stage(&self, zip: Vec<u8>) -> Result<fetchbox_core::plugin::StagedPlugin> {
+        self.plugins_stage(zip).await
+    }
+
+    async fn plugin_install(&self, token: String) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_install(token).await
+    }
+
+    async fn plugin_cancel(&self, token: String) -> Result<()> {
+        self.plugins_cancel(token).await
+    }
+
+    async fn plugin_set_enabled(
+        &self,
+        id: String,
+        enabled: bool,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_enable(id, enabled).await
+    }
+
+    async fn plugin_approve(
+        &self,
+        id: String,
+        hash: String,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_approve(id, hash).await
+    }
+
+    async fn plugin_remove(&self, id: String, keep_data: bool) -> Result<()> {
+        self.plugins_remove(id, keep_data).await
+    }
+
+    async fn plugin_save_settings(
+        &self,
+        id: String,
+        values: std::collections::BTreeMap<String, Option<fetchbox_core::plugin::SettingValue>>,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_settings(id, values).await
+    }
+
+    async fn plugin_action(
+        &self,
+        id: String,
+        action: String,
+        input: std::collections::BTreeMap<String, fetchbox_core::plugin::SettingValue>,
+    ) -> Result<fetchbox_core::plugin::ActionResult> {
+        self.plugins_action(id, action, input).await
+    }
+
+    async fn plugin_restart(&self, id: String) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_restart(id).await
+    }
+
+    async fn plugin_dependencies(
+        &self,
+        id: String,
+        dependency: Option<String>,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_dependencies(id, dependency).await
+    }
+
+    async fn plugin_logs(&self, id: String) -> Result<Vec<String>> {
+        self.plugins_logs(id).await
     }
 
     fn subscribe(&self) -> broadcast::Receiver<Event> {

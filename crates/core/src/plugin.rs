@@ -19,11 +19,11 @@ pub use manifest::{
 pub use text::{
     glob_match, host_of, is_safe_relative, is_valid_id, is_valid_key, platform_key, tr, PLATFORMS,
 };
-pub use validate::{validate, EVENT_NAMES};
+pub use validate::{check_setting_value, validate, EVENT_NAMES, MAX_TEXT_SETTING};
 pub use view::{
     derive_permissions, ActionResult, ActionView, DependencyProgress, DependencyView, FieldView,
-    NoticeLevel, PermissionSummary, PluginSource, PluginState, PluginView, Provides, StagedPlugin,
-    StagedReplaces, StoreDownload, StoreEntry, UiView,
+    NoticeLevel, PermissionSummary, PluginList, PluginSource, PluginState, PluginView, Provides,
+    StagedPlugin, StagedReplaces, StoreDownload, StoreEntry, UiView,
 };
 
 /// The manifest format this build understands (`Manifest::api_version`).

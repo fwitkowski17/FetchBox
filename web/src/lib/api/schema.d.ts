@@ -1232,6 +1232,11 @@ export interface components {
             };
             id: string;
             license?: string | null;
+            /**
+             * @description SHA-256 of the `plugin.json` on disk. A plugin in `needs_review` is approved by sending this
+             *     back, which says the user looked at exactly this manifest.
+             */
+            manifest_hash: string;
             name: string;
             permissions: components["schemas"]["PermissionSummary"];
             progress?: null | components["schemas"]["DependencyProgress"];

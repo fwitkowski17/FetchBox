@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use super::manifest::{
     Action, ActionKind, Arg, Command, Dialog, Field, FieldKind, HookAction, Manifest, Resolver,
-    UiKind, Webhook, WebhookBody,
+    SettingValue, UiKind, Webhook, WebhookBody,
 };
 use super::template::{self, Token};
 use super::text::{is_safe_relative, is_valid_id, is_valid_key, PLATFORMS};
@@ -714,6 +714,62 @@ pub fn validate(m: &Manifest) -> Check {
     Ok(())
 }
 
+/// Most characters a text setting may have.
+pub const MAX_TEXT_SETTING: usize = 8000;
+
+/// Is `value` acceptable for `field`? The message names what is wrong, for the user.
+pub fn check_setting_value(field: &Field, value: &SettingValue) -> Result<(), String> {
+    let name = if field.label.is_empty() {
+        &field.key
+    } else {
+        &field.label
+    };
+    match (field.kind, value) {
+        (FieldKind::Text | FieldKind::Textarea | FieldKind::Secret, SettingValue::Text(s)) => {
+            if s.chars().count() > MAX_TEXT_SETTING {
+                return Err(format!(
+                    "{name} is longer than {MAX_TEXT_SETTING} characters"
+                ));
+            }
+            if field.kind != FieldKind::Textarea && s.contains(['\n', '\r']) {
+                return Err(format!("{name} must be on one line"));
+            }
+            if s.contains('\0') {
+                return Err(format!("{name} has a character that is not allowed"));
+            }
+            Ok(())
+        }
+        (FieldKind::Number, SettingValue::Number(n)) => {
+            if !n.is_finite() {
+                return Err(format!("{name} is not a number"));
+            }
+            if field.min.is_some_and(|m| *n < m) {
+                return Err(format!(
+                    "{name} must be at least {}",
+                    field.min.unwrap_or_default()
+                ));
+            }
+            if field.max.is_some_and(|m| *n > m) {
+                return Err(format!(
+                    "{name} must be at most {}",
+                    field.max.unwrap_or_default()
+                ));
+            }
+            Ok(())
+        }
+        (FieldKind::Toggle, SettingValue::Bool(_)) => Ok(()),
+        (FieldKind::Select, SettingValue::Text(s)) => {
+            if field.options.iter().any(|o| o.value == *s) {
+                Ok(())
+            } else {
+                Err(format!("{name}: \"{s}\" is not one of the choices"))
+            }
+        }
+        (FieldKind::Info | FieldKind::Output, _) => Err(format!("{name} is not a setting")),
+        _ => Err(format!("{name} has a value of the wrong kind")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -981,6 +1037,56 @@ mod tests {
             v["settings"][1]["show_if"] = serde_json::json!({"key": "ghost", "equals": true});
         });
         assert!(e.contains("ghost"), "{e}");
+    }
+
+    #[test]
+    fn values_are_checked_against_their_field() {
+        let m: Manifest = serde_json::from_value(serde_json::json!({
+            "api_version": 1, "id": "demo", "name": "D", "version": "1",
+            "settings": [
+                {"key": "name", "type": "text", "label": "Name"},
+                {"key": "notes", "type": "textarea"},
+                {"key": "token", "type": "secret"},
+                {"key": "port", "type": "number", "min": 1, "max": 65535},
+                {"key": "on", "type": "toggle"},
+                {"key": "mode", "type": "select", "options": [{"value": "a", "label": "A"}]},
+                {"key": "about", "type": "info"}
+            ]
+        }))
+        .expect("manifest");
+        let f = |k: &str| m.settings.iter().find(|f| f.key == k).expect("field");
+        let t = |s: &str| SettingValue::Text(s.into());
+        assert!(check_setting_value(f("name"), &t("x")).is_ok());
+        assert!(check_setting_value(f("name"), &t("a\nb"))
+            .unwrap_err()
+            .contains("one line"));
+        assert!(check_setting_value(f("notes"), &t("a\nb")).is_ok());
+        assert!(check_setting_value(f("token"), &t("s3cret")).is_ok());
+        assert!(check_setting_value(f("name"), &t(&"x".repeat(MAX_TEXT_SETTING + 1))).is_err());
+        assert!(check_setting_value(f("name"), &t("a\0b")).is_err());
+        assert!(check_setting_value(f("name"), &SettingValue::Bool(true))
+            .unwrap_err()
+            .contains("wrong kind"));
+        assert!(check_setting_value(f("port"), &SettingValue::Number(8080.0)).is_ok());
+        assert!(check_setting_value(f("port"), &SettingValue::Number(0.0))
+            .unwrap_err()
+            .contains("at least 1"));
+        assert!(
+            check_setting_value(f("port"), &SettingValue::Number(70000.0))
+                .unwrap_err()
+                .contains("at most 65535")
+        );
+        assert!(check_setting_value(f("port"), &SettingValue::Number(f64::NAN)).is_err());
+        assert!(check_setting_value(f("port"), &t("80")).is_err());
+        assert!(check_setting_value(f("on"), &SettingValue::Bool(false)).is_ok());
+        assert!(check_setting_value(f("on"), &t("yes")).is_err());
+        assert!(check_setting_value(f("mode"), &t("a")).is_ok());
+        assert!(check_setting_value(f("mode"), &t("z"))
+            .unwrap_err()
+            .contains("not one of the choices"));
+        assert!(check_setting_value(f("about"), &t("x"))
+            .unwrap_err()
+            .contains("not a setting"));
     }
 
     #[test]
