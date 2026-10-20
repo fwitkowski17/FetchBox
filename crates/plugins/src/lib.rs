@@ -4,8 +4,14 @@
 
 pub mod archive;
 pub mod deps;
+pub mod expand;
 pub mod fetch;
 pub mod install;
+pub mod mapping;
+pub mod oneshot;
+pub mod proc;
+pub mod process;
+pub mod protocol;
 
 use std::io;
 
@@ -24,6 +30,10 @@ pub enum Error {
     /// size, or its checksum does not match.
     #[error("{0}")]
     Fetch(String),
+    /// A command could not run or failed: a template cannot be filled in, the program is missing,
+    /// it timed out, or it exited with an error.
+    #[error("{0}")]
+    Run(String),
     /// The thing asked for is not there (an unknown staged token, a plugin that is not installed).
     #[error("{0}")]
     NotFound(String),
@@ -34,7 +44,7 @@ impl From<Error> for fetchbox_core::Error {
         match e {
             Error::Archive(m) | Error::Manifest(m) => fetchbox_core::Error::InvalidInput(m),
             Error::NotFound(m) => fetchbox_core::Error::Missing(m),
-            Error::Fetch(m) => fetchbox_core::Error::Engine(m),
+            Error::Fetch(m) | Error::Run(m) => fetchbox_core::Error::Engine(m),
             Error::Io(e) => fetchbox_core::Error::Internal(e.to_string()),
         }
     }

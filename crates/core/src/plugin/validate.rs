@@ -8,7 +8,7 @@ use super::manifest::{
     UiKind, Webhook, WebhookBody,
 };
 use super::template::{self, Token};
-use super::text::{is_valid_id, is_valid_key, PLATFORMS};
+use super::text::{is_safe_relative, is_valid_id, is_valid_key, PLATFORMS};
 use super::API_VERSION;
 use crate::version::parse_version;
 
@@ -71,15 +71,6 @@ fn is_https(url: &str) -> bool {
 
 fn is_http(url: &str) -> bool {
     is_https(url) || url.strip_prefix("http://").is_some_and(|r| !r.is_empty())
-}
-
-/// A path inside a folder: relative, no `..`, no drive letter, backslash or whitespace.
-fn is_safe_relative(path: &str) -> bool {
-    !path.is_empty()
-        && !path.starts_with('/')
-        && !path.contains(['\\', ':', '\0'])
-        && path.split('/').all(|c| c != "..")
-        && !path.chars().any(|c| c.is_control() || c.is_whitespace())
 }
 
 fn unique<'a>(what: &str, ids: impl Iterator<Item = &'a str>) -> Check {

@@ -16,7 +16,9 @@ pub use manifest::{
     Manifest, Permissions, Placement, Pointers, ProcessSpec, Resolver, RestartPolicy, ResultMap,
     Section, SettingValue, ShowIf, SingleMap, Tab, Ui, UiKind, Webhook, WebhookBody,
 };
-pub use text::{glob_match, host_of, is_valid_id, is_valid_key, platform_key, tr, PLATFORMS};
+pub use text::{
+    glob_match, host_of, is_safe_relative, is_valid_id, is_valid_key, platform_key, tr, PLATFORMS,
+};
 pub use validate::{validate, EVENT_NAMES};
 pub use view::{
     derive_permissions, ActionResult, ActionView, DependencyProgress, DependencyView, FieldView,

@@ -37,6 +37,15 @@ pub fn is_valid_key(key: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_' || *c == b'-')
 }
 
+/// A path inside a folder: relative, no `..`, no drive letter, backslash or whitespace.
+pub fn is_safe_relative(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains(['\\', ':', '\0'])
+        && path.split('/').all(|c| c != "..")
+        && !path.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
 /// Does `text` match `pattern`? `*` stands for any run of characters (also `/`), `?` for one
 /// character; everything else matches itself, ignoring ASCII case.
 pub fn glob_match(pattern: &str, text: &str) -> bool {
@@ -121,6 +130,18 @@ mod tests {
             &"a".repeat(33),
         ] {
             assert!(!is_valid_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn relative_paths_stay_inside_their_folder() {
+        for ok in ["bin/tool", "tool", "a/b/c.sh", "./x"] {
+            assert!(is_safe_relative(ok), "{ok}");
+        }
+        for bad in [
+            "", "/abs", "../x", "a/../b", "a\\b", "C:x", "a b", "a\0b", "a/\n",
+        ] {
+            assert!(!is_safe_relative(bad), "{bad:?}");
         }
     }
 
