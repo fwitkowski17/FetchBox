@@ -102,6 +102,8 @@ impl Rig {
         github_api: Option<String>,
         index_url: &str,
     ) -> Arc<Manager> {
+        // `main` makes the download folder; here it is made for the engine's own downloads.
+        std::fs::create_dir_all(root.join("downloads")).expect("download dir");
         let db = fetchbox_storage::open(&root.join("fetchbox.db")).expect("db");
         let policy = UrlPolicy::default();
         let mgr = Manager::start(db, root.join("downloads"), policy)
@@ -2206,4 +2208,341 @@ async fn a_download_waits_for_its_plugin_after_a_restart_of_the_server() {
             .len(),
         4000
     );
+}
+
+// ---- hooks --------------------------------------------------------------------------
+
+type Received = Arc<std::sync::Mutex<Vec<Value>>>;
+
+/// A server that takes the events plugins send. `status` is what it answers; `delay` how long it
+/// thinks about it.
+async fn receiver(
+    status: Arc<std::sync::atomic::AtomicU16>,
+    delay: Duration,
+) -> (String, Received) {
+    let got: Received = Arc::default();
+    let sink = got.clone();
+    let app = axum::Router::new().route(
+        "/hook",
+        axum::routing::post(move |body: String| {
+            let (sink, status) = (sink.clone(), status.clone());
+            async move {
+                tokio::time::sleep(delay).await;
+                sink.lock()
+                    .expect("lock")
+                    .push(serde_json::from_str(&body).unwrap_or(Value::Null));
+                axum::http::StatusCode::from_u16(status.load(std::sync::atomic::Ordering::SeqCst))
+                    .expect("status")
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}/hook", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    (base, got)
+}
+
+fn ok_status() -> Arc<std::sync::atomic::AtomicU16> {
+    Arc::new(std::sync::atomic::AtomicU16::new(200))
+}
+
+/// A server with a file of `len` bytes at `/<name>`.
+async fn file_server(name: &str, len: usize) -> String {
+    let app = axum::Router::new().route(
+        &format!("/{name}"),
+        axum::routing::get(move || async move { vec![7u8; len] }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    format!("{base}/{name}")
+}
+
+fn names(got: &Received) -> Vec<String> {
+    got.lock()
+        .expect("lock")
+        .iter()
+        .map(|v| v["event"].as_str().unwrap_or("?").to_owned())
+        .collect()
+}
+
+async fn eventually_names(got: &Received, want: &[&str]) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while names(got) != want {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "events: {:?}, wanted {want:?}",
+            names(got)
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+fn hooking(url: &str, on: &[&str]) -> Value {
+    manifest(
+        "hooker",
+        json!({"hooks": [{"on": on, "action": {"webhook": {"url": url}}}]}),
+    )
+}
+
+async fn rig_with(m: &Value, with_program: bool) -> Rig {
+    let rig = Rig::new().await;
+    let id = m["id"].as_str().expect("id").to_owned();
+    rig.install(m, with_program).await;
+    rig.mgr
+        .plugin_set_enabled(id.clone(), true)
+        .await
+        .expect("enable");
+    let state = if m["process"].is_null() {
+        PluginState::Ready
+    } else {
+        PluginState::Running
+    };
+    rig.wait_for(&id, state).await;
+    rig
+}
+
+#[tokio::test]
+async fn a_webhook_hook_hears_about_a_finished_download() {
+    let (url, got) = receiver(ok_status(), Duration::ZERO).await;
+    let rig = rig_with(
+        &hooking(&url, &["download.completed", "download.failed"]),
+        false,
+    )
+    .await;
+    let file = file_server("f.bin", 500).await;
+    let d = rig
+        .mgr
+        .add(add_request(&file, None, None))
+        .await
+        .expect("add");
+    rig.wait_status(d.id, Status::Completed).await;
+    eventually_names(&got, &["download.completed"]).await;
+    let ev = got.lock().expect("lock")[0].clone();
+    assert_eq!(ev["download"]["filename"], "f.bin");
+    assert_eq!(ev["download"]["status"], "completed");
+    assert_eq!(ev["download"]["size"], 500);
+    assert!(ev["at"].as_i64().expect("time") > 1_600_000_000);
+    assert!(ev["download"].get("password").is_none());
+}
+
+#[tokio::test]
+async fn a_group_hook_hears_the_whole_life_of_a_download_in_order() {
+    let (url, got) = receiver(ok_status(), Duration::ZERO).await;
+    let rig = rig_with(&hooking(&url, &["download.*"]), false).await;
+    let file = file_server("f.bin", 100).await;
+    let d = rig
+        .mgr
+        .add(add_request(&file, None, None))
+        .await
+        .expect("add");
+    eventually_names(
+        &got,
+        &["download.added", "download.started", "download.completed"],
+    )
+    .await;
+    rig.mgr.remove(d.id, false).await.expect("remove");
+    eventually_names(
+        &got,
+        &[
+            "download.added",
+            "download.started",
+            "download.completed",
+            "download.removed",
+        ],
+    )
+    .await;
+    let removed = got.lock().expect("lock")[3].clone();
+    assert_eq!(removed["id"], d.id);
+    assert_eq!(
+        removed["download"]["filename"], "f.bin",
+        "what it was is still told"
+    );
+}
+
+#[tokio::test]
+async fn a_plugin_that_is_off_hears_nothing() {
+    let (url, got) = receiver(ok_status(), Duration::ZERO).await;
+    let rig = rig_with(&hooking(&url, &["download.*"]), false).await;
+    rig.mgr
+        .plugin_set_enabled("hooker".into(), false)
+        .await
+        .expect("off");
+    let file = file_server("f.bin", 100).await;
+    let d = rig
+        .mgr
+        .add(add_request(&file, None, None))
+        .await
+        .expect("add");
+    rig.wait_status(d.id, Status::Completed).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(names(&got).is_empty(), "{:?}", names(&got));
+}
+
+#[tokio::test]
+async fn a_hook_can_run_a_command_and_tell_the_program() {
+    let m = manifest(
+        "hooker",
+        json!({
+            "process": {"command": "bin/fake", "args": ["echo"]},
+            "hooks": [
+                {"on": ["download.completed"], "action": {"run": {"command": "bin/fake", "args": ["tee", "${data_dir}/hook.log"]}}},
+                {"on": ["download.completed"], "action": {"process": true}}
+            ]
+        }),
+    );
+    let rig = rig_with(&m, true).await;
+    let file = file_server("f.bin", 100).await;
+    let d = rig
+        .mgr
+        .add(add_request(&file, None, None))
+        .await
+        .expect("add");
+    rig.wait_status(d.id, Status::Completed).await;
+    let data = rig.root.path().join("data/plugin-data/hooker");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let read = |p: PathBuf| std::fs::read_to_string(p).unwrap_or_default();
+    while !(read(data.join("hook.log")).contains("download.completed")
+        && read(data.join("state/events.log")).contains("download.completed"))
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the command and the program were not told"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    // The command got the event on its input, as one JSON document.
+    let line = read(data.join("hook.log"));
+    let doc: Value = serde_json::from_str(line.trim()).expect("json");
+    assert_eq!(doc["event"], "download.completed");
+    assert_eq!(doc["download"]["filename"], "f.bin");
+}
+
+#[tokio::test]
+async fn a_failing_hook_shows_on_its_own_card_and_clears_when_it_works_again() {
+    let status = Arc::new(std::sync::atomic::AtomicU16::new(500));
+    let (url, got) = receiver(status.clone(), Duration::ZERO).await;
+    let rig = rig_with(&hooking(&url, &["download.completed"]), false).await;
+    let file = file_server("f.bin", 100).await;
+    let d = rig
+        .mgr
+        .add(add_request(&file, None, None))
+        .await
+        .expect("add");
+    let done = rig.wait_status(d.id, Status::Completed).await;
+    assert_eq!(done.status, Status::Completed, "the download does not care");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let text = loop {
+        let t = rig.view("hooker").await.status_text;
+        if let Some(t) = t {
+            break t;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no sign of the failure"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    assert!(
+        text.starts_with("The last event could not be delivered") && text.contains("500"),
+        "{text}"
+    );
+    assert_eq!(
+        rig.view("hooker").await.state,
+        PluginState::Ready,
+        "the plugin itself is fine"
+    );
+
+    status.store(200, std::sync::atomic::Ordering::SeqCst);
+    let file2 = file_server("g.bin", 100).await;
+    let d2 = rig
+        .mgr
+        .add(add_request(&file2, None, None))
+        .await
+        .expect("add");
+    rig.wait_status(d2.id, Status::Completed).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while rig.view("hooker").await.status_text.is_some() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the failure was not cleared"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(names(&got).len(), 2, "both were tried");
+}
+
+#[tokio::test]
+async fn a_slow_webhook_does_not_slow_the_downloads_down() {
+    let (url, got) = receiver(ok_status(), Duration::from_secs(4)).await;
+    let rig = rig_with(&hooking(&url, &["download.*"]), false).await;
+    let started = std::time::Instant::now();
+    for i in 0..4 {
+        let file = file_server(&format!("f{i}.bin"), 100).await;
+        rig.mgr
+            .add(add_request(&file, None, None))
+            .await
+            .expect("add");
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let all = rig.mgr.list().await.expect("list");
+        if all.len() == 4 && all.iter().all(|d| d.status == Status::Completed) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "downloads are waiting for a webhook"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(
+        names(&got).len() < 12,
+        "the receiver is still working through its queue"
+    );
+}
+
+#[tokio::test]
+async fn progress_reaches_only_the_hooks_that_ask_for_it_and_not_faster_than_they_say() {
+    let (url, got) = receiver(ok_status(), Duration::ZERO).await;
+    let (url_all, got_all) = receiver(ok_status(), Duration::ZERO).await;
+    let mut m = maker();
+    m["hooks"] = json!([
+        {"on": ["download.progress"], "every_s": 1, "action": {"webhook": {"url": url}}},
+        {"on": ["*"], "action": {"webhook": {"url": url_all}}}
+    ]);
+    let rig = Rig::new().await;
+    rig.install(&m, true).await;
+    rig.mgr
+        .plugin_set_enabled("maker".into(), true)
+        .await
+        .expect("enable");
+    rig.wait_for("maker", PluginState::Ready).await;
+    let d = rig.make("slow", "Slow").await;
+    rig.wait_status(d.id, Status::Completed).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let progress = names(&got);
+    assert!(
+        (1..=4).contains(&progress.len()) && progress.iter().all(|n| n == "download.progress"),
+        "{progress:?}"
+    );
+    let first = got.lock().expect("lock")[0].clone();
+    assert_eq!(first["id"], d.id);
+    assert!(first["progress"]["downloaded"].is_u64());
+    // `*` does not include progress.
+    assert!(
+        !names(&got_all).iter().any(|n| n.ends_with(".progress")),
+        "{:?}",
+        names(&got_all)
+    );
+    assert!(names(&got_all).contains(&"download.completed".to_owned()));
 }

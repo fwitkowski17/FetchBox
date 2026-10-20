@@ -99,7 +99,7 @@ pub(super) struct Entry {
     stored: Option<StoredPlugin>,
     pub(super) state: PluginState,
     error: Option<String>,
-    status_text: Option<String>,
+    pub(super) status_text: Option<String>,
     progress: Option<DependencyProgress>,
     pub(super) process: Option<Arc<Process>>,
     prepare: Option<AbortHandle>,
@@ -129,6 +129,8 @@ pub(crate) struct Plugins {
     staged: Mutex<HashMap<String, (PluginSource, Option<String>)>>,
     /// Downloads whose program is running (see `plugin_runner`).
     pub(super) runs: super::plugin_runner::Runs,
+    /// Queues of hook deliveries, by plugin (see `plugin_hooks`).
+    pub(super) hook_workers: super::plugin_hooks::Workers,
 }
 
 /// Which dependencies a preparation fetches.
@@ -270,6 +272,7 @@ impl Manager {
             self.fail_plugin_downloads("plugins are switched off on this server");
             return;
         }
+        self.start_hooks();
         match self.load_plugins().await {
             Ok(count) => {
                 let enabled = self
@@ -672,7 +675,7 @@ impl Manager {
         })
     }
 
-    fn publish_plugin(&self, id: &str) {
+    pub(super) fn publish_plugin(&self, id: &str) {
         if let Some(v) = self.plugin_view(id) {
             self.publish(Event::Plugin {
                 plugin: Box::new(v),
@@ -1244,6 +1247,11 @@ impl Manager {
         }
         self.with_db(|c| store::delete(c, &id))?;
         self.plugin_entries().remove(&id);
+        self.plugins
+            .hook_workers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
         tracing::info!(target: "activity", plugin = %id, kept_data = keep_data, "plugin removed");
         self.publish(Event::PluginRemoved { id });
         Ok(())

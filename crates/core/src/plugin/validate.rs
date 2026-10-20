@@ -13,7 +13,7 @@ use super::API_VERSION;
 use crate::version::parse_version;
 
 /// The events a hook may name. `download.*`, `torrent.*` and `*` match groups of them.
-pub const EVENT_NAMES: [&str; 17] = [
+pub const EVENT_NAMES: [&str; 16] = [
     "download.added",
     "download.started",
     "download.paused",
@@ -30,7 +30,6 @@ pub const EVENT_NAMES: [&str; 17] = [
     "torrent.removed",
     "torrent.progress",
     "settings.changed",
-    "plugin.settings_changed",
 ];
 
 const MAX_ITEMS: usize = 64;
@@ -478,6 +477,21 @@ fn check_event(e: &str) -> Check {
     } else {
         Err(format!("\"{e}\" is not an event a hook can listen to"))
     }
+}
+
+/// Does a hook that listens to `on` receive the event `name`? A name matches itself, `download.*`
+/// and `torrent.*` match their group, `*` matches everything; but progress events come every second
+/// or so, so only a hook that names one (`download.progress`) receives them.
+pub fn event_matches(on: &[String], name: &str) -> bool {
+    let progress = name.ends_with(".progress");
+    on.iter().any(|p| {
+        p == name
+            || (!progress
+                && (p == "*"
+                    || p.strip_suffix(".*").is_some_and(|group| {
+                        name.strip_prefix(group).is_some_and(|r| r.starts_with('.'))
+                    })))
+    })
 }
 
 /// Check a manifest. `Ok` means every later step may rely on its shape.
@@ -1127,6 +1141,45 @@ mod tests {
         assert!(check_setting_value(f("about"), &t("x"))
             .unwrap_err()
             .contains("not a setting"));
+    }
+
+    #[test]
+    fn hooks_receive_the_events_they_name_and_groups_but_progress_only_by_name() {
+        let on = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert!(event_matches(
+            &on(&["download.completed"]),
+            "download.completed"
+        ));
+        assert!(!event_matches(
+            &on(&["download.completed"]),
+            "download.failed"
+        ));
+        assert!(event_matches(&on(&["download.*"]), "download.failed"));
+        assert!(!event_matches(&on(&["download.*"]), "torrent.completed"));
+        assert!(
+            !event_matches(&on(&["download.*"]), "downloads.x"),
+            "a group is a whole word"
+        );
+        assert!(event_matches(&on(&["*"]), "settings.changed"));
+        assert!(event_matches(&on(&["*"]), "torrent.added"));
+        // Progress comes every second: it has to be asked for.
+        assert!(!event_matches(&on(&["*"]), "download.progress"));
+        assert!(!event_matches(
+            &on(&["download.*", "torrent.*"]),
+            "torrent.progress"
+        ));
+        assert!(event_matches(
+            &on(&["download.progress"]),
+            "download.progress"
+        ));
+        assert!(event_matches(
+            &on(&["*", "torrent.progress"]),
+            "torrent.progress"
+        ));
+        assert!(!event_matches(&[], "download.completed"));
+        for name in EVENT_NAMES {
+            assert!(check_event(name).is_ok(), "{name}");
+        }
     }
 
     #[test]

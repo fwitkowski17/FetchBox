@@ -4,7 +4,7 @@
 //! what it does.
 //!
 //! One-shot modes: `run <out_dir> [key=value ...]` (makes a file like a downloader: see `run`),
-//! `print-json` (a playlist), `print-single` (one video), `fail`, `sleep`, `flood`, `cat`, `env`, `args`, `child <pidfile>`
+//! `tee <file>` (appends its standard input to the file), `print-json` (a playlist), `print-single` (one video), `fail`, `sleep`, `flood`, `cat`, `env`, `args`, `child <pidfile>`
 //! (starts a child, then sleeps), `exit-leaving-child` (prints the pid of a child it leaves running).
 //!
 //! Long-lived modes speak the JSON-lines protocol of `fetchbox_plugins::protocol`: `echo`,
@@ -243,6 +243,19 @@ fn main() {
                 {"title": "Two", "url": "https://v.example/2"}
             ]
         })),
+        "tee" => {
+            let mut input = String::new();
+            let _ = std::io::stdin().read_to_string(&mut input);
+            if let Some(file) = args.next() {
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(file)
+                {
+                    let _ = writeln!(f, "{}", input.trim());
+                }
+            }
+        }
         "print-single" => say(&json!({"title": "A video", "filesize": 1234})),
         "fail" => {
             eprintln!("starting up");
