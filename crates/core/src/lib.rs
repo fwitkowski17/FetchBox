@@ -8,10 +8,12 @@ pub mod error;
 pub mod filename;
 pub mod limiter;
 pub mod model;
+pub mod plugin;
 pub mod schedule;
 pub mod scheduler;
 pub mod stats;
 pub mod torrent;
+pub mod version;
 
 use async_trait::async_trait;
 

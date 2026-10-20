@@ -823,6 +823,18 @@ pub enum Event {
         #[cfg_attr(feature = "openapi", schema(value_type = i64))]
         id: Id,
     },
+    /// A plugin was installed, or its state, settings or dependency progress changed (SPEC 6.15).
+    Plugin {
+        plugin: Box<crate::plugin::PluginView>,
+    },
+    /// A plugin was uninstalled.
+    PluginRemoved { id: String },
+    /// A message from a plugin for the user (shown as a toast).
+    PluginNotice {
+        plugin_id: String,
+        level: crate::plugin::NoticeLevel,
+        message: String,
+    },
 }
 
 /// One byte range `[start, end]` (inclusive) of a file and how much of it is on disk.

@@ -1,0 +1,32 @@
+//! The plugin system's vocabulary (SPEC 6.15): the manifest a plugin ships (`plugin.json`), what the
+//! interface is shown of an installed plugin, and the pure rules around them (validation, argument
+//! templates, URL globs, translations). Nothing here starts a process or touches the disk; the
+//! `plugins` crate and the server do that.
+
+mod manifest;
+mod text;
+mod validate;
+mod view;
+
+pub mod template;
+
+pub use manifest::{
+    Action, ActionKind, ArchiveKind, Arg, Builtin, Button, ButtonStyle, Choice, Command, DepSource,
+    Dependency, Dialog, Field, FieldKind, FieldOption, GithubDependency, Hook, HookAction, ItemMap,
+    Manifest, Permissions, Placement, Pointers, ProcessSpec, Resolver, RestartPolicy, ResultMap,
+    Section, SettingValue, ShowIf, SingleMap, Tab, Ui, UiKind, Webhook, WebhookBody,
+};
+pub use text::{glob_match, host_of, is_valid_id, is_valid_key, platform_key, tr, PLATFORMS};
+pub use validate::{validate, EVENT_NAMES};
+pub use view::{
+    derive_permissions, ActionResult, ActionView, DependencyProgress, DependencyView, FieldView,
+    NoticeLevel, PermissionSummary, PluginSource, PluginState, PluginView, Provides, StagedPlugin,
+    StagedReplaces, StoreDownload, StoreEntry, UiView,
+};
+
+/// The manifest format this build understands (`Manifest::api_version`).
+pub const API_VERSION: u32 = 1;
+/// Largest `plugin.json` that is read.
+pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+/// Largest plugin ZIP that is accepted (the request body limit of the stage route).
+pub const MAX_PLUGIN_ZIP: usize = 32 * 1024 * 1024;

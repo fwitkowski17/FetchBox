@@ -265,7 +265,7 @@ export interface paths {
         /**
          * Live updates as server-sent events.
          * @description Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, `torrent`,
-         *     `torrent_removed`, or
+         *     `torrent_removed`, `plugin`, `plugin_removed`, `plugin_notice`, or
          *     `resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`
          *     (this client fell behind) reload the list with `GET /api/downloads`. Subscribe before
          *     fetching the list so nothing in between is lost.
@@ -603,6 +603,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description What an action does.
+         * @enum {string}
+         */
+        ActionKind: "run" | "webhook" | "process" | "builtin" | "open_dialog" | "open_url";
+        /** @description An action without its command. */
+        ActionView: {
+            confirm?: string | null;
+            /** @description The dialog an `open_dialog` action opens. */
+            dialog?: string | null;
+            icon?: string | null;
+            id: string;
+            kind: components["schemas"]["ActionKind"];
+            label: string;
+            placement: components["schemas"]["Placement"];
+            /** @description The address an `open_url` action opens. */
+            url?: string | null;
+        };
         /** @description Request to add a download by URL. */
         AddRequest: {
             category?: null | components["schemas"]["Category"];
@@ -659,6 +677,21 @@ export interface components {
             /** @description No account exists yet: show the first-run setup (`POST /api/auth/setup`). */
             setup_required: boolean;
         };
+        /** @description A button of a dialog. */
+        Button: {
+            /** @description The action it runs; none just closes the dialog. */
+            action?: string | null;
+            /** @description Close the dialog after the action (default: yes for a button without an action). */
+            closes?: boolean | null;
+            id: string;
+            label: string;
+            style?: components["schemas"]["ButtonStyle"];
+        };
+        /**
+         * @description How a dialog button looks.
+         * @enum {string}
+         */
+        ButtonStyle: "default" | "primary" | "danger";
         /**
          * @description File category, auto-detected from extension and changeable by the user.
          * @enum {string}
@@ -763,6 +796,31 @@ export interface components {
              * @description Unix time of the start of the day (in the client's time zone).
              */
             start: number;
+        };
+        /** @description How far a dependency is on its way. */
+        DependencyProgress: {
+            dependency: string;
+            /** Format: int64 */
+            downloaded: number;
+            /** Format: int64 */
+            total?: number | null;
+        };
+        /** @description A dependency and whether it is in place. */
+        DependencyView: {
+            id: string;
+            installed: boolean;
+            label: string;
+            optional: boolean;
+            /** @description The version it was fetched at (a release tag), when it has one. */
+            version?: string | null;
+        };
+        /** @description A modal the plugin shows. */
+        Dialog: {
+            buttons?: components["schemas"]["Button"][];
+            description?: string;
+            fields?: components["schemas"]["Field"][];
+            id: string;
+            title: string;
         };
         /** @description One place downloads can be saved to, with its space. */
         DiskInfo: {
@@ -945,6 +1003,58 @@ export interface components {
             id: number;
             /** @enum {string} */
             type: "torrent_removed";
+        } | {
+            plugin: components["schemas"]["PluginView"];
+            /** @enum {string} */
+            type: "plugin";
+        } | {
+            id: string;
+            /** @enum {string} */
+            type: "plugin_removed";
+        } | {
+            level: components["schemas"]["NoticeLevel"];
+            message: string;
+            plugin_id: string;
+            /** @enum {string} */
+            type: "plugin_notice";
+        };
+        /** @description A setting of the plugin, or a field of one of its dialogs. */
+        Field: {
+            default?: null | components["schemas"]["SettingValue"];
+            help?: string;
+            /** @description Lowercase letters, digits and `_` (`is_valid_key`). */
+            key: string;
+            label?: string;
+            /** Format: double */
+            max?: number | null;
+            /** Format: double */
+            min?: number | null;
+            options?: components["schemas"]["FieldOption"][];
+            placeholder?: string;
+            required?: boolean;
+            show_if?: null | components["schemas"]["ShowIf"];
+            /** Format: double */
+            step?: number | null;
+            type: components["schemas"]["FieldKind"];
+            /** @description Shown after a number (`MB/s`). */
+            unit?: string;
+        };
+        /**
+         * @description What a settings field or a dialog field is.
+         * @enum {string}
+         */
+        FieldKind: "text" | "secret" | "textarea" | "number" | "toggle" | "select" | "info" | "output";
+        /** @description One choice of a `select`. */
+        FieldOption: {
+            label: string;
+            value: string;
+        };
+        /** @description A setting as the interface needs it: the field, and whether it has a value. */
+        FieldView: {
+            field: components["schemas"]["Field"];
+            /** @description Something is stored (also tells a secret was saved). */
+            has_value: boolean;
+            value?: null | components["schemas"]["SettingValue"];
         };
         /** @description Liveness probe. */
         Health: {
@@ -1054,6 +1164,11 @@ export interface components {
             token: string;
         };
         /**
+         * @description Importance of a message from a plugin.
+         * @enum {string}
+         */
+        NoticeLevel: "info" | "success" | "warning" | "error";
+        /**
          * @description What to do when a new download collides with an existing one (SPEC: name conflicts).
          * @enum {string}
          */
@@ -1067,10 +1182,80 @@ export interface components {
         PeerState: "queued" | "connecting" | "connected" | "idle" | "dead";
         /** @enum {string} */
         PeerTransport: "tcp" | "utp" | "socks";
+        /** @description What a plugin may do, worked out from its manifest and shown before it is installed. */
+        PermissionSummary: {
+            /** @description Parts of FetchBox's API it uses. */
+            api: string[];
+            /** @description Where its dependencies are downloaded from. */
+            download_hosts: string[];
+            /** @description Events it receives. */
+            events: string[];
+            /** @description Hosts it says it talks to. */
+            network: string[];
+            /** @description It has a program that runs for as long as it is enabled. */
+            process: boolean;
+            /** @description Programs it can run (dependencies and files of its own). */
+            programs: string[];
+            /** @description It downloads files with its own program instead of FetchBox's engine. */
+            runs_downloads: boolean;
+            /** @description Where FetchBox sends webhooks on its behalf. */
+            webhook_hosts: string[];
+        };
+        /**
+         * @description Where an action is offered.
+         * @enum {string}
+         */
+        Placement: "card" | "settings";
+        /**
+         * @description Where a plugin came from.
+         * @enum {string}
+         */
+        PluginSource: "bundled" | "store" | "zip" | "folder";
+        /**
+         * @description Where a plugin stands.
+         * @enum {string}
+         */
+        PluginState: "disabled" | "preparing" | "ready" | "starting" | "running" | "failed" | "needs_review" | "unsupported";
+        /** @description An installed plugin. */
+        PluginView: {
+            author: string;
+            dependencies: components["schemas"]["DependencyView"][];
+            description: string;
+            enabled: boolean;
+            /** @description Why it failed, or what needs a review. */
+            error?: string | null;
+            homepage?: string | null;
+            i18n: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
+            id: string;
+            license?: string | null;
+            name: string;
+            permissions: components["schemas"]["PermissionSummary"];
+            progress?: null | components["schemas"]["DependencyProgress"];
+            provides: components["schemas"]["Provides"];
+            settings: components["schemas"]["FieldView"][];
+            source: components["schemas"]["PluginSource"];
+            state: components["schemas"]["PluginState"];
+            /** @description A line the plugin's program reported about itself. */
+            status_text?: string | null;
+            ui: components["schemas"]["UiView"];
+            /** @description A newer version in the store. */
+            update_available?: string | null;
+            version: string;
+        };
         /** @description Request to look at a URL before adding it. */
         ProbeRequest: {
             credentials?: null | components["schemas"]["Credentials"];
             url: string;
+        };
+        /** @description What a plugin adds. */
+        Provides: {
+            hooks: number;
+            process: boolean;
+            resolvers: string[];
         };
         /** @description What a release changed, as its author wrote it on GitHub (Markdown). */
         ReleaseNote: {
@@ -1083,6 +1268,16 @@ export interface components {
             /** @description Version without a leading `v`. */
             version: string;
         };
+        /** @description A group of settings and actions in a plugin's own tab. */
+        Section: {
+            /** @description Ids of actions. */
+            actions?: string[];
+            /** @description Keys of settings. */
+            fields?: string[];
+            title?: string;
+        };
+        /** @description A value of a field. */
+        SettingValue: boolean | number | string;
         /** @description Global settings, applied live (SPEC 2, 6.3). Zero speed limit means unlimited. */
         Settings: {
             /**
@@ -1193,6 +1388,11 @@ export interface components {
             /** @description The new password, at least 8 characters. */
             password: string;
         };
+        /** @description A field is shown only while another one has this value. */
+        ShowIf: {
+            equals: components["schemas"]["SettingValue"];
+            key: string;
+        };
         /**
          * @description What kind of source a download comes from.
          * @enum {string}
@@ -1286,6 +1486,12 @@ export interface components {
          * @enum {string}
          */
         Status: "queued" | "downloading" | "paused" | "verifying" | "completed" | "failed" | "cancelled";
+        /** @description A tab of its own in Settings. */
+        Tab: {
+            icon?: string | null;
+            sections?: components["schemas"]["Section"][];
+            title: string;
+        };
         /** @description One torrent as the UI shows it. */
         Torrent: {
             /**
@@ -1457,6 +1663,13 @@ export interface components {
             key_type?: string;
             /** Format: int32 */
             port: number;
+        };
+        /** @description The plugin's interface, as drawn. */
+        UiView: {
+            actions: components["schemas"]["ActionView"][];
+            dialogs: components["schemas"]["Dialog"][];
+            icon?: string | null;
+            tab?: null | components["schemas"]["Tab"];
         };
         /** @description Body of `PATCH /downloads/{id}`. */
         UpdateDownload: {

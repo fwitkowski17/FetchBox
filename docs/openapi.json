@@ -935,7 +935,7 @@
           "events"
         ],
         "summary": "Live updates as server-sent events.",
-        "description": "Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, `torrent`,\n`torrent_removed`, or\n`resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`\n(this client fell behind) reload the list with `GET /api/downloads`. Subscribe before\nfetching the list so nothing in between is lost.",
+        "description": "Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, `torrent`,\n`torrent_removed`, `plugin`, `plugin_removed`, `plugin_notice`, or\n`resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`\n(this client fell behind) reload the list with `GET /api/downloads`. Subscribe before\nfetching the list so nothing in between is lost.",
         "operationId": "events",
         "responses": {
           "200": {
@@ -2092,6 +2092,68 @@
   },
   "components": {
     "schemas": {
+      "ActionKind": {
+        "type": "string",
+        "description": "What an action does.",
+        "enum": [
+          "run",
+          "webhook",
+          "process",
+          "builtin",
+          "open_dialog",
+          "open_url"
+        ]
+      },
+      "ActionView": {
+        "type": "object",
+        "description": "An action without its command.",
+        "required": [
+          "id",
+          "label",
+          "placement",
+          "kind"
+        ],
+        "properties": {
+          "confirm": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dialog": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The dialog an `open_dialog` action opens."
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ActionKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/Placement"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The address an `open_url` action opens."
+          }
+        }
+      },
       "AddRequest": {
         "type": "object",
         "description": "Request to add a download by URL.",
@@ -2217,6 +2279,48 @@
             "description": "No account exists yet: show the first-run setup (`POST /api/auth/setup`)."
           }
         }
+      },
+      "Button": {
+        "type": "object",
+        "description": "A button of a dialog.",
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "action": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The action it runs; none just closes the dialog."
+          },
+          "closes": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Close the dialog after the action (default: yes for a button without an action)."
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "style": {
+            "$ref": "#/components/schemas/ButtonStyle"
+          }
+        }
+      },
+      "ButtonStyle": {
+        "type": "string",
+        "description": "How a dialog button looks.",
+        "enum": [
+          "default",
+          "primary",
+          "danger"
+        ]
       },
       "Category": {
         "type": "string",
@@ -2435,6 +2539,94 @@
             "type": "integer",
             "format": "int64",
             "description": "Unix time of the start of the day (in the client's time zone)."
+          }
+        }
+      },
+      "DependencyProgress": {
+        "type": "object",
+        "description": "How far a dependency is on its way.",
+        "required": [
+          "dependency",
+          "downloaded"
+        ],
+        "properties": {
+          "dependency": {
+            "type": "string"
+          },
+          "downloaded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "DependencyView": {
+        "type": "object",
+        "description": "A dependency and whether it is in place.",
+        "required": [
+          "id",
+          "label",
+          "optional",
+          "installed"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The version it was fetched at (a release tag), when it has one."
+          }
+        }
+      },
+      "Dialog": {
+        "type": "object",
+        "description": "A modal the plugin shows.",
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "buttons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Button"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
           }
         }
       },
@@ -2858,9 +3050,212 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "A plugin was installed, or its state, settings or dependency progress changed (SPEC 6.15).",
+            "required": [
+              "plugin",
+              "type"
+            ],
+            "properties": {
+              "plugin": {
+                "$ref": "#/components/schemas/PluginView"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "plugin"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A plugin was uninstalled.",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "plugin_removed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A message from a plugin for the user (shown as a toast).",
+            "required": [
+              "plugin_id",
+              "level",
+              "message",
+              "type"
+            ],
+            "properties": {
+              "level": {
+                "$ref": "#/components/schemas/NoticeLevel"
+              },
+              "message": {
+                "type": "string"
+              },
+              "plugin_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "plugin_notice"
+                ]
+              }
+            }
           }
         ],
         "description": "Live updates pushed to the UI (SSE)."
+      },
+      "Field": {
+        "type": "object",
+        "description": "A setting of the plugin, or a field of one of its dialogs.",
+        "required": [
+          "key",
+          "type"
+        ],
+        "properties": {
+          "default": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SettingValue"
+              }
+            ]
+          },
+          "help": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Lowercase letters, digits and `_` (`is_valid_key`)."
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldOption"
+            }
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "show_if": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ShowIf"
+              }
+            ]
+          },
+          "step": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "type": {
+            "$ref": "#/components/schemas/FieldKind"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Shown after a number (`MB/s`)."
+          }
+        }
+      },
+      "FieldKind": {
+        "type": "string",
+        "description": "What a settings field or a dialog field is.",
+        "enum": [
+          "text",
+          "secret",
+          "textarea",
+          "number",
+          "toggle",
+          "select",
+          "info",
+          "output"
+        ]
+      },
+      "FieldOption": {
+        "type": "object",
+        "description": "One choice of a `select`.",
+        "required": [
+          "value",
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "FieldView": {
+        "type": "object",
+        "description": "A setting as the interface needs it: the field, and whether it has a value.",
+        "required": [
+          "field",
+          "has_value"
+        ],
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/Field"
+          },
+          "has_value": {
+            "type": "boolean",
+            "description": "Something is stored (also tells a secret was saved)."
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SettingValue",
+                "description": "The stored value; never set for a `secret`."
+              }
+            ]
+          }
+        }
       },
       "Health": {
         "type": "object",
@@ -3096,6 +3491,16 @@
           }
         }
       },
+      "NoticeLevel": {
+        "type": "string",
+        "description": "Importance of a message from a plugin.",
+        "enum": [
+          "info",
+          "success",
+          "warning",
+          "error"
+        ]
+      },
       "OnConflict": {
         "type": "string",
         "description": "What to do when a new download collides with an existing one (SPEC: name conflicts).",
@@ -3131,6 +3536,229 @@
           "socks"
         ]
       },
+      "PermissionSummary": {
+        "type": "object",
+        "description": "What a plugin may do, worked out from its manifest and shown before it is installed.",
+        "required": [
+          "network",
+          "api",
+          "programs",
+          "download_hosts",
+          "webhook_hosts",
+          "events",
+          "process",
+          "runs_downloads"
+        ],
+        "properties": {
+          "api": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Parts of FetchBox's API it uses."
+          },
+          "download_hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Where its dependencies are downloaded from."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Events it receives."
+          },
+          "network": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Hosts it says it talks to."
+          },
+          "process": {
+            "type": "boolean",
+            "description": "It has a program that runs for as long as it is enabled."
+          },
+          "programs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Programs it can run (dependencies and files of its own)."
+          },
+          "runs_downloads": {
+            "type": "boolean",
+            "description": "It downloads files with its own program instead of FetchBox's engine."
+          },
+          "webhook_hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Where FetchBox sends webhooks on its behalf."
+          }
+        }
+      },
+      "Placement": {
+        "type": "string",
+        "description": "Where an action is offered.",
+        "enum": [
+          "card",
+          "settings"
+        ]
+      },
+      "PluginSource": {
+        "type": "string",
+        "description": "Where a plugin came from.",
+        "enum": [
+          "bundled",
+          "store",
+          "zip",
+          "folder"
+        ]
+      },
+      "PluginState": {
+        "type": "string",
+        "description": "Where a plugin stands.",
+        "enum": [
+          "disabled",
+          "preparing",
+          "ready",
+          "starting",
+          "running",
+          "failed",
+          "needs_review",
+          "unsupported"
+        ]
+      },
+      "PluginView": {
+        "type": "object",
+        "description": "An installed plugin.",
+        "required": [
+          "id",
+          "name",
+          "version",
+          "description",
+          "author",
+          "source",
+          "enabled",
+          "state",
+          "provides",
+          "permissions",
+          "settings",
+          "ui",
+          "dependencies",
+          "i18n"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DependencyView"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it failed, or what needs a review."
+          },
+          "homepage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "i18n": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "license": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/PermissionSummary"
+          },
+          "progress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DependencyProgress"
+              }
+            ]
+          },
+          "provides": {
+            "$ref": "#/components/schemas/Provides"
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldView"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/PluginSource"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PluginState"
+          },
+          "status_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A line the plugin's program reported about itself."
+          },
+          "ui": {
+            "$ref": "#/components/schemas/UiView"
+          },
+          "update_available": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A newer version in the store."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "ProbeRequest": {
         "type": "object",
         "description": "Request to look at a URL before adding it.",
@@ -3151,6 +3779,30 @@
           },
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "Provides": {
+        "type": "object",
+        "description": "What a plugin adds.",
+        "required": [
+          "resolvers",
+          "hooks",
+          "process"
+        ],
+        "properties": {
+          "hooks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "process": {
+            "type": "boolean"
+          },
+          "resolvers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3181,6 +3833,44 @@
             "description": "Version without a leading `v`."
           }
         }
+      },
+      "Section": {
+        "type": "object",
+        "description": "A group of settings and actions in a plugin's own tab.",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ids of actions."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keys of settings."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "SettingValue": {
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "number",
+            "format": "double"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "A value of a field."
       },
       "Settings": {
         "type": "object",
@@ -3312,6 +4002,22 @@
           "password": {
             "type": "string",
             "description": "The new password, at least 8 characters."
+          }
+        }
+      },
+      "ShowIf": {
+        "type": "object",
+        "description": "A field is shown only while another one has this value.",
+        "required": [
+          "key",
+          "equals"
+        ],
+        "properties": {
+          "equals": {
+            "$ref": "#/components/schemas/SettingValue"
+          },
+          "key": {
+            "type": "string"
           }
         }
       },
@@ -3483,6 +4189,30 @@
           "failed",
           "cancelled"
         ]
+      },
+      "Tab": {
+        "type": "object",
+        "description": "A tab of its own in Settings.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
+        }
       },
       "Torrent": {
         "type": "object",
@@ -3825,6 +4555,44 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "UiView": {
+        "type": "object",
+        "description": "The plugin's interface, as drawn.",
+        "required": [
+          "actions",
+          "dialogs"
+        ],
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActionView"
+            }
+          },
+          "dialogs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dialog"
+            }
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tab": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Tab"
+              }
+            ]
           }
         }
       },
