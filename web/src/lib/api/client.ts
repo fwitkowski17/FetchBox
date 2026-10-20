@@ -1,6 +1,7 @@
 // Thin typed wrapper over fetch for the REST API. Types come from the generated schema.
 import { takeEarly } from './early';
 import type {
+  ActionResult,
   AddRequest,
   AuthStatus,
   Category,
@@ -12,9 +13,14 @@ import type {
   Download,
   HostKeyProblem,
   KnownHost,
+  PluginList,
+  PluginView,
+  SettingValue,
   Settings,
+  StagedPlugin,
   Stats,
   StatsRange,
+  StoreList,
   Torrent,
   TorrentFile,
   TorrentPeers,
@@ -191,6 +197,46 @@ export const api = {
   startNow: (id: number) => request<Download>('PATCH', `/downloads/${id}`, { start_now: true }),
   setCategory: (id: number, category: Category) =>
     request<Download>('PATCH', `/downloads/${id}`, { category }),
+
+  // Plugins (SPEC 6.15).
+  listPlugins: () => request<PluginList>('GET', '/plugins'),
+  rescanPlugins: () => request<PluginList>('POST', '/plugin-rescan'),
+  /** The bytes of a plugin's ZIP file: unpacked and read, nothing runs until it is installed. */
+  stagePlugin: (bytes: ArrayBuffer) =>
+    upload<StagedPlugin>('/plugin-staging', bytes, 'application/zip'),
+  stagePluginFromStore: (id: string) => request<StagedPlugin>('POST', '/plugin-staging/store', { id }),
+  installStaged: (token: string) =>
+    request<PluginView>('POST', `/plugin-staging/${encodeURIComponent(token)}/install`),
+  cancelStaged: (token: string) =>
+    request<void>('DELETE', `/plugin-staging/${encodeURIComponent(token)}`),
+  setPluginEnabled: (id: string, enabled: boolean) =>
+    request<PluginView>('PATCH', `/plugins/${encodeURIComponent(id)}`, { enabled }),
+  approvePlugin: (id: string, hash: string) =>
+    request<PluginView>('POST', `/plugins/${encodeURIComponent(id)}/approve`, { hash }),
+  removePlugin: (id: string, keepData = false) =>
+    request<void>('DELETE', `/plugins/${encodeURIComponent(id)}${keepData ? '?keep_data=true' : ''}`),
+  /** `values` stores, `clear` empties; a key in neither stays as it is. */
+  savePluginSettings: (id: string, values: Record<string, SettingValue>, clear: string[] = []) =>
+    request<PluginView>('PUT', `/plugins/${encodeURIComponent(id)}/settings`, { values, clear }),
+  runPluginAction: (id: string, action: string, input: Record<string, SettingValue> = {}) =>
+    request<ActionResult>(
+      'POST',
+      `/plugins/${encodeURIComponent(id)}/actions/${encodeURIComponent(action)}`,
+      { input },
+    ),
+  restartPlugin: (id: string) =>
+    request<PluginView>('POST', `/plugins/${encodeURIComponent(id)}/restart`),
+  /** One dependency (also an optional one), or all of them again when none is named. */
+  fetchPluginDependencies: (id: string, dependency?: string) =>
+    request<PluginView>(
+      'POST',
+      `/plugins/${encodeURIComponent(id)}/dependencies`,
+      dependency === undefined ? {} : { dependency },
+    ),
+  pluginLogs: (id: string) =>
+    request<{ lines: string[] }>('GET', `/plugins/${encodeURIComponent(id)}/logs`),
+  pluginStore: () => request<StoreList>('GET', '/plugin-store'),
+  refreshPluginStore: () => request<StoreList>('POST', '/plugin-store/refresh'),
 
   listTorrents: () => request<Torrent[]>('GET', '/torrents'),
   /** `disk`: where to save it (a name from `getDisks`); none = the default for torrents. */

@@ -13,6 +13,8 @@ FROM rust:1-trixie AS build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
+# Plugins that ship inside the binary (embedded at compile time).
+COPY plugins ./plugins
 COPY --from=web /app/web/dist ./web/dist
 RUN cargo build --release -p server
 

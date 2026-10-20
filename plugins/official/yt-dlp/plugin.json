@@ -1,0 +1,298 @@
+{
+  "api_version": 1,
+  "id": "yt-dlp",
+  "name": "Video sites (yt-dlp)",
+  "version": "1.0.0",
+  "description": "Downloads videos and audio from YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and more than a thousand other sites with yt-dlp. Paste a video, playlist or channel address; pick the quality in the add dialog. Use it only for content you have the right to download.",
+  "author": "FetchBox",
+  "homepage": "https://github.com/fwitkowski17/WebDownloadManager/tree/main/plugins/official/yt-dlp",
+  "license": "MIT",
+  "platforms": [
+    "linux-x86_64",
+    "linux-aarch64",
+    "macos-aarch64",
+    "macos-x86_64"
+  ],
+  "permissions": {
+    "network": [
+      "*"
+    ]
+  },
+  "dependencies": [
+    {
+      "id": "yt-dlp",
+      "label": "yt-dlp",
+      "github": {
+        "repo": "yt-dlp/yt-dlp",
+        "assets": {
+          "linux-x86_64": "yt-dlp_linux",
+          "linux-aarch64": "yt-dlp_linux_aarch64",
+          "macos-aarch64": "yt-dlp_macos",
+          "macos-x86_64": "yt-dlp_macos"
+        },
+        "sha256_asset": "SHA2-256SUMS"
+      }
+    },
+    {
+      "id": "ffmpeg",
+      "label": "ffmpeg (merges video and audio, makes MP3)",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://files.pythonhosted.org/packages/a0/2d/43c8522a2038e9d0e7dbdf3a61195ecc31ca576fb1527a528c877e87d973/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_x86_64.whl",
+          "sha256": "c7e46fcec401dd990405049d2e2f475e2b397779df2519b544b8aab515195282",
+          "archive": "zip",
+          "size": 29498237,
+          "bin": "imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
+        },
+        "linux-aarch64": {
+          "url": "https://files.pythonhosted.org/packages/33/e7/1925bfbc563c39c1d2e82501d8372734a5c725e53ac3b31b4c2d081e895b/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_aarch64.whl",
+          "sha256": "1d47bebd83d2c5fc770720d211855f208af8a596c82d17730aa51e815cdee6dc",
+          "archive": "zip",
+          "size": 25632706,
+          "bin": "imageio_ffmpeg/binaries/ffmpeg-linux-aarch64-v7.0.2"
+        },
+        "macos-aarch64": {
+          "url": "https://files.pythonhosted.org/packages/40/5c/f3d8a657d362cc93b81aab8feda487317da5b5d31c0e1fdfd5e986e55d17/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl",
+          "sha256": "b1ae3173414b5fc5f538a726c4e48ea97edc0d2cdc11f103afee655c463fa742",
+          "archive": "zip",
+          "size": 21113891,
+          "bin": "imageio_ffmpeg/binaries/ffmpeg-macos-aarch64-v7.1"
+        },
+        "macos-x86_64": {
+          "url": "https://files.pythonhosted.org/packages/da/58/87ef68ac83f4c7690961bce288fd8e382bc5f1513860fc7f90a9c1c1c6bf/imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl",
+          "sha256": "9d2baaf867088508d4a3458e61eeb30e945c4ad8016025545f66c4b5aaef0a61",
+          "archive": "zip",
+          "size": 24932969,
+          "bin": "imageio_ffmpeg/binaries/ffmpeg-macos-x86_64-v7.1"
+        }
+      }
+    }
+  ],
+  "settings": [
+    {
+      "key": "quality",
+      "type": "select",
+      "label": "Quality for playlists and channels",
+      "help": "What each video of a playlist or channel is saved as. For a single video you choose in the add dialog.",
+      "default": "best",
+      "options": [
+        {
+          "value": "best",
+          "label": "Best quality (video and audio merged)"
+        },
+        {
+          "value": "p720",
+          "label": "Up to 720p (video and audio merged)"
+        },
+        {
+          "value": "single",
+          "label": "Best single file, no merging"
+        },
+        {
+          "value": "audio",
+          "label": "Audio only, original format"
+        },
+        {
+          "value": "mp3",
+          "label": "Audio only, as MP3"
+        }
+      ]
+    },
+    {
+      "key": "extra_sites",
+      "type": "textarea",
+      "label": "More sites",
+      "help": "yt-dlp understands many more sites than the ones listed here. Add an address pattern per line, for example https://*.example.com/*.",
+      "placeholder": "https://*.example.com/*"
+    }
+  ],
+  "resolvers": [
+    {
+      "id": "media",
+      "match": [
+        "https://*.youtube.com/*",
+        "https://youtube.com/*",
+        "https://youtu.be/*",
+        "https://*.vimeo.com/*",
+        "https://vimeo.com/*",
+        "https://*.soundcloud.com/*",
+        "https://soundcloud.com/*",
+        "https://*.dailymotion.com/*",
+        "https://dailymotion.com/*",
+        "https://*.twitch.tv/*",
+        "https://twitch.tv/*",
+        "${setting:extra_sites}"
+      ],
+      "probe": {
+        "command": "${dep:yt-dlp}",
+        "args": [
+          "-J",
+          "--flat-playlist",
+          "--no-warnings",
+          "--no-colors",
+          "--",
+          "${url}"
+        ],
+        "timeout_s": 90
+      },
+      "result": {
+        "items": "/entries",
+        "item": {
+          "name": [
+            "/title",
+            "/id"
+          ],
+          "url": [
+            "/url",
+            "/webpage_url"
+          ],
+          "size": [
+            "/filesize",
+            "/filesize_approx"
+          ]
+        },
+        "single": {
+          "name": [
+            "/title",
+            "/fulltitle",
+            "/id"
+          ],
+          "size": [
+            "/filesize",
+            "/filesize_approx"
+          ]
+        },
+        "default_choice_setting": "quality"
+      },
+      "choices": [
+        {
+          "id": "best",
+          "label": "Best quality (video and audio merged)",
+          "category": "video",
+          "ext": "mp4",
+          "requires": [
+            "ffmpeg"
+          ],
+          "args": [
+            "-f",
+            "bv*+ba/b",
+            "-S",
+            "ext:mp4:m4a",
+            "--merge-output-format",
+            "mp4"
+          ]
+        },
+        {
+          "id": "p720",
+          "label": "Up to 720p (video and audio merged)",
+          "category": "video",
+          "ext": "mp4",
+          "requires": [
+            "ffmpeg"
+          ],
+          "args": [
+            "-f",
+            "bv*[height<=720]+ba/b[height<=720]/b",
+            "-S",
+            "ext:mp4:m4a",
+            "--merge-output-format",
+            "mp4"
+          ]
+        },
+        {
+          "id": "single",
+          "label": "Best single file, no merging",
+          "category": "video",
+          "args": [
+            "-f",
+            "b"
+          ]
+        },
+        {
+          "id": "audio",
+          "label": "Audio only, original format",
+          "category": "music",
+          "args": [
+            "-f",
+            "ba/b"
+          ]
+        },
+        {
+          "id": "mp3",
+          "label": "Audio only, as MP3",
+          "category": "music",
+          "ext": "mp3",
+          "requires": [
+            "ffmpeg"
+          ],
+          "args": [
+            "-x",
+            "--audio-format",
+            "mp3",
+            "--audio-quality",
+            "0"
+          ]
+        }
+      ],
+      "run": {
+        "command": "${dep:yt-dlp}",
+        "args": [
+          "--newline",
+          "--no-colors",
+          "--no-warnings",
+          "--no-playlist",
+          "--progress",
+          {
+            "when": "dep:ffmpeg",
+            "args": [
+              "--ffmpeg-location",
+              "${dep:ffmpeg}"
+            ]
+          },
+          "${choice.args}",
+          "-o",
+          "${out_dir}/%(title).150B [%(id)s].%(ext)s",
+          "--progress-template",
+          "download:@fetchbox progress %(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s %(progress.speed)s",
+          "--print",
+          "after_move:@fetchbox file %(filepath)s",
+          "--",
+          "${url}"
+        ]
+      }
+    }
+  ],
+  "ui": {
+    "icon": "video",
+    "actions": [
+      {
+        "id": "update",
+        "label": "Update yt-dlp",
+        "icon": "retry",
+        "placement": "card",
+        "kind": "builtin",
+        "builtin": "update_dependencies",
+        "confirm": "Download the newest yt-dlp now? Sites change often, and an old yt-dlp stops working with them."
+      }
+    ]
+  },
+  "i18n": {
+    "pl": {
+      "Video sites (yt-dlp)": "Serwisy wideo (yt-dlp)",
+      "Downloads videos and audio from YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and more than a thousand other sites with yt-dlp. Paste a video, playlist or channel address; pick the quality in the add dialog. Use it only for content you have the right to download.": "Pobiera filmy i dźwięk z YouTube, Vimeo, SoundCloud, Dailymotion, Twitcha i ponad tysiąca innych serwisów za pomocą yt-dlp. Wklej adres filmu, playlisty lub kanału, a jakość wybierzesz w oknie dodawania. Używaj tylko do treści, które wolno Ci pobierać.",
+      "Quality for playlists and channels": "Jakość dla playlist i kanałów",
+      "What each video of a playlist or channel is saved as. For a single video you choose in the add dialog.": "W jakiej jakości zapisywany jest każdy film z playlisty lub kanału. Dla pojedynczego filmu wybierasz w oknie dodawania.",
+      "More sites": "Więcej serwisów",
+      "yt-dlp understands many more sites than the ones listed here. Add an address pattern per line, for example https://*.example.com/*.": "yt-dlp rozumie znacznie więcej serwisów niż wymienione tutaj. Dodaj wzorzec adresu w każdej linii, na przykład https://*.example.com/*.",
+      "Best quality (video and audio merged)": "Najlepsza jakość (obraz i dźwięk połączone)",
+      "Up to 720p (video and audio merged)": "Do 720p (obraz i dźwięk połączone)",
+      "Best single file, no merging": "Najlepszy pojedynczy plik, bez łączenia",
+      "Audio only, original format": "Tylko dźwięk, oryginalny format",
+      "Audio only, as MP3": "Tylko dźwięk, jako MP3",
+      "Update yt-dlp": "Zaktualizuj yt-dlp",
+      "Download the newest yt-dlp now? Sites change often, and an old yt-dlp stops working with them.": "Pobrać teraz najnowszy yt-dlp? Serwisy często się zmieniają, a stary yt-dlp przestaje z nimi działać.",
+      "ffmpeg (merges video and audio, makes MP3)": "ffmpeg (łączy obraz z dźwiękiem, robi MP3)"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+[package]
+name = "fetchbox-plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fetchbox-core.workspace = true
+fetchbox-http-engine.workspace = true
+reqwest.workspace = true
+futures-util.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "time", "sync", "rt", "process", "macros"] }
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+getrandom.workspace = true
+sha2.workspace = true
+zip.workspace = true
+tar.workspace = true
+flate2.workspace = true
+lzma-rust2.workspace = true
+
+# Killing a plugin's whole process group (a PyInstaller program forks a child that would be orphaned
+# otherwise). Already in the build for the free-space checks; this only turns on its `process` part.
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["process"] }
+
+[dev-dependencies]
+tempfile = "3"
+axum.workspace = true
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread", "net"] }

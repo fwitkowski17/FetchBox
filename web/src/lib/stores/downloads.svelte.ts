@@ -7,6 +7,8 @@ import { applyEvent } from '../util/downloads';
 import { retryDelay } from '../util/retry';
 import { i18n } from '../i18n';
 import { toast } from './toast.svelte';
+import { pluginStore } from './pluginStore.svelte';
+import { plugins } from './plugins.svelte';
 import { torrents } from './torrents.svelte';
 
 export type Connection = 'connecting' | 'live' | 'offline';
@@ -25,6 +27,9 @@ const EVENT_NAMES = [
   'settings',
   'torrent',
   'torrent_removed',
+  'plugin',
+  'plugin_removed',
+  'plugin_notice',
 ] as const;
 
 class DownloadsStore {
@@ -59,6 +64,7 @@ class DownloadsStore {
     // below still closes any gap between them.
     if (!this.loaded) void this.reload();
     if (!torrents.loaded) void torrents.reload();
+    if (!plugins.loaded) void plugins.reload();
 
     es.onopen = () => {
       this.connection = 'live';
@@ -67,6 +73,7 @@ class DownloadsStore {
       // Also after a reconnect: events sent while we were away are gone, the list is not.
       void this.reload();
       void torrents.reload();
+      void plugins.reload();
     };
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) {
@@ -85,6 +92,7 @@ class DownloadsStore {
     es.addEventListener('resync', () => {
       void this.reload();
       void torrents.reload();
+      void plugins.reload();
     });
   }
 
@@ -97,6 +105,8 @@ class DownloadsStore {
     this.#retry = null;
     this.items = [];
     torrents.clear();
+    plugins.clear();
+    pluginStore.clear();
     this.noSpaceFor = null;
     this.loaded = false;
     this.everLive = false;
@@ -188,6 +198,14 @@ class DownloadsStore {
       torrents.received(ev);
       return;
     }
+    if (ev.type === 'plugin' || ev.type === 'plugin_removed') {
+      plugins.received(ev);
+      return;
+    }
+    if (ev.type === 'plugin_notice') {
+      plugins.notice(ev);
+      return;
+    }
     this.items = applyEvent(this.items, ev);
   }
 
@@ -231,6 +249,7 @@ class DownloadsStore {
     if (this.connection === 'live') {
       void this.reload();
       void torrents.reload();
+      void plugins.reload();
       return;
     }
     this.#close();

@@ -33,7 +33,7 @@ pub struct NewDownload {
 }
 
 const COLUMNS: &str =
-    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, disk";
+    "id, url, filename, category, status, size, downloaded, source_kind, resumable, etag, error, subdir, waiting_space, archived, speed_limit, start_at, checksum_algo, checksum_expected, checksum_actual, verified, verify_failed, username, disk, runner";
 
 /// Insert a new download in `queued` state and return its id.
 pub fn insert(conn: &Connection, new: &NewDownload) -> Result<Id> {
@@ -190,6 +190,27 @@ pub fn ignore_space_flag(conn: &Connection, id: Id) -> Result<bool> {
         )
         .optional()?
         .unwrap_or(false))
+}
+
+/// Hand a download to a plugin's own program (SPEC 6.15): `runner` is `<plugin>/<resolver>`, `choice`
+/// the id of the preset. Returns whether the id exists.
+pub fn set_runner(conn: &Connection, id: Id, runner: &str, choice: Option<&str>) -> Result<bool> {
+    Ok(conn.execute(
+        "UPDATE downloads SET runner = ?2, runner_ref = ?3 WHERE id = ?1",
+        params![id, runner, choice],
+    )? > 0)
+}
+
+/// The runner of a download and its preset, if a plugin's program makes the file.
+pub fn runner(conn: &Connection, id: Id) -> Result<Option<(String, Option<String>)>> {
+    let row: Option<(Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT runner, runner_ref FROM downloads WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.and_then(|(runner, choice)| runner.map(|r| (r, choice))))
 }
 
 /// The login of a download, if it has one. Kept apart from [`Download`] so that it can not reach
@@ -380,6 +401,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
     let verify_failed = row.get(20)?;
     let username = row.get(21)?;
     let disk = row.get(22)?;
+    let runner: Option<String> = row.get(23)?;
 
     let mapped = (|| {
         Ok(Download {
@@ -418,6 +440,8 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<Result<Download>> {
             },
             verified,
             verify_failed,
+            // `<plugin>/<resolver>`: the plugin is the part before the slash.
+            plugin: runner.map(|r| r.split('/').next().unwrap_or_default().to_owned()),
         })
     })();
     Ok(mapped)
@@ -809,5 +833,26 @@ mod tests {
         now.start_now = true;
         let id2 = insert(&conn, &now).expect("insert");
         assert!(start_now_flag(&conn, id2).expect("flag"));
+    }
+
+    #[test]
+    fn a_download_made_by_a_plugin_remembers_its_runner() {
+        let conn = open_in_memory().expect("db");
+        let plain = insert(&conn, &new("http://x/a")).expect("insert");
+        let made = insert(&conn, &new("https://video.example/watch?v=1")).expect("insert");
+        assert_eq!(runner(&conn, plain).expect("runner"), None);
+        assert!(set_runner(&conn, made, "yt-dlp/media", Some("best")).expect("set"));
+        assert_eq!(
+            runner(&conn, made).expect("runner"),
+            Some(("yt-dlp/media".to_owned(), Some("best".to_owned())))
+        );
+        assert!(set_runner(&conn, made, "yt-dlp/media", None).expect("set"));
+        assert_eq!(
+            runner(&conn, made).expect("runner"),
+            Some(("yt-dlp/media".to_owned(), None))
+        );
+        assert_eq!(runner(&conn, plain).expect("runner"), None);
+        assert!(!set_runner(&conn, 9999, "x/y", None).expect("missing id"));
+        assert_eq!(runner(&conn, 9999).expect("runner"), None);
     }
 }

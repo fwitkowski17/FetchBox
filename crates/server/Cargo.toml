@@ -15,6 +15,7 @@ fetchbox-api.workspace = true
 fetchbox-storage.workspace = true
 fetchbox-http-engine.workspace = true
 fetchbox-torrent-engine.workspace = true
+fetchbox-plugins.workspace = true
 bytes.workspace = true
 axum.workspace = true
 tokio.workspace = true
@@ -34,3 +35,6 @@ librqbit.workspace = true
 fetchbox-http-engine = { workspace = true, features = ["test-servers"] }
 tempfile = "3"
 futures-util.workspace = true
+# Builds the plugin packages the plugin tests install.
+zip.workspace = true
+axum.workspace = true

@@ -48,10 +48,13 @@ cd web && npm run check && npm test && npm run build
 crates/
   core/            models, categories, the Downloader trait, scheduler, rate limiter (no HTTP, no SQL, no axum)
   http_engine/     the download engine: segmented HTTP with Range, FTP/FTPS and SFTP, pause/resume, probing, folder listings
-  torrent_engine/  empty stub for BitTorrent later (librqbit)
+  torrent_engine/  BitTorrent over librqbit
+  plugins/         extensions: archives, dependencies, commands, the long-running program, the store catalog (no SQL, no axum)
+  test_plugin/     a stand-in plugin program (`fake-plugin`) that the plugin tests start
   storage/         SQLite repositories and migrations
   api/             axum routes, SSE, authentication, the OpenAPI document
   server/          the binary `fetchbox`: wires everything, the download manager, update check, embedded frontend, CLI
+plugins/            the guide for extension authors (README.md), the store catalog (index.json) and the extensions that ship (official/)
 web/               Svelte 5 + Vite + TypeScript frontend, embedded into the binary at build time
 deploy/install.sh  installer for a Linux host with systemd (run `shellcheck` on it)
 packaging/         DEB and RPM: nfpm description, systemd unit, maintainer scripts, smoke test

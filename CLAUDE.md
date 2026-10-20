@@ -16,6 +16,7 @@ The user (Filip) communicates in Polish. Reply in Polish. Code, identifiers, com
   - `core` — models, categories, `Downloader` trait, scheduler, rate limiter. No HTTP, no SQL, no axum.
   - `http_engine` — segmented HTTP download with `Range`, pause/resume.
   - `torrent_engine` — adapter over `librqbit` (magnet + `.torrent`), see SPEC 6.13. Torrents are not downloads: own list, table, API and page.
+  - `plugins` — extensions (SPEC 6.15): archives, dependencies, commands, the long-running program, the store catalog. No SQL, no axum. `test_plugin` is a stand-in program for its tests; `plugins/` (top level) has the author's guide and the extensions that ship.
   - `storage` — SQLite (`rusqlite` or `sqlx`), migrations, repositories.
   - `api` — axum routes, SSE, auth, OpenAPI (`utoipa`).
   - `server` — binary: wires everything, embeds frontend, CLI (`clap`).

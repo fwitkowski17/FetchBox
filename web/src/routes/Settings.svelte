@@ -10,11 +10,17 @@
   import AboutCard from '../lib/components/AboutCard.svelte';
   import KnownHostsCard from '../lib/components/KnownHostsCard.svelte';
   import PasswordCard from '../lib/components/PasswordCard.svelte';
+  import PluginSettingsForm from '../lib/components/PluginSettingsForm.svelte';
+  import Tabs from '../lib/components/Tabs.svelte';
   import { auth } from '../lib/stores/auth.svelte';
+  import { plugins } from '../lib/stores/plugins.svelte';
+  import { routeTail } from '../lib/stores/route';
   import { settings } from '../lib/stores/settings.svelte';
   import { toast } from '../lib/stores/toast.svelte';
   import { CARD } from '../lib/util/classes';
   import { motion } from '../lib/util/motion';
+  import { iconOrDefault, tr } from '../lib/util/pluginUi';
+  import { ICON_NAMES } from '../lib/components/Icon.svelte';
   import {
     fromDraft,
     isDirty,
@@ -24,6 +30,45 @@
     type Draft,
   } from '../lib/util/settingsForm';
 
+
+  // Tabs: general settings, the settings of the extensions, and a tab of its own for each plugin
+  // that declares one (`#/settings`, `#/settings/extensions`, `#/settings/ext/<id>`).
+  const pluginTabs = $derived(
+    plugins.items.filter((p) => p.ui.tab && p.state !== 'needs_review' && p.state !== 'unsupported'),
+  );
+  /** Plugins with settings or buttons for this page, whose settings are not in a tab of their own. */
+  const extensionCards = $derived(
+    plugins.items.filter(
+      (p) =>
+        !p.ui.tab &&
+        p.state !== 'needs_review' &&
+        p.state !== 'unsupported' &&
+        (p.settings.length > 0 || p.ui.actions.some((a) => a.placement === 'settings')),
+    ),
+  );
+  const tab = $derived.by(() => {
+    const [first, id] = $routeTail;
+    if (first === 'extensions') return 'extensions';
+    if (first === 'ext' && id !== undefined && pluginTabs.some((p) => p.id === id)) return `ext:${id}`;
+    return 'general';
+  });
+  const tabs = $derived([
+    { id: 'general', label: t('settings.tab.general'), icon: 'sliders' as const },
+    { id: 'extensions', label: t('settings.tab.extensions'), icon: 'puzzle' as const },
+    ...pluginTabs.map((p) => ({
+      id: `ext:${p.id}`,
+      label: tr(p.i18n, i18n.locale, p.ui.tab?.title ?? p.name),
+      icon: iconOrDefault(p.ui.tab?.icon ?? p.ui.icon, ICON_NAMES, 'puzzle'),
+    })),
+  ]);
+  const activePlugin = $derived(
+    tab.startsWith('ext:') ? pluginTabs.find((p) => p.id === tab.slice(4)) : undefined,
+  );
+
+  function selectTab(id: string): void {
+    location.hash =
+      id === 'general' ? '#/settings' : id === 'extensions' ? '#/settings/extensions' : `#/settings/ext/${encodeURIComponent(id.slice(4))}`;
+  }
 
   let draft = $state<Draft | null>(null);
   /** The server value the form was last filled from. */
@@ -71,9 +116,40 @@
   }
 </script>
 
-<div class={["page-narrow", dirty && "pb-28"]}>
+<div class={["page-narrow", dirty && tab === 'general' && "pb-28"]}>
   <header class="mb-4"><h1 class="text-2xl font-bold tracking-tight">{t('settings.title')}</h1></header>
 
+  <div class="mb-4">
+    <Tabs {tabs} selected={tab} onselect={selectTab} label={t('settings.title')} idPrefix="settings" />
+  </div>
+
+  <div id="settings-tabpanel" role="tabpanel" aria-labelledby="settings-tab-{tab}" tabindex="-1">
+  {#if tab === 'extensions'}
+    <div class="grid gap-4" data-part="extension-settings">
+      {#if !plugins.available}
+        <section class={CARD} role="status">
+          <p>{t(plugins.reason === 'no_auth' ? 'ext.unavailable.noAuth' : 'ext.unavailable.off')}</p>
+        </section>
+      {:else if extensionCards.length === 0}
+        <section class={CARD} data-part="extension-settings-empty">
+          <h2 class="font-semibold tracking-tight">{t('settings.ext.empty.title')}</h2>
+          <p class="hint">{t('settings.ext.empty.hint')}</p>
+          <div><a class="btn" href="#/extensions">{t('settings.ext.empty.open')}</a></div>
+        </section>
+      {:else}
+        {#each extensionCards as p (p.id)}
+          <section class={CARD} data-part="extension-card" data-plugin={p.id}>
+            <h2 class="font-semibold tracking-tight">{p.name}</h2>
+            <PluginSettingsForm plugin={p} />
+          </section>
+        {/each}
+      {/if}
+    </div>
+  {:else if activePlugin}
+    <section class={CARD} data-part="extension-tab" data-plugin={activePlugin.id}>
+      <PluginSettingsForm plugin={activePlugin} sections={activePlugin.ui.tab?.sections} />
+    </section>
+  {:else}
   <form class="grid gap-4" onsubmit={save}>
     {#if settings.error && !settings.value}
       <div class={CARD} role="alert">
@@ -133,5 +209,7 @@
         </button>
       </section>
     {/if}
+  </div>
+  {/if}
   </div>
 </div>

@@ -9,6 +9,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 
 - 🌍 **HTTP, HTTPS, FTP, FTPS and SFTP**: one list, queue and set of limits for all of them, with logins for the servers that need one. [Details](#-sources-and-logins).
 - 🧲 **Torrents**: magnet links and `.torrent` files on a page of their own, with the statuses of a BitTorrent client (fetching metadata, checking files, connecting to peers, downloading, sending...) and, at the bottom of the page, the details of the torrent you click: peers with their speeds, files, a speed chart. [Details](#-torrents).
+- 🧩 **Extensions**: add-ons from a built-in store, a ZIP or a folder, which can add sources (videos from YouTube and other sites through yt-dlp), react to events (webhooks, scripts) and bring settings, dialogs and a tab of their own; a page of their own above Settings. [Details](#-extensions).
 - ⬇️ **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
 - 🚦 **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
 - 🌙 **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
@@ -195,6 +196,8 @@ Everything day to day (connections, limits, category folders, theme, language, u
 | `--no-auth` | no password at all: see the caution below |
 | `--block-private-urls` / `FETCHBOX_BLOCK_PRIVATE_URLS` | refuse links to loopback, private and link-local addresses (SSRF protection); off by default so you can fetch from a NAS |
 | `--torrent-port <port>` / `FETCHBOX_TORRENT_PORT` | TCP and uTP port that BitTorrent peers connect to (default `6881`); nothing listens on it until the first torrent is added |
+| `--plugins on\|off` / `FETCHBOX_PLUGINS` | switch extensions off for good (default `on`; they are also off while `--no-auth` is used, see [Extensions](#-extensions)) |
+| `FETCHBOX_PLUGIN_INDEX_URL` | use another catalog for the extension store (a mirror, a fork) |
 | `FETCHBOX_PASSWORD` | a fixed password (8+ characters) instead of one created in the browser |
 | `FETCHBOX_INSTALL_METHOD` | how FetchBox was installed: `docker`, `package`, `lxc`, `script` or `source`. The installers set it, and the update notice shows only the steps of that method (without it, every way is listed) |
 | `FETCHBOX_UPDATE_URL` | use another releases endpoint for the update check (a mirror, a fork) |
@@ -265,6 +268,20 @@ Speed limits for all torrents together (receiving and sending) and the **torrent
 - **`--block-private-urls` does not cover torrents.** It refuses trackers at private addresses, but peers come from the swarm and are not filtered. Do not rely on it to keep BitTorrent traffic off your LAN.
 - Only download what you have the right to download. FetchBox is a tool; what you fetch and share is up to you.
 
+## 🧩 Extensions
+
+Open **Extensions** in the side menu (above Settings). There are two ways in: the **Store**, which lists the extensions that ship with FetchBox and the community catalog, and **Install from file** for a ZIP (or copy an extension folder into `plugins/` inside the data folder and press **Rescan**). Before anything is installed you see what the extension asks for (the programs it can run, where it downloads them from, the events it receives...), and you approve it; an extension that changes on disk is switched off until you look at it again. Settings of an extension are in **Settings > Extensions** (or a tab of its own).
+
+What ships with FetchBox:
+
+- **Video sites (yt-dlp)**: paste a YouTube, Vimeo, SoundCloud, Dailymotion or Twitch link (a video, a playlist or a channel; more sites can be added in its settings) and choose the quality in the add dialog: best (video and audio merged), up to 720p, a single file, audio only or MP3. It downloads yt-dlp (and, for merging and MP3, ffmpeg) by itself when you switch it on, checking them by SHA-256; **Update** fetches the newest yt-dlp, which sites make necessary now and then. Mind the terms of the sites and the law: download only what you have the right to.
+- **Webhook notifications**: a request to an address of your choice (ntfy, Home Assistant, Gotify, n8n...) when a download finishes or fails, with a test button.
+
+> [!CAUTION]
+> **An extension runs programs on the machine with the rights of FetchBox**, so install only what you trust. For that reason extensions are **off while `--no-auth` is used**, and `--plugins off` switches them off entirely. In the Docker image (which has no shell or interpreter) an extension can only run programs it brings or downloads itself.
+
+Writing one needs no SDK: a folder with a `plugin.json`. The [author's guide](plugins/README.md) covers the manifest, dependencies, resolvers, hooks, a long-running program, the interface and the store (which is also where metrics for VictoriaMetrics and an MCP bridge would fit).
+
 ## 🔑 Signing in
 
 There is one shared password. In order of precedence:
@@ -332,7 +349,7 @@ Ideas in rough order, with no promised dates. The ones marked 🧭 are being des
   - The rest of FTP and SFTP: SFTP with a private key, FTPS with a self-signed certificate (trusted by its fingerprint, like an SSH key).
 - 🔑 **More ways to authorize a download**: a user name and password already work for HTTP (basic authentication), FTP, FTPS and SFTP. Still to come: tokens and your own headers (a private server, a Nextcloud share, a link behind a login, a private S3 bucket), and changing the login of a download that already exists.
 - 📈 **Metrics for Prometheus and VictoriaMetrics**: a `/metrics` endpoint in the Prometheus text format (downloads by state, queue length, current and total speed, bytes fetched, disk space), which both scrape as they are, plus an example Grafana dashboard. Pushing to VictoriaMetrics may follow.
-- 🧩 **Plugins** 🧭: an extension system, with a place for it in the web app (a tab above Settings, or a part of Settings): hooks on events such as added, finished or failed (notifications, moving or renaming files, calling a webhook) and, later, extra sources. It is designed first so that an extension cannot take down the downloads.
+- 🧩 **More for extensions**: more extensions for the store (a VictoriaMetrics exporter, an MCP bridge, pages with links to scan), calls from an extension into FetchBox (adding and listing downloads), a stricter sandbox for their programs, and an interface that an extension draws itself (what there is now is [above](#-extensions)).
 - 📬 **A package repository**: `apt` and `dnf` pick up new releases by themselves, instead of installing a downloaded file.
 - 🏔️ **A static (musl) build** for Alpine and very small containers.
 - 🌐 **More languages**: [one file and one line each](CONTRIBUTING.md#adding-a-language).
@@ -345,6 +362,7 @@ Ideas in rough order, with no promised dates. The ones marked 🧭 are being des
 | | |
 | --- | --- |
 | [docs/SPEC.md](docs/SPEC.md) | the specification: architecture and every design decision |
+| [plugins/README.md](plugins/README.md) | how to write an extension: the manifest, dependencies, resolvers, hooks, the interface, the store |
 | [docs/openapi.json](docs/openapi.json) | the HTTP API (OpenAPI 3.1), also served at `/api/openapi.json` |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how to develop, test, translate and release |
 | [deploy/install.sh](deploy/install.sh) | the installer for a Linux host with systemd |

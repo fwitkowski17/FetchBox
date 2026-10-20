@@ -8,6 +8,8 @@ mod manager;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_plugins;
+#[cfg(test)]
 mod tests_torrents;
 mod update;
 
@@ -58,8 +60,20 @@ struct Args {
     /// Run without authentication. Anyone who can reach the port can use the manager.
     #[arg(long)]
     no_auth: bool,
+    /// Plugins (extensions that add sources, hooks and tools; each can run programs as the user
+    /// FetchBox runs as). `off` switches the whole system off. They are also off while `--no-auth`
+    /// is used, because installing a plugin must not be open to everybody who can reach the port.
+    #[arg(long, env = "FETCHBOX_PLUGINS", value_enum, default_value_t = PluginsFlag::On)]
+    plugins: PluginsFlag,
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+/// The value of `--plugins`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum PluginsFlag {
+    On,
+    Off,
 }
 
 /// The password from the environment: `FETCHBOX_PASSWORD`, or the variable's name from before the
@@ -259,6 +273,25 @@ async fn run() -> anyhow::Result<()> {
             dht: true,
         })
         .await;
+    let plugins_mode = match (args.plugins, args.no_auth) {
+        (PluginsFlag::Off, _) => manager::PluginsMode::Off,
+        (PluginsFlag::On, true) => manager::PluginsMode::NoAuth,
+        (PluginsFlag::On, false) => manager::PluginsMode::On,
+    };
+    manager
+        .enable_plugins(manager::PluginSetup {
+            data_dir: args.data_dir.clone(),
+            mode: plugins_mode,
+            policy: fetchbox_http_engine::UrlPolicy {
+                block_private: args.block_private_urls,
+            },
+            allow_plain_http: false,
+            github_api: None,
+            // `FETCHBOX_PLUGIN_INDEX_URL` points the plugin store somewhere else (a mirror, your own
+            // list); empty switches the remote catalog off.
+            index_url: std::env::var("FETCHBOX_PLUGIN_INDEX_URL").ok(),
+        })
+        .await;
     let auth = resolve_auth(&args, manager.clone())?;
     let app: Router = fetchbox_api::router(manager.clone(), auth).fallback(assets::handler);
 
@@ -291,6 +324,9 @@ async fn run() -> anyhow::Result<()> {
             tokio::time::sleep(SHUTDOWN_GRACE).await;
         } => tracing::warn!("closing connections that did not finish in time"),
     }
+    // Programs of plugins first: they may be talking to the torrent engine's data, and the
+    // runtime gives blocking work only a few seconds at exit.
+    manager.stop_plugins().await;
     manager.stop_torrents().await;
     tracing::info!("stopped");
     Ok(())
@@ -340,6 +376,7 @@ mod auth_config_tests {
             block_private_urls: false,
             log_activity: false,
             no_auth,
+            plugins: PluginsFlag::On,
             command: None,
         }
     }

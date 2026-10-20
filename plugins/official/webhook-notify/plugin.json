@@ -1,0 +1,97 @@
+{
+  "api_version": 1,
+  "id": "webhook-notify",
+  "name": "Webhook notifications",
+  "version": "1.0.0",
+  "description": "Sends a request to a web address when a download finishes or fails: Home Assistant, ntfy, Gotify, n8n, Discord through a bridge, or your own script.",
+  "author": "FetchBox",
+  "homepage": "https://github.com/fwitkowski17/WebDownloadManager/tree/main/plugins/official/webhook-notify",
+  "license": "MIT",
+  "permissions": {
+    "network": ["{setting:url}"]
+  },
+  "settings": [
+    {
+      "key": "url",
+      "type": "text",
+      "label": "Webhook address",
+      "help": "Where the event is sent, as a POST request with the event as JSON. An http:// address on your own network works too.",
+      "placeholder": "https://ntfy.sh/my-downloads",
+      "required": true
+    },
+    {
+      "key": "authorization",
+      "type": "secret",
+      "label": "Authorization header",
+      "help": "Sent as the Authorization header, for example Bearer abc123. Leave it empty if the service needs none."
+    }
+  ],
+  "hooks": [
+    {
+      "on": ["download.completed", "download.failed"],
+      "action": {
+        "webhook": {
+          "url": "${setting:url}",
+          "headers": { "Authorization": "${setting:authorization}" }
+        }
+      }
+    }
+  ],
+  "ui": {
+    "icon": "bell",
+    "actions": [
+      {
+        "id": "test",
+        "label": "Send a test message",
+        "icon": "play",
+        "placement": "card",
+        "kind": "open_dialog",
+        "dialog": "test"
+      },
+      {
+        "id": "send_test",
+        "label": "Send",
+        "placement": "hidden",
+        "kind": "webhook",
+        "webhook": {
+          "url": "${setting:url}",
+          "headers": { "Authorization": "${setting:authorization}" }
+        }
+      }
+    ],
+    "dialogs": [
+      {
+        "id": "test",
+        "title": "Send a test message",
+        "description": "Sends a request to the webhook address now, to check that it arrives.",
+        "fields": [
+          {
+            "key": "message",
+            "type": "text",
+            "label": "Message",
+            "default": "FetchBox test"
+          }
+        ],
+        "buttons": [
+          { "id": "cancel", "label": "Close", "style": "default" },
+          { "id": "send", "label": "Send", "style": "primary", "action": "send_test", "closes": false }
+        ]
+      }
+    ]
+  },
+  "i18n": {
+    "pl": {
+      "Webhook notifications": "Powiadomienia przez webhook",
+      "Sends a request to a web address when a download finishes or fails: Home Assistant, ntfy, Gotify, n8n, Discord through a bridge, or your own script.": "Wysyła żądanie pod wskazany adres, gdy pobieranie się zakończy lub nie powiedzie: Home Assistant, ntfy, Gotify, n8n, Discord przez most albo własny skrypt.",
+      "Webhook address": "Adres webhooka",
+      "Where the event is sent, as a POST request with the event as JSON. An http:// address on your own network works too.": "Dokąd wysyłane jest zdarzenie, jako żądanie POST z JSON-em. Działa też adres http:// w Twojej sieci.",
+      "Authorization header": "Nagłówek Authorization",
+      "Sent as the Authorization header, for example Bearer abc123. Leave it empty if the service needs none.": "Wysyłany jako nagłówek Authorization, na przykład Bearer abc123. Zostaw puste, jeśli usługa tego nie wymaga.",
+      "Send a test message": "Wyślij wiadomość testową",
+      "Send": "Wyślij",
+      "Close": "Zamknij",
+      "Message": "Wiadomość",
+      "Sends a request to the webhook address now, to check that it arrives.": "Wysyła teraz żądanie pod adres webhooka, aby sprawdzić, czy dociera."
+    }
+  }
+}

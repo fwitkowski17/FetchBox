@@ -4,6 +4,8 @@ members = [
     "crates/core",
     "crates/http_engine",
     "crates/torrent_engine",
+    "crates/plugins",
+    "crates/test_plugin",
     "crates/storage",
     "crates/api",
     "crates/server",
@@ -20,6 +22,7 @@ publish = false
 fetchbox-core = { path = "crates/core" }
 fetchbox-http-engine = { path = "crates/http_engine" }
 fetchbox-torrent-engine = { path = "crates/torrent_engine" }
+fetchbox-plugins = { path = "crates/plugins" }
 fetchbox-storage = { path = "crates/storage" }
 fetchbox-api = { path = "crates/api" }
 
@@ -72,6 +75,17 @@ rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 # OpenSSL (`rust-tls` uses the same TLS family as the rest of the program), no HTTP API of its own and
 # no bundled web UI; only the session, the peer protocol, DHT, trackers and uTP are used.
 librqbit = { version = "9", default-features = false, features = ["rust-tls"] }
+
+# Plugins (SPEC 6.15): unpacking a plugin's ZIP and the archives of its dependencies. Reading only,
+# so no compression code is built. `zip` uses the `flate2` that `russh` and `librqbit` already pull
+# in (its default features would add bzip2, zstd, AES and a crypto stack); `tar` drops `xattr`
+# (nothing to set on a plugin's files); `lzma-rust2` reads `.tar.xz`, the usual shape of static
+# ffmpeg builds, in pure Rust with no system library. Five small crates in all (zip, tar, filetime,
+# typed-path, lzma-rust2).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
+lzma-rust2 = { version = "0.23", default-features = false, features = ["std", "xz"] }
 
 # Embedded frontend: serve web/dist from the binary
 rust-embed = "8"
