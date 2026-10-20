@@ -1,6 +1,6 @@
 // Plugins in the interface (SPEC 6.15): applying live events to the list, and the small questions
 // the screens ask about a plugin. Pure, so it can be tested without a browser.
-import type { AppEvent, NoticeLevel, PluginState, PluginView } from '../api/types';
+import type { AppEvent, NoticeLevel, PluginState, PluginView, StoreEntry } from '../api/types';
 
 /** Apply one live event to the list of plugins. Returns the same array when nothing changed. */
 export function applyPluginEvent(items: PluginView[], ev: AppEvent): PluginView[] {
@@ -40,7 +40,7 @@ export function isUsable(p: PluginView): boolean {
 }
 
 /** Why a plugin cannot be switched on, if it cannot; `null` when it can. */
-export function cannotEnable(p: PluginView): PluginState | null {
+export function cannotEnable(p: PluginView): 'needs_review' | 'unsupported' | null {
   return p.state === 'needs_review' || p.state === 'unsupported' ? p.state : null;
 }
 
@@ -75,4 +75,21 @@ export function dependencyPercent(p: PluginView): number | null {
   const d = p.progress;
   if (!d || !d.total) return null;
   return Math.min(100, Math.floor((d.downloaded / d.total) * 100));
+}
+
+/** The store entries that match what was typed (name, description, tags, id), best matches first:
+ *  names before the rest, then by name. An empty query keeps the catalog's order. */
+export function filterStore(entries: readonly StoreEntry[], query: string): StoreEntry[] {
+  const q = query.trim().toLocaleLowerCase();
+  if (q === '') return [...entries];
+  const rank = (e: StoreEntry): number => {
+    if (e.name.toLocaleLowerCase().includes(q) || e.id.includes(q)) return 0;
+    if (e.tags.some((tag) => tag.toLocaleLowerCase().includes(q))) return 1;
+    return e.description.toLocaleLowerCase().includes(q) ? 2 : 3;
+  };
+  return entries
+    .map((e) => ({ e, r: rank(e) }))
+    .filter((x) => x.r < 3)
+    .sort((a, b) => a.r - b.r || a.e.name.localeCompare(b.e.name))
+    .map((x) => x.e);
 }

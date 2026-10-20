@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { AppEvent, PluginView } from '../api/types';
+import type { AppEvent, PluginView, StoreEntry } from '../api/types';
 import {
   applyPluginEvent,
   attentionCount,
   cannotEnable,
   dependencyPercent,
+  filterStore,
   isUsable,
   needsAttention,
   sortPlugins,
@@ -116,5 +117,38 @@ describe('questions about a plugin', () => {
     expect(
       dependencyPercent(plugin({ progress: { dependency: 'x', downloaded: 500, total: 200 } })),
     ).toBe(100);
+  });
+});
+
+describe('filterStore', () => {
+  function entry(over: Partial<StoreEntry>): StoreEntry {
+    return {
+      id: 'x',
+      name: 'X',
+      version: '1.0.0',
+      description: '',
+      author: '',
+      bundled: false,
+      platforms: [],
+      tags: [],
+      unsupported: false,
+      update_available: false,
+      ...over,
+    };
+  }
+  const entries = [
+    entry({ id: 'metrics', name: 'Metrics', description: 'Sends numbers to a database', tags: ['monitoring'] }),
+    entry({ id: 'yt-dlp', name: 'YouTube', description: 'Download videos', tags: ['video'] }),
+    entry({ id: 'notify', name: 'Notify', description: 'Tell me about videos' }),
+  ];
+
+  it('keeps everything for an empty query', () => {
+    expect(filterStore(entries, '  ').map((e) => e.id)).toEqual(['metrics', 'yt-dlp', 'notify']);
+  });
+
+  it('matches name, tags and description, in that order', () => {
+    expect(filterStore(entries, 'video').map((e) => e.id)).toEqual(['yt-dlp', 'notify']);
+    expect(filterStore(entries, 'YOUTUBE').map((e) => e.id)).toEqual(['yt-dlp']);
+    expect(filterStore(entries, 'nothing')).toEqual([]);
   });
 });

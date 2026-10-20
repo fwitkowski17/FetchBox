@@ -1,8 +1,9 @@
 // The plugin store: what can be installed. Fetched when the store is opened (the server keeps the
 // remote catalog cached, so asking again is cheap).
 import { api } from '../api/client';
-import type { StoreList } from '../api/types';
+import type { StoreEntry, StoreList } from '../api/types';
 import { i18n } from '../i18n';
+import { filterStore } from '../util/plugins';
 import { toast } from './toast.svelte';
 
 class PluginStoreState {
@@ -10,6 +11,11 @@ class PluginStoreState {
   loading = $state(false);
   loadError = $state.raw<unknown>(null);
   query = $state('');
+
+  /** The entries that match the search box. */
+  get filtered(): StoreEntry[] {
+    return this.list ? filterStore(this.list.entries, this.query) : [];
+  }
 
   async load(): Promise<void> {
     await this.#fetch(() => api.pluginStore());

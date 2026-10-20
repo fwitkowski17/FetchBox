@@ -59,6 +59,8 @@ export type FieldKind = Schemas['FieldKind'];
 export type SettingValue = Schemas['SettingValue'];
 export type PluginDialog = Schemas['Dialog'];
 export type PluginTab = Schemas['Tab'];
+export type PluginButton = Schemas['Button'];
+export type PluginSection = Schemas['Section'];
 export type Via = Schemas['Via'];
 
 export const CATEGORIES: readonly Category[] = [

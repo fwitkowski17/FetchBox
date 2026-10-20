@@ -2,8 +2,10 @@
   import { CATEGORIES, type Category } from '../api/types';
   import { i18n, t } from '../i18n';
   import { downloads } from '../stores/downloads.svelte';
+  import { plugins } from '../stores/plugins.svelte';
   import { prefs } from '../stores/prefs.svelte';
   import { torrents } from '../stores/torrents.svelte';
+  import { attentionCount } from '../util/plugins';
   import { TORRENT_GROUPS, countTorrentGroups, summarizeTorrents, type TorrentGroup } from '../util/torrents';
   import { route, routes, type Route } from '../stores/route';
   import { theme, type ThemePref } from '../stores/theme.svelte';
@@ -34,10 +36,12 @@
   // their status filters ("All"). Only the other pages are links down here, above the disk ring.
   const pageRoutes = routes.filter((r) => r.id !== 'downloads' && r.id !== 'torrents');
   const SECTIONS = routes.filter((r) => r.id === 'downloads' || r.id === 'torrents');
+  const attention = $derived(attentionCount(plugins.items));
   const NAV_ICONS: Record<Route, IconName> = {
     downloads: 'list',
     torrents: 'magnet',
     stats: 'chart',
+    extensions: 'puzzle',
     settings: 'sliders',
   };
   const THEME_ICONS: Record<ThemePref, IconName> = {
@@ -208,6 +212,9 @@
               onclick={onclose}
             >
               <Icon name={NAV_ICONS[r.id]} size={20} />{t(`nav.${r.id}`)}
+              {#if r.id === 'extensions' && attention > 0}
+                <span class="ml-auto size-2 rounded-full bg-warning" data-part="extensions-attention" role="img" aria-label={t('nav.extensions.attention', { n: attention })}></span>
+              {/if}
             </a>
           </li>
         {/each}

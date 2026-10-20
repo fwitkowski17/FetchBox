@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ListingEntry } from '../api/types';
-import { emptySummary, selectionTotal, tally, visibleEntries } from './listing';
+import { emptySummary, entryKey, selectionTotal, tally, visibleEntries } from './listing';
 
 const file = (name: string, size?: number): ListingEntry => ({
   name,
@@ -45,5 +45,26 @@ describe('tally', () => {
     tally(s, 'failed', 'boom');
     tally(s, 'failed', 'later');
     expect(s).toEqual({ added: 1, existing: 1, noSpace: 0, failed: 2, firstError: 'boom' });
+  });
+});
+
+describe('entryKey', () => {
+  const base = { name: 'v', is_dir: false, category: 'video' as const, url: 'https://h/watch' };
+  it('is the address for a plain file', () => {
+    expect(entryKey({ ...base })).toBe('https://h/watch');
+  });
+  it('tells the presets of one address apart', () => {
+    const a = entryKey({ ...base, via: { plugin: 'yt', resolver: 'media', ref: 'best' } });
+    const b = entryKey({ ...base, via: { plugin: 'yt', resolver: 'media', ref: 'audio' } });
+    expect(a).not.toBe(b);
+    expect(a).not.toBe('https://h/watch');
+  });
+  it('counts each chosen preset in the total', () => {
+    const entries = [
+      { ...base, size: 10, via: { plugin: 'yt', resolver: 'media', ref: 'best' } },
+      { ...base, size: 5, via: { plugin: 'yt', resolver: 'media', ref: 'audio' } },
+    ];
+    const chosen = new Set([entryKey(entries[0]!)]);
+    expect(selectionTotal(entries, chosen)).toEqual({ count: 1, bytes: 10, sized: 1, partial: false });
   });
 });
