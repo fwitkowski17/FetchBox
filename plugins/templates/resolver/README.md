@@ -6,8 +6,8 @@ The files themselves are downloaded by FetchBox's own engine.
 
 ## Try it
 
-1. Start FetchBox with this folder inside `<data dir>/plugins/` (`scripts/new-plugin.sh --dev` puts it in
-   `./.dev/data/plugins/` for `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`).
+1. Put this folder inside `<data dir>/plugins/` and start FetchBox. For the dev backend that is `./.dev/data/plugins/`:
+   `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`.
 2. **Extensions → Rescan**, review the permissions, approve, switch it on.
 3. **Settings → Extensions**: under *Sites* add a pattern, for example `http://127.0.0.1:8000/*`, and save.
 4. Serve a folder with some files: `python3 -m http.server 8000` (it makes a directory page with links).

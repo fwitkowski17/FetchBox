@@ -71,7 +71,7 @@ FetchBox/
 │   ├── plugins/{src/{lib,archive,install,fetch,deps,expand,mapping,proc,oneshot,protocol,process,webhook,store}.rs,tests/}   # extensions, see 6.15
 │   ├── test_plugin/src/main.rs        # a stand-in plugin program for the tests (`fake-plugin`), see 6.15
 │   ├── api/src/{lib,routes,torrents,plugins,sse,auth,openapi}.rs
-│   └── server/src/main.rs
+│   └── server/src/{main,scaffold}.rs   # scaffold: `fetchbox plugin new`, 6.15
 ├── web/
 │   ├── src/
 │   │   ├── lib/{api/,components/,stores/}
@@ -82,7 +82,7 @@ FetchBox/
 │   └── vite.config.ts
 ├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), templates/{hook,resolver,process}/ (starting points for new extensions), see 6.15
 ├── vendor/librqbit-tracker-comms/   # one upstream crate with a one-function patch, see 6.13
-├── scripts/{build,bump-version,gen-api,new-plugin}.sh   # new-plugin.sh scaffolds an extension from plugins/templates/ (6.15)
+├── scripts/build.sh
 ├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
 ├── packaging/                 # DEB/RPM: nfpm.yaml, unit, env file, maintainer scripts, build.sh, smoke-test.sh
 ├── Dockerfile                 # multi-stage; final image distroless/scratch
@@ -1093,14 +1093,18 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   `isSafeExternalUrl` and icons only from the app's own set. In the add dialog the entries made by an extension carry the preset
   as a label and "via <extension>", are keyed by address and preset (`entryKey`), and are added with `via` and the title as the
   file name; while the look takes long the dialog says which extensions it is asking.
-- **Starting a new extension.** `scripts/new-plugin.sh <id> [-t hook|resolver|process] [-n name] [-a author] [-o dir | --dev]` copies
-  `plugins/templates/<template>/` to `<dir>/<id>/` and fills in `__ID__`, `__NAME__` and `__AUTHOR__` (plain bash text
-  replacement; a name or author with `"` or `\` is refused because the values land in JSON). `hook` is a webhook with settings
-  and a test dialog (no program), `resolver` a resolver whose `bin/probe.py` lists the links of a page, `process` a long-running
-  `bin/plugin.py`; each has a `README.md` on how to try it. `--dev` writes into `./.dev/data/plugins`, the data dir of the dev
-  backend command. The templates are not embedded in the binary and not offered by the store. The test
-  `every_template_scaffolds_a_valid_plugin` (`server::manager::plugin_store`) runs the script for every template and validates the
-  manifest it makes; CI runs `shellcheck` on the script.
+- **Starting a new extension.** `fetchbox plugin new <id> [-t hook|resolver|process] [-n name] [-a author] [-o dir]` and `fetchbox plugin list`
+  (`server/src/scaffold.rs`; `cargo new-plugin` is an alias for the first in `.cargo/config.toml`). It copies the template `plugins/templates/<template>/`,
+  which is embedded in the binary like the plugins that ship (so it works from a package or the Docker image, and needs no shell or
+  interpreter), to `<dir>/<id>/` and fills in `__ID__`, `__NAME__` and `__AUTHOR__` (escaped as a JSON string in `.json` files, as they
+  are elsewhere; the author defaults to `git config user.name`, the name to the id in words). Files under `bin/` are made executable.
+  Like `reset-password` it runs before the data and download directories are created or the database opened. The generated manifest is
+  read with `install::parse_manifest` before anything is written; an invalid id, a name the manifest refuses or an existing folder is an
+  error and leaves nothing behind. `hook` is a webhook with settings and a test dialog (no program), `resolver` a resolver whose
+  `bin/probe.py` lists the links of a page, `process` a long-running `bin/plugin.py`; each has a `README.md` on how to try it. The Python
+  programs of the last two are for a host install (the Docker image has no interpreter). The templates are not offered by the store.
+  Tests: `scaffold::tests` (every template makes a valid plugin, escaping, defaults, refusals) and `tests/plugin_new.rs` (the real binary,
+  in an empty folder, which stays free of `data/` and `downloads/`).
 - **Extensions that ship.** `webhook-notify` (a request when a download finishes or fails: settings, a test dialog, a hook; no
   program) and `yt-dlp` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds; yt-dlp from its GitHub
   releases checked against `SHA2-256SUMS`, and an optional static ffmpeg pinned to the `imageio-ffmpeg` 0.6.0 wheels on PyPI, whose

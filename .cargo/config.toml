@@ -1,0 +1,4 @@
+[alias]
+# `cargo new-plugin my-extension -o ./.dev/data/plugins`: start an extension from a template
+# (the same as `fetchbox plugin new`, SPEC 6.15).
+new-plugin = "run -q -p server -- plugin new"

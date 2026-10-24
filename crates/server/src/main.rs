@@ -5,6 +5,7 @@ mod clock;
 mod hostkeys;
 mod logfmt;
 mod manager;
+mod scaffold;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -122,6 +123,35 @@ enum Command {
     /// run this, start the server again: it asks for a new account like on the first run and
     /// prints the setup code in its log. Downloads and settings are kept.
     ResetPassword,
+    /// Tools for writing extensions (plugins).
+    #[command(subcommand)]
+    Plugin(PluginCommand),
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum PluginCommand {
+    /// Start an extension from a template: creates the folder <ID>/ with a plugin.json that
+    /// already validates, a README and, depending on the template, a script. Needs nothing from
+    /// the server: no data directory, no database, no running FetchBox.
+    New {
+        /// The id of the extension, also the name of its folder: 2 to 32 lowercase letters, digits
+        /// and "-", starting with a letter.
+        id: String,
+        /// What to start from: hook, resolver or process (`plugin list` says what each makes).
+        #[arg(short, long, default_value = scaffold::DEFAULT_TEMPLATE)]
+        template: String,
+        /// Name shown in the app. Default: the id in words.
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Author shown in the app. Default: `git config user.name`.
+        #[arg(short, long)]
+        author: Option<String>,
+        /// The folder to create <ID>/ in. For the dev backend: ./.dev/data/plugins
+        #[arg(short, long, default_value = ".")]
+        out: PathBuf,
+    },
+    /// List the templates `plugin new` can start from.
+    List,
 }
 
 /// `reset-password`: remove the stored password hash from the database in `data_dir`.
@@ -245,8 +275,27 @@ async fn run() -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    if let Some(Command::ResetPassword) = args.command {
-        return reset_password(&args.data_dir);
+    // The subcommands come before anything is created: none of them needs the data or download
+    // directory, and running one in any folder must not litter it with them.
+    match args.command {
+        Some(Command::ResetPassword) => return reset_password(&args.data_dir),
+        Some(Command::Plugin(PluginCommand::New {
+            id,
+            template,
+            name,
+            author,
+            out,
+        })) => {
+            return scaffold::run_new(&scaffold::NewPlugin {
+                id,
+                template,
+                name,
+                author,
+                out,
+            })
+        }
+        Some(Command::Plugin(PluginCommand::List)) => return scaffold::run_list(),
+        None => {}
     }
     std::fs::create_dir_all(&args.data_dir).context("create data dir")?;
     std::fs::create_dir_all(&args.download_dir).context("create download dir")?;

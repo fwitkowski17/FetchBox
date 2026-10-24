@@ -5,8 +5,8 @@ fails, and has a "Send a test message" button. No program of its own, everything
 
 ## Try it
 
-1. Start FetchBox with this folder inside `<data dir>/plugins/` (`scripts/new-plugin.sh --dev` puts it in
-   `./.dev/data/plugins/` for `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`).
+1. Put this folder inside `<data dir>/plugins/` and start FetchBox. For the dev backend that is `./.dev/data/plugins/`:
+   `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`.
 2. **Extensions → Rescan**, review the permissions, approve, switch it on.
 3. **Settings → Extensions**: enter an address (a free topic on <https://ntfy.sh> is the quickest) and save.
 4. Press **Send a test message** on the card, then let a download finish.

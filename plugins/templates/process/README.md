@@ -6,8 +6,8 @@ or an MCP bridge.
 
 ## Try it
 
-1. Start FetchBox with this folder inside `<data dir>/plugins/` (`scripts/new-plugin.sh --dev` puts it in
-   `./.dev/data/plugins/` for `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`).
+1. Put this folder inside `<data dir>/plugins/` and start FetchBox. For the dev backend that is `./.dev/data/plugins/`:
+   `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`.
 2. **Extensions → Rescan**, review the permissions, approve, switch it on. The card shows the line "ready".
 3. Press **Ping**: the toast shows the *Greeting* setting. Let a download finish, then open **Show log**.
 

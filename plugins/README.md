@@ -51,14 +51,29 @@ draws them (so an extension can never run script in the page that holds the user
 
 ## Start from a template
 
-`scripts/new-plugin.sh` (bash; run it from a checkout of this repository) makes the folder of a new extension with a
-`plugin.json` that already validates, a `README.md` that says how to try it, and the scripts it needs:
+`fetchbox plugin new` makes the folder of a new extension with a `plugin.json` that already validates, a `README.md` that
+says how to try it, and the scripts it needs. It is part of the program, so it needs no checkout, no shell and no
+database, and it works from a package, a container or a build from source:
 
 ```sh
-scripts/new-plugin.sh my-notifier --dev                     # a hook with a settings field and a test button
-scripts/new-plugin.sh page-links -t resolver -n "Page links"  # Add download reads a page and lists its files
-scripts/new-plugin.sh my-bridge  -t process --dev           # a program that keeps running (JSON lines)
-scripts/new-plugin.sh --list                                # the templates
+fetchbox plugin new my-notifier                            # a hook with a settings field and a test button
+fetchbox plugin new page-links -t resolver -n "Page links" # Add download reads a page and lists its files
+fetchbox plugin new my-bridge -t process -o /var/lib/fetchbox/plugins
+fetchbox plugin list                                       # the templates
+```
+
+From a checkout of this repository, `cargo new-plugin` is the same command (an alias in `.cargo/config.toml`), and
+`-o ./.dev/data/plugins` puts the result where the dev backend of [Testing on your machine](#testing-on-your-machine)
+looks:
+
+```sh
+cargo new-plugin my-notifier -o ./.dev/data/plugins
+```
+
+In Docker, write into the data volume (the image has no shell, but the program is there):
+
+```sh
+docker compose run --rm fetchbox plugin new my-notifier -o /data/plugins
 ```
 
 | Template | Makes | Needs |
@@ -67,14 +82,15 @@ scripts/new-plugin.sh --list                                # the templates
 | `resolver` | a resolver whose `bin/probe.py` lists the links of a page; the sites to read are a setting | Python 3 |
 | `process` | `bin/plugin.py`, a long-running program that answers `initialize`, `invoke`, `event` and `settings_changed` | Python 3 |
 
-Options: `-t/--template`, `-n/--name` (default: the id in words), `-a/--author` (default: `git config user.name`),
-`-o/--out DIR` (where to create `<id>/`, default the current directory) and `--dev`, which creates it in
-`./.dev/data/plugins`, where the dev backend of [Testing on your machine](#testing-on-your-machine) looks. It refuses an
-invalid id and a folder that exists. Then **Extensions → Rescan**. The templates live in [`templates/`](templates)
-(`__ID__`, `__NAME__` and `__AUTHOR__` are replaced); a test scaffolds each of them and validates the result.
+Options: `-t/--template`, `-n/--name` (default: the id in words), `-a/--author` (default: `git config user.name`) and
+`-o/--out DIR` (where to create `<id>/`, default the current directory). It refuses an invalid id and a folder that
+exists, and reads the manifest it made with the code the server uses before writing anything. Then **Extensions →
+Rescan**. The templates live in [`templates/`](templates) (`__ID__`, `__NAME__` and `__AUTHOR__` are replaced) and are
+embedded in the program; tests run the command for each of them and validate the result.
 
 The Python scripts are starting points for a host install. The official Docker image has no interpreter (see
-[Folder, ZIP and where things live](#folder-zip-and-where-things-live)).
+[Folder, ZIP and where things live](#folder-zip-and-where-things-live)), so there a program has to be a static binary or
+a dependency; only the `hook` template works as it is.
 
 ## Quick start
 
