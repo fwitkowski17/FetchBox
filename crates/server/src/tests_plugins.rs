@@ -898,6 +898,110 @@ async fn a_dependency_is_fetched_when_the_plugin_is_switched_on() {
     assert!(progress, "the interface saw the download");
 }
 
+/// A tiny GitHub with several releases of `o/r`, each with its own program (by tag).
+async fn fake_github_tags(releases: &[(&str, &'static [u8])]) -> String {
+    use axum::extract::Path as UrlPath;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let bodies: Arc<BTreeMap<String, &'static [u8]>> = Arc::new(
+        releases
+            .iter()
+            .map(|(tag, body)| ((*tag).to_owned(), *body))
+            .collect(),
+    );
+    let release = {
+        let (base, bodies) = (base.clone(), bodies.clone());
+        move |UrlPath(tag): UrlPath<String>| {
+            let found = bodies.get(&tag).map(|body| {
+                json!({
+                    "tag_name": tag,
+                    "assets": [
+                        {"name": "tool_asset", "size": body.len(), "browser_download_url": format!("{base}/dl/{tag}/tool")},
+                        {"name": "SUMS", "size": 100, "browser_download_url": format!("{base}/dl/{tag}/sums")},
+                    ]
+                })
+                .to_string()
+                .into_response()
+            });
+            async move { found.unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()) }
+        }
+    };
+    let program = {
+        let bodies = bodies.clone();
+        move |UrlPath(tag): UrlPath<String>| {
+            let found = bodies.get(&tag).map(|body| body.to_vec().into_response());
+            async move { found.unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()) }
+        }
+    };
+    let sums = move |UrlPath(tag): UrlPath<String>| {
+        let found = bodies
+            .get(&tag)
+            .map(|body| format!("{}  tool_asset\n", sha(body)).into_response());
+        async move { found.unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()) }
+    };
+    let app = axum::Router::new()
+        .route(
+            "/repos/o/r/releases/tags/{tag}",
+            axum::routing::get(release),
+        )
+        .route("/dl/{tag}/tool", axum::routing::get(program))
+        .route("/dl/{tag}/sums", axum::routing::get(sums));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    base
+}
+
+/// The program of an extension that is pinned to a release must follow its updates: the data folder
+/// outlives the old version, and the program of the old release is still in it.
+#[tokio::test]
+async fn an_update_pinned_to_a_newer_release_fetches_that_release() {
+    let api = fake_github_tags(&[("v1.0.0", b"program one"), ("v2.0.0", b"program two")]).await;
+    let rig = rig_with_github(api).await;
+    let pinned = |version: &str, tag: &str| {
+        manifest(
+            "needy",
+            json!({"version": version, "platforms": [platform_key()], "dependencies": [{
+                "id": "tool",
+                "github": {"repo": "o/r", "assets": {platform_key(): "tool_asset"},
+                           "sha256_asset": "SUMS", "tag": tag}
+            }]}),
+        )
+    };
+    let program = rig
+        .root
+        .path()
+        .join("data/plugin-data/needy/deps/tool/tool");
+
+    rig.install(&pinned("1.0.0", "v1.0.0"), false).await;
+    rig.mgr
+        .plugin_set_enabled("needy".into(), true)
+        .await
+        .expect("enable");
+    let v = rig.wait_for("needy", PluginState::Ready).await;
+    assert_eq!(v.dependencies[0].version.as_deref(), Some("v1.0.0"));
+    assert_eq!(std::fs::read(&program).expect("program"), b"program one");
+
+    let staged = rig
+        .mgr
+        .plugin_stage(package(&pinned("2.0.0", "v2.0.0"), false))
+        .await
+        .expect("stage");
+    let updated = rig.mgr.plugin_install(staged.token).await.expect("update");
+    assert!(updated.enabled);
+    let v = rig.wait_for("needy", PluginState::Ready).await;
+    assert_eq!(v.version, "2.0.0");
+    assert_eq!(v.dependencies[0].version.as_deref(), Some("v2.0.0"));
+    assert_eq!(
+        std::fs::read(&program).expect("program"),
+        b"program two",
+        "the program of the old release was replaced"
+    );
+}
+
 #[tokio::test]
 async fn a_dependency_with_a_wrong_checksum_fails_the_plugin_not_the_server() {
     let api = fake_github(b"a program", format!("{}  tool_asset\n", "0".repeat(64))).await;

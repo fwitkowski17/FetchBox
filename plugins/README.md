@@ -102,8 +102,9 @@ project's own repository**, the way the `yt-dlp` extension follows yt-dlp's:
 Tag `v<version>` (the version of `plugin.json` and `Cargo.toml`) and `release.yml` builds the program for Linux (static
 musl builds, x86_64 and aarch64, so it also runs in the official Docker image, which has no libc to match) and macOS
 (Apple silicon), publishes the programs, the `SHA2-256SUMS` file FetchBox checks them against, and `<id>-<version>.zip`
-with `plugin.json` in which `github.tag` is set to that release, so an installed version never downloads a newer
-program. The job summary prints the ZIP's SHA-256 for an entry in the store [catalog](#packaging-and-the-store). A
+with `plugin.json` in which `github.tag` is set to that release: an installed version never downloads a newer program,
+and an update of the extension brings the program of its release (a dependency pinned by `tag` counts as installed only
+as that release). The job summary prints the ZIP's SHA-256 for an entry in the store [catalog](#packaging-and-the-store). A
 program is built with `serde_json` only: a TLS library would need a C toolchain for each target, which the workflow does
 not set up. Another platform is a line in the workflow's `matrix`, in `assets` and in `platforms`.
 
@@ -113,7 +114,8 @@ The dependency points at a release that does not exist yet, so link the program 
 
 ```sh
 cargo build --release
-fetchbox --data-dir ./.dev/data plugin link path/to/my-bridge    # from this checkout: cargo plugin-link path/to/my-bridge
+fetchbox --data-dir <data dir of your FetchBox> plugin link .   # in the project
+# or, from the root of a FetchBox checkout (dev backend): cargo plugin-link path/to/my-bridge
 ```
 
 `plugin link` copies the project's `plugin.json` into `<data dir>/plugins/<id>/` and links `target/release/<id>` (or

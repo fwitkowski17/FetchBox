@@ -293,9 +293,16 @@ pub fn run_new(request: &NewPlugin) -> anyhow::Result<()> {
         text.push_str(&format!("  {file}\n"));
     }
     text.push_str(&format!(
-        "\nNext:\n  1. Read {dir}/README.md: how to try it, and how to publish it from a repository of its own\n  \
-         2. Try it here: fetchbox --data-dir <data dir> plugin link {dir}\n  \
-         3. Then Extensions -> Rescan, review the permissions, approve and switch it on\n"
+        "\nNext:\n  - Read {dir}/README.md: how to try it, and how to publish it from a repository of its own\n"
+    ));
+    if created.files.iter().any(|f| f == "Cargo.toml") {
+        text.push_str(&format!(
+            "  - Build the program: cd {dir} && cargo build --release\n"
+        ));
+    }
+    text.push_str(&format!(
+        "  - Try it here: fetchbox --data-dir <data dir> plugin link {dir}\n  \
+         - Then Extensions -> Rescan, review the permissions, approve and switch it on\n"
     ));
     if created.placeholder_repo {
         text.push_str(

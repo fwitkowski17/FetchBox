@@ -1114,7 +1114,9 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   - **`fetchbox plugin link [project] [--dependency id] [--bin path]`** (`server/src/link.rs`, `fetchbox_plugins::deps::link_local`) is how an
     author tries a project before a release exists: it copies `plugin.json` into `<data>/plugins/<id>/` and links the built program (default
     `target/release/<dependency>`) to the dependency's place, with an install record (`local build`, host `local`), so enabling the plugin
-    fetches nothing (a dependency that is installed is skipped; only Update fetches again). The plugin folder itself cannot be a link
+    fetches nothing (a dependency that is installed is skipped; only Update fetches again). A dependency pinned by `github.tag` counts as installed only as that
+    release (`Installer::state`; a local build stands in for any tag), because `plugin-data/<id>/` outlives an update of the plugin and would keep the
+    program of the version before; the update test serves two releases and requires the second program. The plugin folder itself cannot be a link
     (`discover` takes real folders only). The data directory must exist (a wrong `--data-dir` is an error, nothing is created), the program
     must be built (nothing is changed when it is not), and files other than `plugin.json` are not copied.
   - **Tests.** `scaffold::tests` (every template makes a valid plugin and the files of a repository, hidden ones included; escaping; defaults;

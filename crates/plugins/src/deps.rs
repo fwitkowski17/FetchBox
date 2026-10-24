@@ -19,6 +19,8 @@ use crate::{Error, Result};
 
 /// Name of the file that records what was installed, inside the dependency's folder.
 const INFO_FILE: &str = ".fetchbox-dependency.json";
+/// The `version` recorded for a program that [`link_local`] put in place.
+const LOCAL_BUILD: &str = "local build";
 /// Largest download when the manifest or the release does not say how big the file is.
 const DEFAULT_MAX: u64 = 500 * 1024 * 1024;
 const API_TIMEOUT: Duration = Duration::from_secs(20);
@@ -152,12 +154,23 @@ impl Installer {
     }
 
     /// What is installed, if the dependency is in place (its record is there and so is its program).
+    ///
+    /// A dependency that follows a GitHub release by `tag` is in place only as that release: the
+    /// folder of a plugin's data survives an update of the plugin, so the program of the version
+    /// before it is still there and must not be taken for the one the new manifest names. A program
+    /// that was linked from a local build stands in for any tag.
     pub fn state(&self, plugin: &str, dep: &Dependency) -> Option<DepInfo> {
         if !self.bin_path(plugin, dep).is_file() {
             return None;
         }
         let raw = std::fs::read(self.dep_dir(plugin, &dep.id).join(INFO_FILE)).ok()?;
-        serde_json::from_slice(&raw).ok()
+        let info: DepInfo = serde_json::from_slice(&raw).ok()?;
+        let pinned = dep.github.as_ref().and_then(|g| g.tag.as_deref());
+        match (pinned, info.version.as_deref()) {
+            (Some(tag), Some(have)) if have != tag && have != LOCAL_BUILD => None,
+            (Some(_), None) => None,
+            _ => Some(info),
+        }
     }
 
     async fn github_json(&self, url: &str) -> Result<serde_json::Value> {
@@ -421,7 +434,7 @@ pub fn link_local(
     std::fs::copy(&program, &target).map(|_| ())?;
 
     let info = DepInfo {
-        version: Some("local build".into()),
+        version: Some(LOCAL_BUILD.into()),
         sha256: String::new(),
         host: "local".into(),
         installed_at: now(),
@@ -512,6 +525,65 @@ mod tests {
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         gz.write_all(&raw).expect("gz");
         gz.finish().expect("finish")
+    }
+
+    #[test]
+    fn a_dependency_pinned_to_a_release_is_in_place_only_as_that_release() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let layout = Layout::new(tmp.path());
+        let installer = Installer::new(
+            Fetcher::new(UrlPolicy::default()).expect("fetcher"),
+            layout.clone(),
+        );
+        let dep = |tag: Option<&str>| Dependency {
+            id: "tool".into(),
+            label: String::new(),
+            optional: false,
+            bin: None,
+            platforms: BTreeMap::new(),
+            github: Some(GithubDependency {
+                repo: "me/tool".into(),
+                assets: BTreeMap::new(),
+                sha256_asset: Some("SUMS".into()),
+                tag: tag.map(str::to_owned),
+            }),
+        };
+        // What an install of release v1.0.0 leaves behind.
+        let folder = layout.data_dir_of("demo").join("deps/tool");
+        std::fs::create_dir_all(&folder).expect("folder");
+        std::fs::write(folder.join("tool"), b"v1").expect("program");
+        let record = |version: Option<&str>| DepInfo {
+            version: version.map(str::to_owned),
+            sha256: String::new(),
+            host: "github.com".into(),
+            installed_at: 0,
+        };
+        let write = |info: &DepInfo| {
+            std::fs::write(
+                folder.join(INFO_FILE),
+                serde_json::to_vec(info).expect("json"),
+            )
+            .expect("record");
+        };
+
+        write(&record(Some("v1.0.0")));
+        assert!(
+            installer.state("demo", &dep(None)).is_some(),
+            "no tag: any release will do"
+        );
+        assert!(installer.state("demo", &dep(Some("v1.0.0"))).is_some());
+        assert!(
+            installer.state("demo", &dep(Some("v2.0.0"))).is_none(),
+            "the manifest of an update names another release"
+        );
+        write(&record(None));
+        assert!(installer.state("demo", &dep(Some("v1.0.0"))).is_none());
+        assert!(installer.state("demo", &dep(None)).is_some());
+        write(&record(Some(LOCAL_BUILD)));
+        assert!(
+            installer.state("demo", &dep(Some("v2.0.0"))).is_some(),
+            "a local build stands in"
+        );
     }
 
     #[test]

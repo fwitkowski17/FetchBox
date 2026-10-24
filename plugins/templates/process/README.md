@@ -17,7 +17,8 @@ Cargo.toml                       builds the program as `__ID__`
 ```sh
 cargo test
 cargo build --release
-fetchbox --data-dir ./.dev/data plugin link .    # from a FetchBox checkout: cargo plugin-link path/to/__ID__
+fetchbox --data-dir <data dir of your FetchBox> plugin link .
+# or, from the root of a FetchBox checkout (dev backend): cargo plugin-link path/to/__ID__
 ```
 
 `plugin link` copies `plugin.json` into `<data dir>/plugins/__ID__/` and links `target/release/__ID__` where the

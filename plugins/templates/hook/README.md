@@ -13,7 +13,8 @@ plugin.json                      the manifest FetchBox reads
 ## Develop
 
 ```sh
-fetchbox --data-dir ./.dev/data plugin link .    # from a FetchBox checkout: cargo plugin-link path/to/__ID__
+fetchbox --data-dir <data dir of your FetchBox> plugin link .
+# or, from the root of a FetchBox checkout (dev backend): cargo plugin-link path/to/__ID__
 ```
 
 `plugin link` copies `plugin.json` into `<data dir>/plugins/__ID__/`. Then **Extensions → Rescan**, review the permissions,
