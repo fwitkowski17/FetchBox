@@ -148,11 +148,7 @@ impl Installer {
     /// Where the program is inside the download: this platform's own `bin`, else the dependency's,
     /// else its id.
     fn program_name<'a>(&self, dep: &'a Dependency) -> &'a str {
-        dep.platforms
-            .get(&self.platform)
-            .and_then(|s| s.bin.as_deref())
-            .or(dep.bin.as_deref())
-            .unwrap_or(&dep.id)
+        program_name_for(dep, &self.platform)
     }
 
     /// What is installed, if the dependency is in place (its record is there and so is its program).
@@ -376,6 +372,66 @@ impl Installer {
     }
 }
 
+/// Where the program is inside a dependency's folder on `platform`.
+fn program_name_for<'a>(dep: &'a Dependency, platform: &str) -> &'a str {
+    dep.platforms
+        .get(platform)
+        .and_then(|s| s.bin.as_deref())
+        .or(dep.bin.as_deref())
+        .unwrap_or(&dep.id)
+}
+
+/// Use a program built on this machine as the dependency `dep` of `plugin`, instead of downloading
+/// it (development of a plugin, `fetchbox plugin link`): the program is linked into the dependency's
+/// folder (copied where links are not available) and recorded as installed, so enabling the plugin
+/// does not fetch anything. Whatever was installed there before is replaced. The link follows
+/// rebuilds of `program`; the plugin's own restart picks the new build up.
+pub fn link_local(
+    layout: &Layout,
+    plugin: &str,
+    dep: &Dependency,
+    program: &Path,
+) -> Result<DepInfo> {
+    let platform = fetchbox_core::plugin::platform_key();
+    let name = program_name_for(dep, &platform);
+    let dir = layout.data_dir_of(plugin).join("deps").join(&dep.id);
+    let target = archive::entry_path(&dir, name, 0, &Limits::default())?
+        .ok_or_else(|| Error::Fetch(format!("\"{name}\" is not a usable program path")))?;
+    let program = program
+        .canonicalize()
+        .map_err(|e| Error::NotFound(format!("no program at {}: {e}", program.display())))?;
+    if !program.is_file() {
+        return Err(Error::NotFound(format!(
+            "{} is not a file",
+            program.display()
+        )));
+    }
+
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&program, &target)?;
+    #[cfg(not(unix))]
+    std::fs::copy(&program, &target).map(|_| ())?;
+
+    let info = DepInfo {
+        version: Some("local build".into()),
+        sha256: String::new(),
+        host: "local".into(),
+        installed_at: now(),
+    };
+    let json = serde_json::to_vec_pretty(&info)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    std::fs::write(dir.join(INFO_FILE), json)?;
+    Ok(info)
+}
+
 fn random() -> Result<[u8; 6]> {
     let mut raw = [0u8; 6];
     getrandom::fill(&mut raw).map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
@@ -456,6 +512,51 @@ mod tests {
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         gz.write_all(&raw).expect("gz");
         gz.finish().expect("finish")
+    }
+
+    #[test]
+    fn a_local_build_stands_in_for_the_download() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let layout = Layout::new(tmp.path().join("data"));
+        let built = tmp.path().join("target-release-tool");
+        std::fs::write(&built, b"first build").expect("program");
+        // A GitHub dependency that no server will be asked about: it is installed already.
+        let dep = Dependency {
+            id: "tool".into(),
+            label: String::new(),
+            optional: false,
+            bin: None,
+            platforms: BTreeMap::new(),
+            github: Some(GithubDependency {
+                repo: "me/tool".into(),
+                assets: BTreeMap::new(),
+                sha256_asset: Some("SHA2-256SUMS".into()),
+                tag: None,
+            }),
+        };
+        let installer = Installer::new(
+            Fetcher::new(UrlPolicy::default()).expect("fetcher"),
+            layout.clone(),
+        );
+        assert!(installer.state("demo", &dep).is_none());
+
+        let info = link_local(&layout, "demo", &dep, &built).expect("linked");
+        assert_eq!(info.version.as_deref(), Some("local build"));
+        let state = installer.state("demo", &dep).expect("installed");
+        assert_eq!(state.host, "local");
+        let bin = installer.bin_path("demo", &dep);
+        assert_eq!(std::fs::read(&bin).expect("read"), b"first build");
+
+        // A rebuild is seen through the link, and linking again replaces what was there.
+        std::fs::write(&built, b"second build").expect("rebuild");
+        assert_eq!(std::fs::read(&bin).expect("read"), b"second build");
+        link_local(&layout, "demo", &dep, &built).expect("linked again");
+        assert!(installer.state("demo", &dep).is_some());
+
+        // A program that is not there is an error and leaves the earlier link alone.
+        let err = link_local(&layout, "demo", &dep, &tmp.path().join("missing")).expect_err("gone");
+        assert!(err.to_string().contains("no program"), "{err}");
+        assert!(installer.state("demo", &dep).is_some());
     }
 
     #[tokio::test]

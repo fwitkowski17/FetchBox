@@ -5,15 +5,33 @@
   "version": "0.1.0",
   "description": "A program that runs next to FetchBox, receives its events and answers a button.",
   "author": "__AUTHOR__",
+  "homepage": "https://github.com/__REPO__",
   "license": "MIT",
+  "platforms": ["linux-x86_64", "linux-aarch64", "macos-aarch64"],
   "permissions": {
-    "uses": ["programs", "background", "events"],
+    "uses": ["network", "programs", "background", "events"],
     "reasons": {
-      "programs": "Runs bin/plugin.py (Python 3).",
+      "network": "Downloads its program from the GitHub releases of __REPO__.",
+      "programs": "Runs the program it downloaded.",
       "background": "The program keeps running while the extension is switched on.",
       "events": "The program is told when a download finishes or fails."
     }
   },
+  "dependencies": [
+    {
+      "id": "__ID__",
+      "label": "__NAME__ program",
+      "github": {
+        "repo": "__REPO__",
+        "assets": {
+          "linux-x86_64": "__ID__-linux-x86_64",
+          "linux-aarch64": "__ID__-linux-aarch64",
+          "macos-aarch64": "__ID__-macos-aarch64"
+        },
+        "sha256_asset": "SHA2-256SUMS"
+      }
+    }
+  ],
   "settings": [
     {
       "key": "greeting",
@@ -24,14 +42,16 @@
     }
   ],
   "process": {
-    "command": "bin/plugin.py",
+    "command": "${dep:__ID__}",
     "autostart": true,
     "restart": "on_failure"
   },
   "hooks": [
     {
       "on": ["download.completed", "download.failed"],
-      "action": { "process": true }
+      "action": {
+        "process": true
+      }
     }
   ],
   "ui": {

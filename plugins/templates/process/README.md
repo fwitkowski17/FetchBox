@@ -1,30 +1,54 @@
 # __NAME__
 
-A FetchBox extension made from the `process` template: FetchBox starts `bin/plugin.py` with the extension, keeps it
-running, sends it the events of a hook and lets a button ask it something. This is the shape for a metrics exporter
-or an MCP bridge.
+A FetchBox extension: a program that runs next to FetchBox. FetchBox starts it with the extension, keeps it running,
+sends it the events of a hook and lets a button ask it something. This is the shape for a metrics exporter or an MCP
+bridge. It is written in Rust (`src/main.rs`) and the project is meant to live in a repository of its own:
 
-## Try it
-
-1. Put this folder inside `<data dir>/plugins/` and start FetchBox. For the dev backend that is `./.dev/data/plugins/`:
-   `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`.
-2. **Extensions → Rescan**, review the permissions, approve, switch it on. The card shows the line "ready".
-3. Press **Ping**: the toast shows the *Greeting* setting. Let a download finish, then open **Show log**.
-
-You can talk to the program by hand, the protocol is plain lines:
-
-```sh
-echo '{"id":1,"method":"initialize","params":{"settings":{"greeting":"hi"}}}' | ./bin/plugin.py
+```
+plugin.json                      the manifest FetchBox reads
+src/main.rs                      the program (the protocol, a few tests)
+Cargo.toml                       builds the program as `__ID__`
+.github/workflows/ci.yml         fmt, clippy and tests on every push
+.github/workflows/release.yml    on a tag: static programs, SHA2-256SUMS and the plugin ZIP
 ```
 
-Run FetchBox with `--log-activity` to see the extension start and stop. Editing `plugin.json` puts the extension
-back to *needs review*; editing `bin/plugin.py` does not (restart it from the card).
+## Develop
 
-## Where to go from here
+```sh
+cargo test
+cargo build --release
+fetchbox --data-dir ./.dev/data plugin link .    # from a FetchBox checkout: cargo plugin-link path/to/__ID__
+```
 
-- More events in the hook: `download.*`, `torrent.*`, `*` (progress events must be named, and `every_s` thins them).
-- A dialog for the button: add `ui.dialogs` and `open_dialog` (see `plugins/official/webhook-notify`).
-- A program that is not a script: set `process.command` to a `${dep:...}` and list the program under `dependencies`
-  with its SHA-256. Python is not in the official Docker image.
+`plugin link` copies `plugin.json` into `<data dir>/plugins/__ID__/` and links `target/release/__ID__` where the
+dependency in `plugin.json` would have been downloaded, so nothing is fetched before the first release exists. Then
+**Extensions → Rescan**, review the permissions, approve and switch it on; the card shows the line "ready". Press **Ping**,
+let a download finish and open **Show log**.
 
-The full guide is `plugins/README.md` in the FetchBox repository.
+After a change to the program: `cargo build --release` and **Restart** on the card. After a change to `plugin.json`: run
+`plugin link` again and approve the extension again.
+
+You can also talk to the program by hand, the protocol is plain lines:
+
+```sh
+echo '{"id":1,"method":"initialize","params":{"settings":{"greeting":"hi"}}}' | cargo run -q
+```
+
+## Publish
+
+1. Create the repository and set it in `plugin.json`: `github.repo` of the dependency and `homepage` must be the
+   `owner/name` of the repository that holds the releases (`__REPO__` now).
+2. Push, then tag a release. The tag is the version in `plugin.json` and `Cargo.toml`:
+   `git tag v0.1.0 && git push origin v0.1.0`.
+3. The workflow builds the program for Linux (x86_64 and aarch64, static, so it also runs in the official Docker image)
+   and macOS (Apple silicon), and publishes the release with `SHA2-256SUMS` and `__ID__-0.1.0.zip`. FetchBox downloads
+   the program from that release and checks it against `SHA2-256SUMS`. Another platform (macOS on Intel, Windows) is a line
+   in the `matrix` of `release.yml`, a line in `assets` and one in `platforms` of `plugin.json`.
+4. Users install the ZIP with **Extensions → Install from file**. To list it in the store, add an entry to `plugins/index.json`
+   of FetchBox with the address of the ZIP and its SHA-256 (the job summary of the release prints it); see
+   `plugins/README.md` in the FetchBox repository.
+
+The installed manifest is pinned to its release (`github.tag` is written into the ZIP's `plugin.json`), so an old
+version of the extension never downloads a newer program.
+
+The full guide to what a manifest can do is `plugins/README.md` in the FetchBox repository.

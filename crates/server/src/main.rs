@@ -3,6 +3,7 @@
 mod assets;
 mod clock;
 mod hostkeys;
+mod link;
 mod logfmt;
 mod manager;
 mod scaffold;
@@ -146,9 +147,30 @@ enum PluginCommand {
         /// Author shown in the app. Default: `git config user.name`.
         #[arg(short, long)]
         author: Option<String>,
-        /// The folder to create <ID>/ in. For the dev backend: ./.dev/data/plugins
+        /// The GitHub repository that will hold the project and its releases, owner/name. The
+        /// manifest's homepage and, for a template with a program, the place the program is
+        /// downloaded from. Default: the placeholder OWNER/<ID>, to be replaced before the first release.
+        #[arg(short, long)]
+        repo: Option<String>,
+        /// The folder to create <ID>/ in.
         #[arg(short, long, default_value = ".")]
         out: PathBuf,
+    },
+    /// Try a plugin project on this machine without a release: copies its plugin.json into
+    /// <data dir>/plugins/<id>/ and links the program it built (target/release/<id>) where the
+    /// dependency would be downloaded to. Run it with the --data-dir of the FetchBox that will run
+    /// the plugin; FetchBox does not have to be stopped (press Rescan in Extensions).
+    Link {
+        /// The project: a folder with a plugin.json.
+        #[arg(default_value = ".")]
+        project: PathBuf,
+        /// The dependency the program stands in for. Default: the only one, or the one named like
+        /// the plugin.
+        #[arg(long)]
+        dependency: Option<String>,
+        /// The program to link. Default: target/release/<dependency> in the project.
+        #[arg(long)]
+        bin: Option<PathBuf>,
     },
     /// List the templates `plugin new` can start from.
     List,
@@ -284,6 +306,7 @@ async fn run() -> anyhow::Result<()> {
             template,
             name,
             author,
+            repo,
             out,
         })) => {
             return scaffold::run_new(&scaffold::NewPlugin {
@@ -291,7 +314,20 @@ async fn run() -> anyhow::Result<()> {
                 template,
                 name,
                 author,
+                repo,
                 out,
+            })
+        }
+        Some(Command::Plugin(PluginCommand::Link {
+            project,
+            dependency,
+            bin,
+        })) => {
+            return link::run_link(&link::LinkRequest {
+                project,
+                data_dir: args.data_dir,
+                dependency,
+                bin,
             })
         }
         Some(Command::Plugin(PluginCommand::List)) => return scaffold::run_list(),

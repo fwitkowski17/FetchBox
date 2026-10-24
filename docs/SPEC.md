@@ -71,7 +71,7 @@ FetchBox/
 │   ├── plugins/{src/{lib,archive,install,fetch,deps,expand,mapping,proc,oneshot,protocol,process,webhook,store}.rs,tests/}   # extensions, see 6.15
 │   ├── test_plugin/src/main.rs        # a stand-in plugin program for the tests (`fake-plugin`), see 6.15
 │   ├── api/src/{lib,routes,torrents,plugins,sse,auth,openapi}.rs
-│   └── server/src/{main,scaffold}.rs   # scaffold: `fetchbox plugin new`, 6.15
+│   └── server/src/{main,scaffold,link}.rs   # scaffold: `fetchbox plugin new`, link: `fetchbox plugin link`, 6.15
 ├── web/
 │   ├── src/
 │   │   ├── lib/{api/,components/,stores/}
@@ -80,7 +80,7 @@ FetchBox/
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
 │   └── vite.config.ts
-├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), templates/{hook,resolver,process}/ (starting points for new extensions), see 6.15
+├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), templates/{hook,resolver,process,_rust}/ (starting points for new extension projects), see 6.15
 ├── vendor/librqbit-tracker-comms/   # one upstream crate with a one-function patch, see 6.13
 ├── scripts/build.sh
 ├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
@@ -1093,18 +1093,35 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   `isSafeExternalUrl` and icons only from the app's own set. In the add dialog the entries made by an extension carry the preset
   as a label and "via <extension>", are keyed by address and preset (`entryKey`), and are added with `via` and the title as the
   file name; while the look takes long the dialog says which extensions it is asking.
-- **Starting a new extension.** `fetchbox plugin new <id> [-t hook|resolver|process] [-n name] [-a author] [-o dir]` and `fetchbox plugin list`
-  (`server/src/scaffold.rs`; `cargo new-plugin` is an alias for the first in `.cargo/config.toml`). It copies the template `plugins/templates/<template>/`,
-  which is embedded in the binary like the plugins that ship (so it works from a package or the Docker image, and needs no shell or
-  interpreter), to `<dir>/<id>/` and fills in `__ID__`, `__NAME__` and `__AUTHOR__` (escaped as a JSON string in `.json` files, as they
-  are elsewhere; the author defaults to `git config user.name`, the name to the id in words). Files under `bin/` are made executable.
-  Like `reset-password` it runs before the data and download directories are created or the database opened. The generated manifest is
-  read with `install::parse_manifest` before anything is written; an invalid id, a name the manifest refuses or an existing folder is an
-  error and leaves nothing behind. `hook` is a webhook with settings and a test dialog (no program), `resolver` a resolver whose
-  `bin/probe.py` lists the links of a page, `process` a long-running `bin/plugin.py`; each has a `README.md` on how to try it. The Python
-  programs of the last two are for a host install (the Docker image has no interpreter). The templates are not offered by the store.
-  Tests: `scaffold::tests` (every template makes a valid plugin, escaping, defaults, refusals) and `tests/plugin_new.rs` (the real binary,
-  in an empty folder, which stays free of `data/` and `downloads/`).
+- **Starting a new extension.** An extension is meant to live in a repository of its own. `fetchbox plugin new <id> [-t hook|resolver|process]
+  [-n name] [-a author] [-r owner/name] [-o dir]` and `fetchbox plugin list` (`server/src/scaffold.rs`; `cargo new-plugin` is an alias in
+  `.cargo/config.toml`) copy a template of `plugins/templates/` to `<dir>/<id>/`. The templates are embedded in the binary like the plugins
+  that ship, so this works from a package or the Docker image and needs no shell, interpreter or checkout. `__ID__`, `__NAME__`, `__AUTHOR__`
+  and `__REPO__` are replaced (escaped as a JSON string in `.json` files, as they are elsewhere; the author defaults to `git config
+  user.name`, the name to the id in words, the repository to the placeholder `OWNER/<id>` which the command points out). A folder of
+  `plugins/templates/` whose name starts with `_` is not a template but files that several templates share (`_rust`: `Cargo.toml`,
+  `.gitignore`, the workflows). Like `reset-password` the command runs before the data and download directories are created or the database
+  opened. The manifest is read with `install::parse_manifest` before anything is written; an invalid id or repository, a name the manifest
+  refuses or an existing folder is an error and leaves nothing behind.
+  - `hook`: JSON only (a webhook, settings, a test dialog) with a workflow that publishes the plugin ZIP. `resolver` and `process`: a Cargo
+    project (`serde_json` only, an empty `[workspace]` so a project inside a checkout is its own, the package prefixed
+    `fetchbox-plugin-` and the program called like the id) with unit tests, `ci.yml` (fmt, clippy, tests) and `release.yml`.
+  - **Distribution.** The program is a `github` dependency on the project's own repository (assets `<id>-linux-x86_64`, `-linux-aarch64`,
+    `-macos-aarch64`, checksums in `SHA2-256SUMS`), used as `${dep:<id>}`: nothing new in FetchBox. On a tag `v<version>` that equals the version of
+    `plugin.json` and `Cargo.toml`, `release.yml` builds static musl programs for Linux (the Docker image is distroless) and a native one for
+    macOS, uploads them with `SHA2-256SUMS` and a ZIP of the plugin whose `github.tag` is set to the release, and prints the ZIP's SHA-256 for the
+    store catalog. The workflows were not run on GitHub; their `jq` filter and the musl build were run by hand.
+  - **`fetchbox plugin link [project] [--dependency id] [--bin path]`** (`server/src/link.rs`, `fetchbox_plugins::deps::link_local`) is how an
+    author tries a project before a release exists: it copies `plugin.json` into `<data>/plugins/<id>/` and links the built program (default
+    `target/release/<dependency>`) to the dependency's place, with an install record (`local build`, host `local`), so enabling the plugin
+    fetches nothing (a dependency that is installed is skipped; only Update fetches again). The plugin folder itself cannot be a link
+    (`discover` takes real folders only). The data directory must exist (a wrong `--data-dir` is an error, nothing is created), the program
+    must be built (nothing is changed when it is not), and files other than `plugin.json` are not copied.
+  - **Tests.** `scaffold::tests` (every template makes a valid plugin and the files of a repository, hidden ones included; escaping; defaults;
+    refusals), `tests/plugin_new.rs` (the real binary in an empty folder, which stays free of `data/` and `downloads/`; the Rust templates are
+    scaffolded and must pass `cargo fmt --check`, `clippy -D warnings` and their own tests, are built, and are spoken to over the protocol /
+    asked for a range; `plugin link` and its refusals), `deps::tests` (`link_local`) and `tests_plugins` (a linked program runs without any
+    download).
 - **Extensions that ship.** `webhook-notify` (a request when a download finishes or fails: settings, a test dialog, a hook; no
   program) and `yt-dlp` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds; yt-dlp from its GitHub
   releases checked against `SHA2-256SUMS`, and an optional static ffmpeg pinned to the `imageio-ffmpeg` 0.6.0 wheels on PyPI, whose

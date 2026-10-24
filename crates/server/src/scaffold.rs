@@ -1,11 +1,17 @@
 //! `fetchbox plugin new` and `fetchbox plugin list`: start an extension (SPEC 6.15) from a template.
 //!
-//! The templates are the folders of `plugins/templates/`, embedded at compile time like the
-//! plugins that ship, so this works from any installation (package, container, a build from
-//! source) without a checkout. `__ID__`, `__NAME__` and `__AUTHOR__` are replaced; inside a
-//! `.json` file the value is escaped as a JSON string, elsewhere it is written as it is. The
-//! manifest is read with the same code the server uses before anything is written, so what this
-//! makes is a plugin that validates.
+//! A template is the starting point of a project that lives in a repository of its own: the
+//! manifest, the program if there is one (a Cargo project), a README, and the GitHub workflows that
+//! test it and publish its releases. The templates are the folders of `plugins/templates/`, embedded
+//! at compile time like the plugins that ship, so this works from any installation (package,
+//! container, a build from source) without a checkout. A folder whose name starts with `_` is not a
+//! template but files that several templates share (`RUST_TEMPLATES` use `_rust`).
+//!
+//! `__ID__`, `__NAME__`, `__AUTHOR__` and `__REPO__` are replaced; inside a `.json` file the value
+//! is escaped as a JSON string, elsewhere it is written as it is (so only the id, which is
+//! restricted to `[a-z0-9-]`, may appear in `Cargo.toml` and the workflows). The manifest is read
+//! with the same code the server uses before anything is written, so what this makes is a plugin
+//! that validates.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,13 +21,16 @@ use fetchbox_core::plugin::is_valid_id;
 use fetchbox_plugins::install;
 use rust_embed::RustEmbed;
 
-/// The starting points: one folder each, with a `plugin.json`.
+/// The starting points: one folder each, with a `plugin.json`; folders with a `_` are shared files.
 #[derive(RustEmbed)]
 #[folder = "../../plugins/templates"]
 struct Templates;
 
 /// The template used when none is named.
 pub const DEFAULT_TEMPLATE: &str = "hook";
+
+/// The templates that are a Cargo project: they also get the files of the folder `_rust`.
+const RUST_TEMPLATES: &[&str] = &["process", "resolver"];
 
 /// What `plugin new` was asked for.
 #[derive(Debug, Clone)]
@@ -32,6 +41,9 @@ pub struct NewPlugin {
     pub name: Option<String>,
     /// Author; `git config user.name` when absent.
     pub author: Option<String>,
+    /// The GitHub repository (`owner/name`) that will hold the project and its releases; a
+    /// placeholder that validates (`OWNER/<id>`) when absent.
+    pub repo: Option<String>,
     /// The folder `<id>/` is created in.
     pub out: PathBuf,
 }
@@ -42,12 +54,15 @@ pub struct Created {
     pub dir: PathBuf,
     /// Paths inside `dir`, sorted.
     pub files: Vec<String>,
+    /// No repository was given, so `plugin.json` has a placeholder to replace.
+    pub placeholder_repo: bool,
 }
 
 /// The names of the templates, sorted.
 pub fn template_names() -> Vec<String> {
     let mut names: Vec<String> = Templates::iter()
         .filter_map(|path| path.split_once('/').map(|(folder, _)| folder.to_owned()))
+        .filter(|folder| !folder.starts_with('_'))
         .collect();
     names.sort();
     names.dedup();
@@ -87,6 +102,17 @@ fn git_user() -> Option<String> {
     (out.status.success() && !name.is_empty()).then_some(name)
 }
 
+/// Is `repo` an `owner/name` of GitHub? (The rule `validate` applies to `github.repo`.)
+fn is_repo(repo: &str) -> bool {
+    let part = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+    };
+    repo.split_once('/')
+        .is_some_and(|(owner, name)| part(owner) && part(name))
+}
+
 /// `value` as the inside of a JSON string.
 fn json_escaped(value: &str) -> anyhow::Result<String> {
     let quoted = serde_json::to_string(value).context("escape a value for JSON")?;
@@ -97,48 +123,78 @@ fn json_escaped(value: &str) -> anyhow::Result<String> {
         .to_owned())
 }
 
+/// The values that replace the placeholders.
+struct Values<'a> {
+    id: &'a str,
+    name: &'a str,
+    author: &'a str,
+    repo: &'a str,
+}
+
+impl Values<'_> {
+    fn fill(&self, text: &str, json: bool) -> anyhow::Result<String> {
+        let value = |v: &str| {
+            if json {
+                json_escaped(v)
+            } else {
+                Ok(v.to_owned())
+            }
+        };
+        Ok(text
+            .replace("__ID__", &value(self.id)?)
+            .replace("__NAME__", &value(self.name)?)
+            .replace("__AUTHOR__", &value(self.author)?)
+            .replace("__REPO__", &value(self.repo)?))
+    }
+}
+
 /// One file of the new plugin, ready to be written.
 struct Rendered {
     path: String,
     content: String,
-    executable: bool,
 }
 
-fn render(template: &str, id: &str, name: &str, author: &str) -> anyhow::Result<Vec<Rendered>> {
-    let prefix = format!("{template}/");
+/// The files of `folder` (a template or a shared folder), with their paths inside it.
+fn folder_files(folder: &str) -> Vec<(String, String)> {
+    let prefix = format!("{folder}/");
     let mut files = Vec::new();
     for full in Templates::iter() {
         let Some(path) = full.strip_prefix(&prefix) else {
             continue;
         };
-        let file = Templates::get(&full).with_context(|| format!("read template file {full}"))?;
-        let text = std::str::from_utf8(&file.data)
-            .with_context(|| format!("template file {full} is not text"))?;
-        let (id, name, author) = if path.ends_with(".json") {
-            (
-                json_escaped(id)?,
-                json_escaped(name)?,
-                json_escaped(author)?,
-            )
-        } else {
-            (id.to_owned(), name.to_owned(), author.to_owned())
-        };
-        files.push(Rendered {
-            path: path.to_owned(),
-            content: text
-                .replace("__ID__", &id)
-                .replace("__NAME__", &name)
-                .replace("__AUTHOR__", &author),
-            // Embedded files carry no mode: what is in `bin/` is a program.
-            executable: path.starts_with("bin/"),
-        });
+        if let Some(file) = Templates::get(&full) {
+            if let Ok(text) = std::str::from_utf8(&file.data) {
+                files.push((path.to_owned(), text.to_owned()));
+            }
+        }
     }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files
+}
+
+fn render(template: &str, values: &Values<'_>) -> anyhow::Result<Vec<Rendered>> {
+    // Not `_rust` either: that folder is only the files that templates share.
     anyhow::ensure!(
-        !files.is_empty(),
+        template_names().iter().any(|n| n == template),
         "no template \"{template}\" (one of: {})",
         template_names().join(", ")
     );
+    let mut sources = folder_files(template);
+    if RUST_TEMPLATES.contains(&template) {
+        // A template's own file wins over a shared one of the same name.
+        for (path, text) in folder_files("_rust") {
+            if !sources.iter().any(|(p, _)| *p == path) {
+                sources.push((path, text));
+            }
+        }
+    }
+    let mut files = Vec::new();
+    for (path, text) in sources {
+        files.push(Rendered {
+            content: values.fill(&text, path.ends_with(".json"))?,
+            path,
+        });
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
 }
 
@@ -156,8 +212,25 @@ pub fn create(request: &NewPlugin) -> anyhow::Result<Created> {
         .clone()
         .or_else(git_user)
         .unwrap_or_else(|| "Your Name".to_owned());
+    let placeholder_repo = request.repo.is_none();
+    let repo = request
+        .repo
+        .clone()
+        .unwrap_or_else(|| format!("OWNER/{id}"));
+    anyhow::ensure!(
+        is_repo(&repo),
+        "\"{repo}\" is not a GitHub repository like owner/name"
+    );
 
-    let files = render(&request.template, id, &name, &author)?;
+    let files = render(
+        &request.template,
+        &Values {
+            id,
+            name: &name,
+            author: &author,
+            repo: &repo,
+        },
+    )?;
     let manifest = files
         .iter()
         .find(|f| f.path == "plugin.json")
@@ -194,6 +267,7 @@ pub fn create(request: &NewPlugin) -> anyhow::Result<Created> {
     Ok(Created {
         dir,
         files: files.into_iter().map(|f| f.path).collect(),
+        placeholder_repo,
     })
 }
 
@@ -206,12 +280,6 @@ fn write_all(dir: &Path, files: &[Rendered]) -> anyhow::Result<()> {
         }
         std::fs::write(&path, &file.content)
             .with_context(|| format!("write {}", path.display()))?;
-        #[cfg(unix)]
-        if file.executable {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-                .with_context(|| format!("make {} executable", path.display()))?;
-        }
     }
     Ok(())
 }
@@ -225,10 +293,16 @@ pub fn run_new(request: &NewPlugin) -> anyhow::Result<()> {
         text.push_str(&format!("  {file}\n"));
     }
     text.push_str(&format!(
-        "\nNext:\n  1. Put the folder inside <data dir>/plugins/ (or create it there with -o)\n  \
-         2. Open Extensions, press Rescan, review the permissions, approve and switch it on\n  \
-         3. Read {dir}/README.md, then plugins/README.md for everything the manifest can do\n"
+        "\nNext:\n  1. Read {dir}/README.md: how to try it, and how to publish it from a repository of its own\n  \
+         2. Try it here: fetchbox --data-dir <data dir> plugin link {dir}\n  \
+         3. Then Extensions -> Rescan, review the permissions, approve and switch it on\n"
     ));
+    if created.placeholder_repo {
+        text.push_str(
+            "\nNote: the GitHub repository is the placeholder OWNER/<id> (in plugin.json: homepage, and\n\
+             the dependency's github.repo if there is one). Set it before the first release, or pass --repo.\n",
+        );
+    }
     print_out(&text)
 }
 
@@ -242,7 +316,7 @@ pub fn run_list() -> anyhow::Result<()> {
 }
 
 /// Output meant for the person at the terminal, not a log line.
-fn print_out(text: &str) -> anyhow::Result<()> {
+pub(crate) fn print_out(text: &str) -> anyhow::Result<()> {
     std::io::stdout()
         .lock()
         .write_all(text.as_bytes())
@@ -259,6 +333,7 @@ mod tests {
             template: template.into(),
             name: Some("Fish & Chips / Demo".into()),
             author: Some("A|B & C".into()),
+            repo: Some("someone/demo-repo".into()),
             out: dir.to_path_buf(),
         }
     }
@@ -286,40 +361,93 @@ mod tests {
     }
 
     #[test]
-    fn every_template_makes_a_valid_plugin() {
+    fn every_template_makes_a_valid_plugin_with_the_files_of_a_repository() {
         let out = tempfile::tempdir().expect("temp dir");
         for template in template_names() {
             let id = format!("demo-{template}");
             let created = create(&request(out.path(), &id, &template)).expect("created");
             assert_eq!(created.dir, out.path().join(&id));
-            assert!(created.files.iter().any(|f| f == "plugin.json"));
-            assert!(created.files.iter().any(|f| f == "README.md"));
+            assert!(!created.placeholder_repo);
+
+            // What a repository of its own needs, hidden files included.
+            for needed in [
+                "plugin.json",
+                "README.md",
+                ".gitignore",
+                ".github/workflows/ci.yml",
+                ".github/workflows/release.yml",
+            ] {
+                assert!(
+                    created.files.iter().any(|f| f == needed),
+                    "{template}: no {needed} in {:?}",
+                    created.files
+                );
+                assert!(created.dir.join(needed).is_file(), "{template}: {needed}");
+            }
+            let is_rust = RUST_TEMPLATES.contains(&template.as_str());
+            assert_eq!(
+                created.dir.join("Cargo.toml").is_file(),
+                is_rust,
+                "{template}"
+            );
+            assert_eq!(
+                created.dir.join("src/main.rs").is_file(),
+                is_rust,
+                "{template}"
+            );
 
             let manifest = std::fs::read(created.dir.join("plugin.json")).expect("plugin.json");
             let m = install::parse_manifest(&manifest).expect("a valid manifest");
             assert_eq!(m.id, id);
             assert_eq!(m.name, "Fish & Chips / Demo");
             assert_eq!(m.author, "A|B & C");
+            assert_eq!(
+                m.homepage.as_deref(),
+                Some("https://github.com/someone/demo-repo")
+            );
+            // A program is a dependency that follows the releases of the repository.
+            for dep in &m.dependencies {
+                let github = dep.github.as_ref().expect("a GitHub dependency");
+                assert_eq!(github.repo, "someone/demo-repo");
+                assert_eq!(
+                    github.assets.len(),
+                    m.platforms.len(),
+                    "an asset per platform"
+                );
+                for platform in &m.platforms {
+                    assert_eq!(
+                        github.assets.get(platform).map(String::as_str),
+                        Some(format!("{id}-{platform}").as_str())
+                    );
+                }
+            }
+            assert_eq!(m.dependencies.len(), usize::from(is_rust));
 
             for path in walk(&created.dir) {
                 let text = std::fs::read_to_string(&path).expect("text file");
                 assert!(
-                    !["__ID__", "__NAME__", "__AUTHOR__"]
+                    !["__ID__", "__NAME__", "__AUTHOR__", "__REPO__"]
                         .iter()
                         .any(|p| text.contains(p)),
                     "{} still has a placeholder",
                     path.display()
                 );
-                #[cfg(unix)]
-                if path.parent().is_some_and(|p| p.ends_with("bin")) {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mode = std::fs::metadata(&path)
-                        .expect("metadata")
-                        .permissions()
-                        .mode();
-                    assert!(mode & 0o111 != 0, "{} is not executable", path.display());
-                }
             }
+        }
+    }
+
+    #[test]
+    fn a_cargo_project_names_its_program_after_the_id_and_cannot_be_claimed_by_a_workspace() {
+        let out = tempfile::tempdir().expect("temp dir");
+        let created = create(&request(out.path(), "test", "process")).expect("created");
+        let cargo = std::fs::read_to_string(created.dir.join("Cargo.toml")).expect("Cargo.toml");
+        assert!(cargo.contains("name = \"fetchbox-plugin-test\""), "{cargo}");
+        assert!(cargo.contains("[[bin]]\nname = \"test\""), "{cargo}");
+        assert!(cargo.contains("\n[workspace]\n"), "{cargo}");
+        // Only the id (restricted to [a-z0-9-]) goes into files that are not JSON or Markdown.
+        for file in ["Cargo.toml", ".github/workflows/release.yml"] {
+            let text = std::fs::read_to_string(created.dir.join(file)).expect(file);
+            assert!(!text.contains("Fish") && !text.contains("A|B"), "{file}");
         }
     }
 
@@ -343,13 +471,17 @@ mod tests {
         assert_eq!(words("ab"), "Ab");
 
         let out = tempfile::tempdir().expect("temp dir");
-        let mut r = request(out.path(), "page-links", "hook");
+        let mut r = request(out.path(), "page-links", "process");
         r.name = None;
+        r.repo = None;
         let created = create(&r).expect("created");
+        assert!(created.placeholder_repo);
         let manifest = std::fs::read(created.dir.join("plugin.json")).expect("plugin.json");
+        let m = install::parse_manifest(&manifest).expect("valid");
+        assert_eq!(m.name, "Page Links");
         assert_eq!(
-            install::parse_manifest(&manifest).expect("valid").name,
-            "Page Links"
+            m.dependencies[0].github.as_ref().map(|g| g.repo.as_str()),
+            Some("OWNER/page-links")
         );
     }
 
@@ -369,11 +501,16 @@ mod tests {
             let err = create(&request(out.path(), bad, "hook")).expect_err(bad);
             assert!(err.to_string().contains("not a valid id"), "{bad}: {err}");
         }
-        // A name the manifest refuses is caught before anything is written.
+        // A repository that is not owner/name, and a name the manifest refuses.
+        for bad in ["nobody", "a/b/c", "has space/x", "/x", "x/"] {
+            let mut r = request(out.path(), "no-repo", "hook");
+            r.repo = Some(bad.into());
+            let err = create(&r).expect_err(bad);
+            assert!(err.to_string().contains("owner/name"), "{bad}: {err}");
+        }
         let mut r = request(out.path(), "no-name", "hook");
         r.name = Some("x".repeat(200));
         assert!(create(&r).is_err());
-        assert!(!out.path().join("no-name").exists());
 
         let mut entries: Vec<_> = std::fs::read_dir(out.path())
             .expect("dir")
@@ -386,8 +523,13 @@ mod tests {
     #[test]
     fn an_unknown_template_is_refused() {
         let out = tempfile::tempdir().expect("temp dir");
-        let err = create(&request(out.path(), "demo", "nope")).expect_err("unknown");
-        assert!(err.to_string().contains("no template"), "{err}");
+        for template in ["nope", "_rust"] {
+            let err = create(&request(out.path(), "demo", template)).expect_err("unknown");
+            assert!(
+                err.to_string().contains("one of: hook, process, resolver"),
+                "{err}"
+            );
+        }
         assert!(!out.path().join("demo").exists());
     }
 }

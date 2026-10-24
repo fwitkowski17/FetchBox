@@ -1,0 +1,80 @@
+name: Release
+
+# Push a tag v<version> (the version of plugin.json and Cargo.toml) to publish a release:
+#   git tag v0.1.0 && git push origin v0.1.0
+# The release holds the program for each platform (what plugin.json's dependency downloads), the
+# SHA2-256SUMS file that FetchBox checks them against, and a ZIP of the plugin for
+# Extensions -> Install from file.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag is the version of the plugin
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(jq -r .version plugin.json)"
+          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          [ "$tag" = "$manifest" ] || { echo "the tag says $tag but plugin.json says $manifest" >&2; exit 1; }
+          [ "$tag" = "$cargo" ] || { echo "the tag says $tag but Cargo.toml says $cargo" >&2; exit 1; }
+
+  build:
+    needs: check
+    strategy:
+      matrix:
+        include:
+          # Linux programs are static (musl): the official Docker image has no libc of its own to
+          # match. The names are what the dependency in plugin.json lists.
+          - { asset: __ID__-linux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { asset: __ID__-linux-aarch64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+          - { asset: __ID__-macos-aarch64, runner: macos-latest, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }}
+      - run: cp "target/${{ matrix.target }}/release/__ID__" "${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: __ID__-*
+          merge-multiple: true
+          path: dist
+      - name: Checksums, the ZIP of the plugin, and the release
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          (cd dist && sha256sum -- * > SHA2-256SUMS)
+          # The installed manifest follows exactly this release, not whatever is latest later.
+          mkdir package
+          jq --arg tag "$tag" '(.dependencies[]? | select(.github != null) | .github.tag) = $tag' plugin.json > package/plugin.json
+          cp README.md package/
+          zip="__ID__-${tag#v}.zip"
+          (cd package && zip -r "../dist/$zip" .)
+          gh release create "$tag" dist/* --title "$tag" --generate-notes
+          {
+            echo "### Plugin ZIP"
+            echo "\`$zip\` sha256: \`$(sha256sum "dist/$zip" | cut -d' ' -f1)\`"
+            echo "(the value for \`download.sha256\` in the store catalog)"
+          } >> "$GITHUB_STEP_SUMMARY"

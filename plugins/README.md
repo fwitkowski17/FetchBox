@@ -10,7 +10,7 @@ learn and nothing to compile: the manifest says what the extension needs and wha
 rest (downloads the programs it depends on, draws its settings and dialogs, runs its commands, sends its webhooks).
 
 - [What an extension can do](#what-an-extension-can-do)
-- [Start from a template](#start-from-a-template)
+- [Start from a template](#start-from-a-template) (`fetchbox plugin new`, and `plugin link` to try it)
 - [Quick start: a notification in 15 lines](#quick-start)
 - [Folder, ZIP and where things live](#folder-zip-and-where-things-live)
 - [The manifest](#the-manifest) (`plugin.json`)
@@ -51,46 +51,77 @@ draws them (so an extension can never run script in the page that holds the user
 
 ## Start from a template
 
-`fetchbox plugin new` makes the folder of a new extension with a `plugin.json` that already validates, a `README.md` that
-says how to try it, and the scripts it needs. It is part of the program, so it needs no checkout, no shell and no
-database, and it works from a package, a container or a build from source:
+An extension is meant to live in a **repository of its own**: its code, its tests, and a release workflow that
+publishes it. `fetchbox plugin new` makes such a project in a folder, ready to `git init`. It is part of the program, so
+it needs no checkout of this repository and no shell, and it works from a package, a container or a build from source:
 
 ```sh
-fetchbox plugin new my-notifier                            # a hook with a settings field and a test button
-fetchbox plugin new page-links -t resolver -n "Page links" # Add download reads a page and lists its files
-fetchbox plugin new my-bridge -t process -o /var/lib/fetchbox/plugins
-fetchbox plugin list                                       # the templates
+fetchbox plugin new my-notifier -r you/my-notifier              # a hook: settings, a test button, no program
+fetchbox plugin new page-links -t resolver -r you/page-links    # Add download expands an address into files
+fetchbox plugin new my-bridge -t process -r you/my-bridge       # a program that keeps running
+fetchbox plugin list                                            # the templates
 ```
 
-From a checkout of this repository, `cargo new-plugin` is the same command (an alias in `.cargo/config.toml`), and
-`-o ./.dev/data/plugins` puts the result where the dev backend of [Testing on your machine](#testing-on-your-machine)
-looks:
+From a checkout of this repository `cargo new-plugin` is the same command (an alias in `.cargo/config.toml`).
 
-```sh
-cargo new-plugin my-notifier -o ./.dev/data/plugins
-```
-
-In Docker, write into the data volume (the image has no shell, but the program is there):
-
-```sh
-docker compose run --rm fetchbox plugin new my-notifier -o /data/plugins
-```
-
-| Template | Makes | Needs |
+| Template | Makes | Program |
 | --- | --- | --- |
-| `hook` (default) | a webhook on `download.completed` and `download.failed`, two settings, a dialog with a test button, a Polish translation | nothing |
-| `resolver` | a resolver whose `bin/probe.py` lists the links of a page; the sites to read are a setting | Python 3 |
-| `process` | `bin/plugin.py`, a long-running program that answers `initialize`, `invoke`, `event` and `settings_changed` | Python 3 |
+| `hook` (default) | a webhook on `download.completed` and `download.failed`, two settings, a dialog with a test button, a Polish translation | none: only `plugin.json` |
+| `resolver` | a resolver: `src/main.rs` turns an address with a range (`img[001-020].jpg`) into a list of files | Rust |
+| `process` | a long-running program that answers `initialize`, `invoke`, `event` and `settings_changed` | Rust |
 
-Options: `-t/--template`, `-n/--name` (default: the id in words), `-a/--author` (default: `git config user.name`) and
-`-o/--out DIR` (where to create `<id>/`, default the current directory). It refuses an invalid id and a folder that
-exists, and reads the manifest it made with the code the server uses before writing anything. Then **Extensions →
-Rescan**. The templates live in [`templates/`](templates) (`__ID__`, `__NAME__` and `__AUTHOR__` are replaced) and are
-embedded in the program; tests run the command for each of them and validate the result.
+What a project holds (`resolver` and `process`; `hook` has no `Cargo.toml` and no `src/`):
 
-The Python scripts are starting points for a host install. The official Docker image has no interpreter (see
-[Folder, ZIP and where things live](#folder-zip-and-where-things-live)), so there a program has to be a static binary or
-a dependency; only the `hook` template works as it is.
+```
+plugin.json                      the manifest
+src/main.rs, Cargo.toml          the program, with unit tests; the program is called like the id
+.github/workflows/ci.yml         fmt, clippy and tests
+.github/workflows/release.yml    on a tag: static programs, SHA2-256SUMS and the plugin ZIP
+README.md, .gitignore
+```
+
+Options: `-t/--template`, `-n/--name` (default: the id in words), `-a/--author` (default: `git config user.name`),
+`-r/--repo OWNER/NAME` (the GitHub repository that will hold the project; without it `OWNER/<id>` is written as a
+placeholder to replace before the first release) and `-o/--out DIR` (where to create `<id>/`, default the current
+directory). It refuses an invalid id and a folder that exists, and reads the manifest it made with the code the
+server uses before writing anything. The templates live in [`templates/`](templates) and are embedded in the program;
+tests scaffold each of them, run its checks and build it.
+
+### How a program gets to the user
+
+The program of a `resolver` or `process` project is a [dependency](#dependencies) that **follows the releases of the
+project's own repository**, the way the `yt-dlp` extension follows yt-dlp's:
+
+```json
+"dependencies": [{ "id": "my-bridge", "github": { "repo": "you/my-bridge",
+  "assets": { "linux-x86_64": "my-bridge-linux-x86_64", "linux-aarch64": "my-bridge-linux-aarch64",
+              "macos-aarch64": "my-bridge-macos-aarch64" }, "sha256_asset": "SHA2-256SUMS" } }],
+"process": { "command": "${dep:my-bridge}" }
+```
+
+Tag `v<version>` (the version of `plugin.json` and `Cargo.toml`) and `release.yml` builds the program for Linux (static
+musl builds, x86_64 and aarch64, so it also runs in the official Docker image, which has no libc to match) and macOS
+(Apple silicon), publishes the programs, the `SHA2-256SUMS` file FetchBox checks them against, and `<id>-<version>.zip`
+with `plugin.json` in which `github.tag` is set to that release, so an installed version never downloads a newer
+program. The job summary prints the ZIP's SHA-256 for an entry in the store [catalog](#packaging-and-the-store). A
+program is built with `serde_json` only: a TLS library would need a C toolchain for each target, which the workflow does
+not set up. Another platform is a line in the workflow's `matrix`, in `assets` and in `platforms`.
+
+### Trying it before the first release
+
+The dependency points at a release that does not exist yet, so link the program you built instead:
+
+```sh
+cargo build --release
+fetchbox --data-dir ./.dev/data plugin link path/to/my-bridge    # from this checkout: cargo plugin-link path/to/my-bridge
+```
+
+`plugin link` copies the project's `plugin.json` into `<data dir>/plugins/<id>/` and links `target/release/<id>` (or
+`--bin PATH`) where the dependency would be installed, recorded as installed, so switching the extension on fetches
+nothing. It does not create the data directory (it must be the one FetchBox uses) and does not need FetchBox to be
+stopped: **Extensions → Rescan**, review, approve, switch on. After a rebuild press **Restart** on the card; after a change
+to `plugin.json` run `plugin link` again and approve again. Only `plugin.json` and the dependency's program are put in
+place; files the manifest runs from inside the plugin (a `bin/` folder) are not copied.
 
 ## Quick start
 
@@ -427,7 +458,7 @@ notifications:
 Requests from the program to FetchBox (`id` and `method` from the plugin) are answered with "not implemented" for
 now; the names are reserved for calls such as `downloads.add` in a future API version.
 
-A minimal program in Python (on a host install; in Docker use a binary):
+A minimal program in Python (on a host install; in Docker use a binary; `fetchbox plugin new -t process` makes the same in Rust):
 
 ```python
 #!/usr/bin/env python3
@@ -551,6 +582,8 @@ Write your manifest so that what it asks for is as little and as clear as possib
 it does and what it needs.
 
 ## Testing on your machine
+
+For a project made by `fetchbox plugin new` use [`plugin link`](#trying-it-before-the-first-release), which also puts the program you built in place. By hand:
 
 ```sh
 cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads   # or any build of FetchBox

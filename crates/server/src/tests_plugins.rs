@@ -606,6 +606,73 @@ async fn a_folder_put_in_the_plugins_directory_waits_for_approval() {
     assert!(list.plugins.iter().all(|p| p.id != "dropped"));
 }
 
+/// `fetchbox plugin link`: a project whose program is a dependency on its own GitHub releases runs
+/// from the program that was built, without anything being fetched (the release does not exist).
+#[tokio::test]
+async fn a_linked_program_runs_without_anything_being_downloaded() {
+    let rig = Rig::new().await;
+    let project = rig.root.path().join("project");
+    std::fs::create_dir_all(&project).expect("project");
+    // `main` makes the data directory when the server starts; `plugin link` does not.
+    std::fs::create_dir_all(rig.root.path().join("data")).expect("data dir");
+    let manifest = declared(&manifest(
+        "linked",
+        json!({
+            "dependencies": [{
+                "id": "linked",
+                "github": {
+                    "repo": "nobody/linked",
+                    "assets": {platform_key(): "linked-asset"},
+                    "sha256_asset": "SHA2-256SUMS"
+                }
+            }],
+            "process": {"command": "${dep:linked}", "args": ["echo"]},
+            "ui": {"actions": [{"id": "ping", "label": "Ping", "kind": "process"}]}
+        }),
+    ));
+    std::fs::write(project.join("plugin.json"), manifest.to_string()).expect("manifest");
+
+    let linked = crate::link::link(&crate::link::LinkRequest {
+        project,
+        data_dir: rig.root.path().join("data"),
+        dependency: None,
+        bin: Some(fake_plugin()),
+    })
+    .expect("linked");
+    assert_eq!(linked.plugin_dir, rig.plugin_dir("linked"));
+
+    let list = rig.mgr.plugin_rescan().await.expect("rescan");
+    let found = list
+        .plugins
+        .iter()
+        .find(|p| p.id == "linked")
+        .expect("plugin")
+        .clone();
+    assert_eq!(found.state, PluginState::NeedsReview);
+    assert!(
+        found.dependencies.iter().all(|d| d.installed),
+        "the linked program counts as installed: {:?}",
+        found.dependencies
+    );
+    rig.mgr
+        .plugin_approve("linked".into(), found.manifest_hash)
+        .await
+        .expect("approve");
+    rig.mgr
+        .plugin_set_enabled("linked".into(), true)
+        .await
+        .expect("enable");
+    let running = rig.wait_for("linked", PluginState::Running).await;
+    assert!(running.error.is_none(), "{:?}", running.error);
+
+    let answer = rig
+        .mgr
+        .plugin_action("linked".into(), "ping".into(), BTreeMap::new())
+        .await
+        .expect("ping");
+    assert!(answer.ok);
+}
+
 #[tokio::test]
 async fn an_update_replaces_the_plugin_and_keeps_its_choices() {
     let rig = Rig::new().await;
