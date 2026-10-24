@@ -372,6 +372,8 @@ impl Installer {
         let info = result?;
         if let Some(entry) = entry {
             self.prune_other_versions(entry);
+            // The copy this plugin kept in its own folder before the program was shared is unused now.
+            let _ = std::fs::remove_dir_all(self.deps_dir(plugin).join(&dep.id));
         }
         tracing::info!(
             target: "activity",
@@ -383,6 +385,34 @@ impl Installer {
             "plugin dependency installed"
         );
         Ok(info)
+    }
+
+    /// Was this shared program installed before, in a version that is not the current one? That is
+    /// the case for a user who chose to download an optional program and then got a FetchBox whose
+    /// list names a newer version, and for one who had it in the plugin's own folder before the
+    /// manifest took it from the list. They are not asked again: it is fetched anew.
+    pub fn was_installed_before(&self, plugin: &str, dep: &Dependency) -> bool {
+        let Some(entry) = self.shared_entry(dep) else {
+            return false;
+        };
+        if self
+            .deps_dir(plugin)
+            .join(&dep.id)
+            .join(INFO_FILE)
+            .is_file()
+        {
+            return true;
+        }
+        let Ok(versions) = std::fs::read_dir(self.layout.programs_dir().join(&entry.id)) else {
+            return false;
+        };
+        versions.flatten().any(|v| {
+            let name = v.file_name();
+            let name = name.to_string_lossy();
+            !name.starts_with('.')
+                && name != entry.version.as_str()
+                && v.path().join(INFO_FILE).is_file()
+        })
     }
 
     /// Every plugin resolves a shared program to the version of FetchBox's list, so the folders of
@@ -807,6 +837,55 @@ mod tests {
         assert!(!programs.join("1").exists(), "the old version is gone");
         assert!(programs.join("2").is_dir());
         assert!(programs.join(".tmp-other").is_dir());
+    }
+
+    #[tokio::test]
+    async fn a_program_that_was_installed_before_is_fetched_again_when_the_list_moves_on() {
+        let base = serve(Router::new().route("/two", get(|| async { b"two".to_vec() }))).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inst = installer(tmp.path(), None).with_shared_programs(vec![shared_entry(
+            "2",
+            format!("{base}/two"),
+            b"two",
+        )]);
+        let dep = shared_dep("ffmpeg");
+
+        // Nobody ever downloaded it: an optional program stays an opt-in.
+        assert!(!inst.was_installed_before("demo", &dep));
+
+        // An earlier version of the program is in place (a work folder does not count).
+        let programs = tmp.path().join("plugin-programs/ffmpeg");
+        std::fs::create_dir_all(programs.join(".tmp-x")).expect("work folder");
+        std::fs::create_dir_all(programs.join("1")).expect("old version");
+        assert!(
+            !inst.was_installed_before("demo", &dep),
+            "no record, not installed"
+        );
+        std::fs::write(programs.join("1").join(INFO_FILE), "{}").expect("record");
+        assert!(inst.was_installed_before("demo", &dep));
+        std::fs::remove_dir_all(programs.join("1")).expect("remove");
+        assert!(!inst.was_installed_before("demo", &dep));
+
+        // Or it was in the plugin's own folder, from before the manifest named the shared entry.
+        let legacy = tmp.path().join("plugin-data/demo/deps/ffmpeg");
+        std::fs::create_dir_all(&legacy).expect("legacy");
+        std::fs::write(legacy.join("ffmpeg"), b"old copy").expect("program");
+        std::fs::write(legacy.join(INFO_FILE), "{}").expect("record");
+        assert!(inst.was_installed_before("demo", &dep));
+        assert!(
+            !inst.was_installed_before("other", &dep),
+            "that is another plugin's folder"
+        );
+
+        // Only a shared program has a before.
+        assert!(!inst.was_installed_before("demo", &github_dep(Some("SUMS"), "x")));
+
+        // The fetch that follows leaves the shared copy and removes the unused one.
+        inst.install("demo", &dep, &nothing)
+            .await
+            .expect("installed");
+        assert!(inst.state("demo", &dep).is_some());
+        assert!(!legacy.exists(), "the plugin's own copy is gone");
     }
 
     #[tokio::test]

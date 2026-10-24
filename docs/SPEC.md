@@ -1039,9 +1039,11 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   `Fetch::One` installs a missing one. Removing a plugin leaves shared programs; `plugin link` ignores them. The permission summary lists such a dependency as
   "<id> (dependency from FetchBox's list)" with the hosts of the entry, and counts it as `programs` and `network`. **Trust:** the addresses and hashes are
   FetchBox's, they change with a FetchBox update and the plugin is not reviewed again for that. An older FetchBox refuses the manifest (it does not know `shared`).
-  The `yt-dlp` plugin uses it for ffmpeg (1.1.0; installs from before fetch ffmpeg once more into the shared folder and keep an unused copy in their own data
-  folder). Tests: `core::plugin::programs` (every entry valid), `validate` and `derive_permissions` (shared, unknown, mixed), `deps::tests` (one download for two
-  plugins, a newer entry replaces the old folder, refusals) and `tests_plugins` (two plugins run from one seeded program, nothing in their own folders, "Download
+  The `yt-dlp` plugin uses it for ffmpeg (1.1.0). ffmpeg is optional, which `prepare` skips, so `Installer::was_installed_before` says that a shared program was
+  installed before (an earlier version folder with a record, or the plugin's own legacy `deps/<id>/` record): then `Missing` and `Update` fetch it again by
+  themselves (one automatic re-download per user who had ffmpeg, and again for every version bump of the list), and a successful install removes the plugin's
+  legacy copy; a program nobody downloaded stays an opt-in. Tests: `core::plugin::programs` (every entry valid), `validate` and `derive_permissions` (shared, unknown, mixed), `deps::tests` (one download for two
+  plugins, a newer entry replaces the old folder, was-installed-before, refusals) and `tests_plugins` (two plugins run from one seeded program, nothing in their own folders, "Download
   programs" leaves it alone).
 - **Commands** (`oneshot`) run without a shell, with a minimal environment (no FetchBox secrets), a timeout (30 s by default, 120
   s at most), 8 MiB of standard output and 64 KiB of standard error kept, at most 4 at once overall and 2 per plugin, and the

@@ -746,12 +746,15 @@ impl Manager {
         };
         for dep in &manifest.dependencies {
             let installed = host.installer.state(id, dep).is_some();
+            // An optional program the user already chose to download stays chosen when it has to be
+            // fetched again (a shared program whose version FetchBox's list moved on).
+            let again = !installed && host.installer.was_installed_before(id, dep);
             let wanted = match which {
-                Fetch::Missing => !dep.optional && !installed,
+                Fetch::Missing => (!dep.optional || again) && !installed,
                 // A shared program is updated with FetchBox (its list names the version), and
                 // fetching it again would replace the folder other plugins are running from.
                 Fetch::Update => {
-                    (!dep.optional || installed) && !(dep.shared.is_some() && installed)
+                    (!dep.optional || installed || again) && !(dep.shared.is_some() && installed)
                 }
                 Fetch::One(only) => *only == dep.id,
             };

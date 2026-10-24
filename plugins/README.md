@@ -278,9 +278,11 @@ program (today: `ffmpeg`). A dependency names one:
   yours; `platforms`, `github` and `bin` are not allowed (the entry decides, and a name that is not on the list is refused with
   the names that are).
 - The program is installed **once** for every extension that names it, into `<data>/plugin-programs/<program>/<version>/`,
-  not into your extension's data folder, and **not downloaded again** by **Download programs** (it is updated with FetchBox: a
-  new FetchBox whose list names a newer version fetches that one the next time an extension needs it and removes the old
-  folder). Removing an extension leaves a shared program in place.
+  not into your extension's data folder, and **not downloaded again** by **Download programs** (it is updated with FetchBox).
+  When a FetchBox whose list names a newer version starts, a program that was installed before (in the old version, or in
+  your extension's own folder from before it took the program from the list) is fetched again by itself, the old folder is
+  removed and the extension's own copy too; an optional program nobody downloaded stays an opt-in. Removing an extension
+  leaves a shared program in place.
 - The review screen shows it as "ffmpeg (dependency from FetchBox's list)" and lists the hosts the files come from; the group
   `network` and `programs` are still yours to declare in `permissions.uses`.
 - **Trust.** The addresses and SHA-256 values of a shared program are FetchBox's, not yours: they change with a FetchBox
