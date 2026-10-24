@@ -13,6 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use fetchbox_core::plugin::Dependency;
 use fetchbox_plugins::install::{self, Layout};
 
 use crate::scaffold::print_out;
@@ -53,18 +54,20 @@ pub fn link(request: &LinkRequest) -> anyhow::Result<Linked> {
         .map_err(|e| anyhow::anyhow!("{} is not a valid plugin: {e}", manifest_path.display()))?;
 
     let layout = Layout::new(&request.data_dir);
+    // A shared program (FetchBox's list) is not the author's to build, so it is not what is linked.
+    let own: Vec<&Dependency> = manifest
+        .dependencies
+        .iter()
+        .filter(|d| d.shared.is_none())
+        .collect();
     let dep = match &request.dependency {
-        Some(wanted) => Some(
-            manifest
-                .dependencies
-                .iter()
-                .find(|d| &d.id == wanted)
-                .with_context(|| format!("the plugin has no dependency \"{wanted}\""))?,
-        ),
-        None => match manifest.dependencies.as_slice() {
+        Some(wanted) => Some(*own.iter().find(|d| &d.id == wanted).with_context(|| {
+            format!("the plugin has no dependency of its own named \"{wanted}\"")
+        })?),
+        None => match own.as_slice() {
             [] => None,
-            [only] => Some(only),
-            many => Some(many.iter().find(|d| d.id == manifest.id).with_context(|| {
+            [only] => Some(*only),
+            many => Some(*many.iter().find(|d| d.id == manifest.id).with_context(|| {
                 format!(
                     "the plugin has several dependencies ({}): name one with --dependency",
                     many.iter()

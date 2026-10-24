@@ -49,6 +49,12 @@ impl Layout {
         self.plugins_dir().join(id)
     }
 
+    /// `<data>/plugin-programs`: the programs of FetchBox's list that plugins share, one folder per
+    /// program and version (`<program>/<version>/`).
+    pub fn programs_dir(&self) -> PathBuf {
+        self.data_dir.join("plugin-programs")
+    }
+
     /// `<data>/plugin-data/<id>`: the only place a plugin's programs are meant to write.
     pub fn data_dir_of(&self, id: &str) -> PathBuf {
         self.data_dir.join("plugin-data").join(id)

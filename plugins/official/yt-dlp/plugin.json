@@ -2,7 +2,7 @@
   "api_version": 1,
   "id": "yt-dlp",
   "name": "Video sites (yt-dlp)",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Downloads videos and audio from YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and more than a thousand other sites with yt-dlp. Paste a video, playlist or channel address; pick the quality in the add dialog. Use it only for content you have the right to download.",
   "author": "FetchBox",
   "homepage": "https://github.com/fwitkowski17/WebDownloadManager/tree/main/plugins/official/yt-dlp",
@@ -47,36 +47,7 @@
       "id": "ffmpeg",
       "label": "ffmpeg (merges video and audio, makes MP3)",
       "optional": true,
-      "platforms": {
-        "linux-x86_64": {
-          "url": "https://files.pythonhosted.org/packages/a0/2d/43c8522a2038e9d0e7dbdf3a61195ecc31ca576fb1527a528c877e87d973/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_x86_64.whl",
-          "sha256": "c7e46fcec401dd990405049d2e2f475e2b397779df2519b544b8aab515195282",
-          "archive": "zip",
-          "size": 29498237,
-          "bin": "imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
-        },
-        "linux-aarch64": {
-          "url": "https://files.pythonhosted.org/packages/33/e7/1925bfbc563c39c1d2e82501d8372734a5c725e53ac3b31b4c2d081e895b/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_aarch64.whl",
-          "sha256": "1d47bebd83d2c5fc770720d211855f208af8a596c82d17730aa51e815cdee6dc",
-          "archive": "zip",
-          "size": 25632706,
-          "bin": "imageio_ffmpeg/binaries/ffmpeg-linux-aarch64-v7.0.2"
-        },
-        "macos-aarch64": {
-          "url": "https://files.pythonhosted.org/packages/40/5c/f3d8a657d362cc93b81aab8feda487317da5b5d31c0e1fdfd5e986e55d17/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl",
-          "sha256": "b1ae3173414b5fc5f538a726c4e48ea97edc0d2cdc11f103afee655c463fa742",
-          "archive": "zip",
-          "size": 21113891,
-          "bin": "imageio_ffmpeg/binaries/ffmpeg-macos-aarch64-v7.1"
-        },
-        "macos-x86_64": {
-          "url": "https://files.pythonhosted.org/packages/da/58/87ef68ac83f4c7690961bce288fd8e382bc5f1513860fc7f90a9c1c1c6bf/imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl",
-          "sha256": "9d2baaf867088508d4a3458e61eeb30e945c4ad8016025545f66c4b5aaef0a61",
-          "archive": "zip",
-          "size": 24932969,
-          "bin": "imageio_ffmpeg/binaries/ffmpeg-macos-x86_64-v7.1"
-        }
-      }
+      "shared": "ffmpeg"
     }
   ],
   "settings": [

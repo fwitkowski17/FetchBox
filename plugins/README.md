@@ -15,7 +15,7 @@ rest (downloads the programs it depends on, draws its settings and dialogs, runs
 - [Folder, ZIP and where things live](#folder-zip-and-where-things-live)
 - [The manifest](#the-manifest) (`plugin.json`)
   - [Identity and platforms](#identity-and-platforms)
-  - [Dependencies: programs FetchBox downloads for you](#dependencies)
+  - [Dependencies: programs FetchBox downloads for you](#dependencies) (and [shared programs](#shared-programs-ffmpeg-and-friends))
   - [Settings](#settings)
   - [Templates for commands](#templates-for-commands)
   - [Resolvers: new sources of downloads](#resolvers)
@@ -243,8 +243,11 @@ is how the `yt-dlp` extension keeps yt-dlp current (the **Update** button fetche
 }
 ```
 
+A third form names a program of [FetchBox's own list](#shared-programs-ffmpeg-and-friends): `{ "id": "ffmpeg", "shared": "ffmpeg" }`.
+
 Rules:
 
+- A dependency has exactly one source: `platforms` (pinned), `github` (following) or `shared`.
 - Addresses are `https://` only and go through the same URL policy as downloads (`--block-private-urls`). A hash
   that does not match, a file larger than expected (`size` is an upper bound; the default limit is 500 MiB) or an
   archive that tries to escape its folder fails the install with the reason shown on the card.
@@ -259,6 +262,34 @@ Rules:
   beats "latest" in a URL.
 - Prefer self-contained programs. In the Docker image the program is started directly, so a Python script or a
   PyInstaller binary that needs a shell will not work; a PyInstaller or static binary does.
+
+### Shared programs (ffmpeg and friends)
+
+Some programs are wanted by many extensions, and copying their addresses and hashes into every manifest would also
+download a copy of each. FetchBox keeps a list of such programs, [`programs.json`](programs.json), embedded in the
+program (today: `ffmpeg`). A dependency names one:
+
+```json
+{ "id": "ffmpeg", "label": "ffmpeg (merges video and audio)", "optional": true, "shared": "ffmpeg" }
+```
+
+- It is used like any dependency: `${dep:ffmpeg}`, `${dep_dir:ffmpeg}`, `requires: ["ffmpeg"]`, `{ "when": "dep:ffmpeg", ... }`.
+  `id` is yours (it only has to be unique in your manifest), `shared` is the entry of the list. `label` and `optional` are
+  yours; `platforms`, `github` and `bin` are not allowed (the entry decides, and a name that is not on the list is refused with
+  the names that are).
+- The program is installed **once** for every extension that names it, into `<data>/plugin-programs/<program>/<version>/`,
+  not into your extension's data folder, and **not downloaded again** by **Download programs** (it is updated with FetchBox: a
+  new FetchBox whose list names a newer version fetches that one the next time an extension needs it and removes the old
+  folder). Removing an extension leaves a shared program in place.
+- The review screen shows it as "ffmpeg (dependency from FetchBox's list)" and lists the hosts the files come from; the group
+  `network` and `programs` are still yours to declare in `permissions.uses`.
+- **Trust.** The addresses and SHA-256 values of a shared program are FetchBox's, not yours: they change with a FetchBox
+  update and the extension is not reviewed again for it. That is the point, and the reason the list is short and each entry
+  is pinned (an address, a SHA-256 and a size per platform). To add a program, send a pull request that adds an entry to
+  [`programs.json`](programs.json): `id`, `label`, a `version` that is also a folder name, and per platform the `url`,
+  `sha256`, `size`, `archive` and the `bin` path inside it. A test checks every entry.
+- An older FetchBox does not know `shared` and refuses the manifest ("needs either `platforms` or `github`"). Programs that
+  FetchBox does not list still use `platforms` or `github`.
 
 ### Settings
 

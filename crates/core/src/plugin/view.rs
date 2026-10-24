@@ -154,7 +154,21 @@ pub fn derive_permissions(m: &Manifest) -> PermissionSummary {
         if let Some(g) = &d.github {
             p.download_hosts.push(format!("github.com/{}", g.repo));
         }
-        p.programs.push(format!("{} (dependency)", d.id));
+        match d
+            .shared
+            .as_deref()
+            .and_then(super::programs::shared_program)
+        {
+            // Its files are FetchBox's choice, not the plugin's: say where they come from anyway.
+            Some(program) => {
+                for src in program.platforms.values() {
+                    p.download_hosts.push(url_label(&src.url));
+                }
+                p.programs
+                    .push(format!("{} (dependency from FetchBox's list)", d.id));
+            }
+            None => p.programs.push(format!("{} (dependency)", d.id)),
+        }
     }
     for r in &m.resolvers {
         if let Some(c) = &r.probe {
@@ -499,6 +513,39 @@ mod tests {
             }"#,
         )
         .expect("a manifest")
+    }
+
+    #[test]
+    fn a_shared_program_shows_where_fetchbox_gets_it_from() {
+        let mut m = manifest();
+        m.dependencies.push(super::super::Dependency {
+            id: "ffmpeg".into(),
+            label: String::new(),
+            optional: true,
+            bin: None,
+            platforms: BTreeMap::new(),
+            github: None,
+            shared: Some("ffmpeg".into()),
+        });
+        let p = derive_permissions(&m);
+        assert!(p
+            .programs
+            .contains(&"ffmpeg (dependency from FetchBox's list)".to_owned()));
+        assert!(
+            p.download_hosts
+                .contains(&"files.pythonhosted.org".to_owned()),
+            "{:?}",
+            p.download_hosts
+        );
+
+        // A plugin whose only download is a shared program still needs `network` and `programs`.
+        let only: Manifest = serde_json::from_value(serde_json::json!({
+            "api_version": 1, "id": "demo", "name": "Demo", "version": "1.0.0",
+            "dependencies": [{"id": "ffmpeg", "shared": "ffmpeg"}]
+        }))
+        .expect("manifest");
+        let used: Vec<_> = used_groups(&only).into_iter().map(|g| g.as_str()).collect();
+        assert_eq!(used, ["network", "programs"]);
     }
 
     #[test]

@@ -64,7 +64,7 @@ FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,disks,version,error}.rs and plugin/{manifest,view,validate,template,text}.rs
+│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,disks,version,error}.rs and plugin/{manifest,view,validate,template,text,programs}.rs
 │   ├── http_engine/src/{lib,segments,worker,source,ftp,sftp,hostkeys,net,listing,probe}.rs   # also FTP(S) and SFTP, see 6.12
 │   ├── torrent_engine/{src/{lib,parse,error}.rs,examples/seed.rs}   # BitTorrent over librqbit, see 6.13
 │   ├── storage/{migrations/,src/{lib,downloads,known_hosts,plugins,segments,settings,stats,torrents}.rs}
@@ -80,7 +80,7 @@ FetchBox/
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
 │   └── vite.config.ts
-├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), templates/{hook,resolver,process,_rust}/ (starting points for new extension projects), see 6.15
+├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), programs.json (programs plugins share), templates/{hook,resolver,process,_rust}/ (starting points for new extension projects), see 6.15
 ├── vendor/librqbit-tracker-comms/   # one upstream crate with a one-function patch, see 6.13
 ├── scripts/build.sh
 ├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
@@ -1004,7 +1004,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   (downloads made by a program) and `plugin_hooks` (events). `crates/test_plugin` is a stand-in program for the tests.
 - **Files.** `<data>/plugins/<id>/` is the code (written only by the host), `<data>/plugins/.staging/<token>/` holds a
   package that was unpacked and awaits approval (swept after 15 minutes), `<data>/plugin-data/<id>/{deps,tmp,home,state}` is
-  the extension's own, kept across updates. Storage: tables `plugins` (id, enabled, approved manifest hash, source,
+  the extension's own, kept across updates. `<data>/plugin-programs/<program>/<version>/` holds the programs plugins share (below). Storage: tables `plugins` (id, enabled, approved manifest hash, source,
   installed version) and `plugin_settings` (migration 0016), and `downloads.runner` (`<plugin>/<resolver>`) for downloads made by
   a program; the preset is kept in the download's `runner_ref`.
 - **Declared permissions.** `permissions.uses` lists the groups the extension uses (`network`, `programs`, `downloads`,
@@ -1028,6 +1028,21 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   the URL policy, hashed while arriving, unpacked into a temporary folder, made executable and swapped in atomically with a
   record (`.fetchbox-dependency.json`); one install at a time; progress is published as `plugin` events. A platform entry may
   have its own `bin`. `optional` dependencies gate presets through `requires`.
+- **Shared programs.** A dependency has exactly one source: `platforms`, `github` or `shared`. `shared` names an entry of `plugins/programs.json`
+  (`core::plugin::programs`, embedded with `include_str!` and read once, so `validate`, `derive_permissions` and the installer see the same list; an unknown
+  name is refused at install with the names that exist, and `bin` is not allowed). An entry is pinned like a `platforms` dependency (`url`, `sha256`, `size`,
+  `archive`, `bin` per platform) plus `id`, `label` and a `version` that is a folder name. It is installed once, into `<data>/plugin-programs/<id>/<version>/`
+  (`Layout::programs_dir`), whatever the plugins call the dependency; `Installer::dep_dir`, `bin_path`, `state` and `install` map a shared dependency there
+  (the others stay in `plugin-data/<plugin>/deps/<id>/`). `install` re-checks `state` after taking its turn, so two plugins switched on together download
+  once; the work folder is next to the target; a successful install removes the other version folders of that program (every manifest resolves to the
+  list's version; a program still running from one keeps running). `Fetch::Update` ("Download programs") does nothing for a shared program that is in place,
+  `Fetch::One` installs a missing one. Removing a plugin leaves shared programs; `plugin link` ignores them. The permission summary lists such a dependency as
+  "<id> (dependency from FetchBox's list)" with the hosts of the entry, and counts it as `programs` and `network`. **Trust:** the addresses and hashes are
+  FetchBox's, they change with a FetchBox update and the plugin is not reviewed again for that. An older FetchBox refuses the manifest (it does not know `shared`).
+  The `yt-dlp` plugin uses it for ffmpeg (1.1.0; installs from before fetch ffmpeg once more into the shared folder and keep an unused copy in their own data
+  folder). Tests: `core::plugin::programs` (every entry valid), `validate` and `derive_permissions` (shared, unknown, mixed), `deps::tests` (one download for two
+  plugins, a newer entry replaces the old folder, refusals) and `tests_plugins` (two plugins run from one seeded program, nothing in their own folders, "Download
+  programs" leaves it alone).
 - **Commands** (`oneshot`) run without a shell, with a minimal environment (no FetchBox secrets), a timeout (30 s by default, 120
   s at most), 8 MiB of standard output and 64 KiB of standard error kept, at most 4 at once overall and 2 per plugin, and the
   whole process group is killed on timeout or drop. Arguments are templates (`core::plugin::template`): `${url}`,

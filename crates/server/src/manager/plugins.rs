@@ -371,7 +371,7 @@ impl Manager {
         let mut path_dirs = vec![host.layout.plugin_dir(id).join("bin")];
         for d in &manifest.dependencies {
             if host.installer.state(id, d).is_some() {
-                let dir = host.installer.dep_dir(id, &d.id);
+                let dir = host.installer.dep_dir(id, d);
                 path_dirs.push(dir.clone());
                 deps.insert(
                     d.id.clone(),
@@ -748,7 +748,11 @@ impl Manager {
             let installed = host.installer.state(id, dep).is_some();
             let wanted = match which {
                 Fetch::Missing => !dep.optional && !installed,
-                Fetch::Update => !dep.optional || installed,
+                // A shared program is updated with FetchBox (its list names the version), and
+                // fetching it again would replace the folder other plugins are running from.
+                Fetch::Update => {
+                    (!dep.optional || installed) && !(dep.shared.is_some() && installed)
+                }
                 Fetch::One(only) => *only == dep.id,
             };
             if !wanted {

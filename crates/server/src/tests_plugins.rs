@@ -673,6 +673,97 @@ async fn a_linked_program_runs_without_anything_being_downloaded() {
     assert!(answer.ok);
 }
 
+/// A program of FetchBox's list is installed once and run by every plugin that names it. It is put
+/// in place by hand here (the real addresses are on PyPI); nothing may be fetched, and the update
+/// of a plugin's dependencies leaves it alone.
+#[tokio::test]
+async fn plugins_share_a_program_from_fetchboxs_list() {
+    use fetchbox_core::plugin::shared_program;
+
+    let rig = Rig::new().await;
+    let entry = shared_program("ffmpeg").expect("ffmpeg is on the list");
+    let Some(source) = entry.platforms.get(&platform_key()) else {
+        return; // no ffmpeg for this platform: nothing to run
+    };
+    let folder = rig
+        .root
+        .path()
+        .join("data/plugin-programs/ffmpeg")
+        .join(&entry.version);
+    let program = folder.join(source.bin.as_deref().expect("a program path"));
+    std::fs::create_dir_all(program.parent().expect("parent")).expect("folder");
+    std::fs::copy(fake_plugin(), &program).expect("program");
+    std::fs::write(
+        folder.join(".fetchbox-dependency.json"),
+        json!({"version": entry.version, "sha256": "", "host": "test", "installed_at": 0})
+            .to_string(),
+    )
+    .expect("record");
+
+    let plugin = |id: &str| {
+        manifest(
+            id,
+            json!({
+                "platforms": [platform_key()],
+                "dependencies": [{"id": "ffmpeg", "shared": "ffmpeg"}],
+                "process": {"command": "${dep:ffmpeg}", "args": ["echo"]},
+                "ui": {"actions": [{"id": "ping", "label": "Ping", "kind": "process"}]}
+            }),
+        )
+    };
+    for id in ["alpha", "beta"] {
+        let installed = rig.install(&plugin(id), false).await;
+        assert!(
+            installed.dependencies[0].installed,
+            "it is there before anything is fetched"
+        );
+        assert_eq!(
+            installed.dependencies[0].version.as_deref(),
+            Some(entry.version.as_str())
+        );
+        rig.mgr
+            .plugin_set_enabled(id.into(), true)
+            .await
+            .expect("enable");
+    }
+    for id in ["alpha", "beta"] {
+        let running = rig.wait_for(id, PluginState::Running).await;
+        assert!(running.error.is_none(), "{:?}", running.error);
+        let answer = rig
+            .mgr
+            .plugin_action(id.into(), "ping".into(), BTreeMap::new())
+            .await
+            .expect("ping");
+        assert!(answer.ok);
+    }
+    assert!(
+        !rig.root.path().join("data/plugin-data/alpha/deps").exists(),
+        "nothing was put in the plugin's own folder"
+    );
+
+    // "Download programs" leaves a shared program alone: it moves with FetchBox, and a new copy
+    // would replace the folder the other plugin is running from.
+    let before = std::fs::metadata(&program)
+        .expect("meta")
+        .modified()
+        .expect("mtime");
+    let again = rig
+        .mgr
+        .plugin_dependencies("alpha".into(), None)
+        .await
+        .expect("update");
+    assert!(again.enabled);
+    rig.wait_for("alpha", PluginState::Running).await;
+    assert_eq!(
+        std::fs::metadata(&program)
+            .expect("meta")
+            .modified()
+            .expect("mtime"),
+        before
+    );
+    rig.wait_for("beta", PluginState::Running).await;
+}
+
 #[tokio::test]
 async fn an_update_replaces_the_plugin_and_keeps_its_choices() {
     let rig = Rig::new().await;
