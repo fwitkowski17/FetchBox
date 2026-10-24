@@ -10,6 +10,7 @@ learn and nothing to compile: the manifest says what the extension needs and wha
 rest (downloads the programs it depends on, draws its settings and dialogs, runs its commands, sends its webhooks).
 
 - [What an extension can do](#what-an-extension-can-do)
+- [Start from a template](#start-from-a-template)
 - [Quick start: a notification in 15 lines](#quick-start)
 - [Folder, ZIP and where things live](#folder-zip-and-where-things-live)
 - [The manifest](#the-manifest) (`plugin.json`)
@@ -47,6 +48,33 @@ extension's own program).
 
 Everything is described in JSON. The interface is *declarative*: you list fields, buttons and dialogs, FetchBox
 draws them (so an extension can never run script in the page that holds the user's session).
+
+## Start from a template
+
+`scripts/new-plugin.sh` (bash; run it from a checkout of this repository) makes the folder of a new extension with a
+`plugin.json` that already validates, a `README.md` that says how to try it, and the scripts it needs:
+
+```sh
+scripts/new-plugin.sh my-notifier --dev                     # a hook with a settings field and a test button
+scripts/new-plugin.sh page-links -t resolver -n "Page links"  # Add download reads a page and lists its files
+scripts/new-plugin.sh my-bridge  -t process --dev           # a program that keeps running (JSON lines)
+scripts/new-plugin.sh --list                                # the templates
+```
+
+| Template | Makes | Needs |
+| --- | --- | --- |
+| `hook` (default) | a webhook on `download.completed` and `download.failed`, two settings, a dialog with a test button, a Polish translation | nothing |
+| `resolver` | a resolver whose `bin/probe.py` lists the links of a page; the sites to read are a setting | Python 3 |
+| `process` | `bin/plugin.py`, a long-running program that answers `initialize`, `invoke`, `event` and `settings_changed` | Python 3 |
+
+Options: `-t/--template`, `-n/--name` (default: the id in words), `-a/--author` (default: `git config user.name`),
+`-o/--out DIR` (where to create `<id>/`, default the current directory) and `--dev`, which creates it in
+`./.dev/data/plugins`, where the dev backend of [Testing on your machine](#testing-on-your-machine) looks. It refuses an
+invalid id and a folder that exists. Then **Extensions → Rescan**. The templates live in [`templates/`](templates)
+(`__ID__`, `__NAME__` and `__AUTHOR__` are replaced); a test scaffolds each of them and validates the result.
+
+The Python scripts are starting points for a host install. The official Docker image has no interpreter (see
+[Folder, ZIP and where things live](#folder-zip-and-where-things-live)).
 
 ## Quick start
 

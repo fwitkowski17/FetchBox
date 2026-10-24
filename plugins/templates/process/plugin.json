@@ -1,0 +1,49 @@
+{
+  "api_version": 1,
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "A program that runs next to FetchBox, receives its events and answers a button.",
+  "author": "__AUTHOR__",
+  "license": "MIT",
+  "permissions": {
+    "uses": ["programs", "background", "events"],
+    "reasons": {
+      "programs": "Runs bin/plugin.py (Python 3).",
+      "background": "The program keeps running while the extension is switched on.",
+      "events": "The program is told when a download finishes or fails."
+    }
+  },
+  "settings": [
+    {
+      "key": "greeting",
+      "type": "text",
+      "label": "Greeting",
+      "help": "Shown by the Ping button. Saved settings reach the running program without a restart.",
+      "default": "pong"
+    }
+  ],
+  "process": {
+    "command": "bin/plugin.py",
+    "autostart": true,
+    "restart": "on_failure"
+  },
+  "hooks": [
+    {
+      "on": ["download.completed", "download.failed"],
+      "action": { "process": true }
+    }
+  ],
+  "ui": {
+    "icon": "puzzle",
+    "actions": [
+      {
+        "id": "ping",
+        "label": "Ping",
+        "icon": "activity",
+        "placement": "card",
+        "kind": "process"
+      }
+    ]
+  }
+}

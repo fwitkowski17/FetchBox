@@ -1,0 +1,55 @@
+{
+  "api_version": 1,
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "Finds the files linked from a web page and offers them in the Add download dialog.",
+  "author": "__AUTHOR__",
+  "license": "MIT",
+  "permissions": {
+    "uses": ["network", "programs"],
+    "reasons": {
+      "network": "Reads the pages whose addresses match the sites you list in the settings.",
+      "programs": "Runs bin/probe.py (Python 3) to read a page and list the files it links to."
+    },
+    "network": ["${setting:sites}"]
+  },
+  "settings": [
+    {
+      "key": "sites",
+      "type": "textarea",
+      "label": "Sites",
+      "help": "One address pattern per line. Pages that match are read by this extension, for example https://example.com/gallery/*.",
+      "placeholder": "https://example.com/gallery/*"
+    },
+    {
+      "key": "extensions",
+      "type": "text",
+      "label": "File types",
+      "help": "Comma-separated extensions of the links to offer.",
+      "default": "jpg,jpeg,png,gif,mp4,zip,pdf"
+    }
+  ],
+  "resolvers": [
+    {
+      "id": "links",
+      "match": ["${setting:sites}"],
+      "probe": {
+        "command": "bin/probe.py",
+        "args": ["${url}", "${setting:extensions}"],
+        "timeout_s": 30
+      },
+      "result": {
+        "items": "/entries",
+        "item": {
+          "name": ["/name"],
+          "url": ["/url"],
+          "size": ["/size"]
+        }
+      }
+    }
+  ],
+  "ui": {
+    "icon": "list"
+  }
+}

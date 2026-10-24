@@ -80,9 +80,9 @@ FetchBox/
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
 │   └── vite.config.ts
-├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), see 6.15
+├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), templates/{hook,resolver,process}/ (starting points for new extensions), see 6.15
 ├── vendor/librqbit-tracker-comms/   # one upstream crate with a one-function patch, see 6.13
-├── scripts/build.sh
+├── scripts/{build,bump-version,gen-api,new-plugin}.sh   # new-plugin.sh scaffolds an extension from plugins/templates/ (6.15)
 ├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
 ├── packaging/                 # DEB/RPM: nfpm.yaml, unit, env file, maintainer scripts, build.sh, smoke-test.sh
 ├── Dockerfile                 # multi-stage; final image distroless/scratch
@@ -1093,6 +1093,14 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   `isSafeExternalUrl` and icons only from the app's own set. In the add dialog the entries made by an extension carry the preset
   as a label and "via <extension>", are keyed by address and preset (`entryKey`), and are added with `via` and the title as the
   file name; while the look takes long the dialog says which extensions it is asking.
+- **Starting a new extension.** `scripts/new-plugin.sh <id> [-t hook|resolver|process] [-n name] [-a author] [-o dir | --dev]` copies
+  `plugins/templates/<template>/` to `<dir>/<id>/` and fills in `__ID__`, `__NAME__` and `__AUTHOR__` (plain bash text
+  replacement; a name or author with `"` or `\` is refused because the values land in JSON). `hook` is a webhook with settings
+  and a test dialog (no program), `resolver` a resolver whose `bin/probe.py` lists the links of a page, `process` a long-running
+  `bin/plugin.py`; each has a `README.md` on how to try it. `--dev` writes into `./.dev/data/plugins`, the data dir of the dev
+  backend command. The templates are not embedded in the binary and not offered by the store. The test
+  `every_template_scaffolds_a_valid_plugin` (`server::manager::plugin_store`) runs the script for every template and validates the
+  manifest it makes; CI runs `shellcheck` on the script.
 - **Extensions that ship.** `webhook-notify` (a request when a download finishes or fails: settings, a test dialog, a hook; no
   program) and `yt-dlp` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds; yt-dlp from its GitHub
   releases checked against `SHA2-256SUMS`, and an optional static ffmpeg pinned to the `imageio-ffmpeg` 0.6.0 wheels on PyPI, whose

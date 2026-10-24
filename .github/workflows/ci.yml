@@ -61,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shell scripts pass shellcheck
-        run: shellcheck -e SC1090 -e SC1091 deploy/install.sh deploy/proxmox/ct/*.sh deploy/proxmox/install/*.sh packaging/*.sh packaging/scripts/*.sh
+        run: shellcheck -e SC1090 -e SC1091 scripts/new-plugin.sh deploy/install.sh deploy/proxmox/ct/*.sh deploy/proxmox/install/*.sh packaging/*.sh packaging/scripts/*.sh
       - uses: ./.github/actions/setup-nfpm
       - name: Build the packages around a stub program
         run: |
