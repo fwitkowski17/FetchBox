@@ -77,7 +77,7 @@ plugin.json                      the manifest
 src/main.rs, Cargo.toml          the program, with unit tests; the program is called like the id
 .github/workflows/ci.yml         fmt, clippy and tests
 .github/workflows/release.yml    on a tag: static programs, SHA2-256SUMS and the plugin ZIP
-README.md, .gitignore
+README.md, CLAUDE.md, .gitignore   CLAUDE.md: notes for Claude Code (commands, the contract, what is easy to break)
 ```
 
 Options: `-t/--template`, `-n/--name` (default: the id in words), `-a/--author` (default: `git config user.name`),

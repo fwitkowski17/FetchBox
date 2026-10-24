@@ -8,6 +8,7 @@ meant to live in a repository of its own:
 
 ```
 plugin.json                      the manifest FetchBox reads
+CLAUDE.md                        notes for Claude Code (or any assistant) working on this project
 src/main.rs                      the program (reads the address, prints JSON, a few tests)
 Cargo.toml                       builds the program as `__ID__`
 .github/workflows/ci.yml         fmt, clippy and tests on every push

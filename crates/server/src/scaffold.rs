@@ -380,6 +380,7 @@ mod tests {
             for needed in [
                 "plugin.json",
                 "README.md",
+                "CLAUDE.md",
                 ".gitignore",
                 ".github/workflows/ci.yml",
                 ".github/workflows/release.yml",

@@ -6,6 +6,7 @@ bridge. It is written in Rust (`src/main.rs`) and the project is meant to live i
 
 ```
 plugin.json                      the manifest FetchBox reads
+CLAUDE.md                        notes for Claude Code (or any assistant) working on this project
 src/main.rs                      the program (the protocol, a few tests)
 Cargo.toml                       builds the program as `__ID__`
 .github/workflows/ci.yml         fmt, clippy and tests on every push

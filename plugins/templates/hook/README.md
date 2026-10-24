@@ -6,6 +6,7 @@ repository of its own:
 
 ```
 plugin.json                      the manifest FetchBox reads
+CLAUDE.md                        notes for Claude Code (or any assistant) working on this project
 .github/workflows/ci.yml         checks that plugin.json is JSON
 .github/workflows/release.yml    on a tag: publishes the plugin ZIP
 ```

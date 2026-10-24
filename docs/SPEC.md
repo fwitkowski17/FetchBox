@@ -1100,7 +1100,8 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   and `__REPO__` are replaced (escaped as a JSON string in `.json` files, as they are elsewhere; the author defaults to `git config
   user.name`, the name to the id in words, the repository to the placeholder `OWNER/<id>` which the command points out). A folder of
   `plugins/templates/` whose name starts with `_` is not a template but files that several templates share (`_rust`: `Cargo.toml`,
-  `.gitignore`, the workflows). Like `reset-password` the command runs before the data and download directories are created or the database
+  `.gitignore`, the workflows). Each template also has a `CLAUDE.md` for the project: its commands, the contract of its program or manifest, and what is
+  easy to break (the places that must stay in step: versions, ids, assets, platforms). Like `reset-password` the command runs before the data and download directories are created or the database
   opened. The manifest is read with `install::parse_manifest` before anything is written; an invalid id or repository, a name the manifest
   refuses or an existing folder is an error and leaves nothing behind.
   - `hook`: JSON only (a webhook, settings, a test dialog) with a workflow that publishes the plugin ZIP. `resolver` and `process`: a Cargo
