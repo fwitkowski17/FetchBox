@@ -36,6 +36,8 @@ shows the entries as a list; FetchBox's own engine downloads each entry's `url`.
 - **Keep these in step:** the version in `plugin.json` and `Cargo.toml` (the release tag `v<version>` must equal both); the
   program name = the extension id = the dependency id = `[[bin]] name`; the dependency's `assets`, `platforms` and the `matrix`
   of `.github/workflows/release.yml` (`__ID__-<os>-<arch>` for each platform).
+- `github.tag` and `github.sha256` (the SHA-256 of each program) are written by `release.yml` into the `plugin.json` it ships; keep
+  them out of the one in the repository, and keep the asset names `<id>-<os>-<arch>` (the workflow reads the platform from the name).
 - In the official Docker image there is no libc of its own to match: Linux builds are static (musl). The program has no network
   code on purpose; do not add a dependency that needs a C toolchain (TLS libraries such as ring or aws-lc) without setting that up
   in `release.yml` first.

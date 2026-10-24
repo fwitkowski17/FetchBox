@@ -25,6 +25,13 @@ jobs:
           cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
           [ "$tag" = "$manifest" ] || { echo "the tag says $tag but plugin.json says $manifest" >&2; exit 1; }
           [ "$tag" = "$cargo" ] || { echo "the tag says $tag but Cargo.toml says $cargo" >&2; exit 1; }
+          # guard:begin
+          # The program is downloaded from the repository plugin.json names: it must be this one
+          # (a leftover OWNER/<id> would ship a release that cannot be installed).
+          while read -r repo; do
+            [ "${repo,,}" = "${GITHUB_REPOSITORY,,}" ] || { echo "plugin.json names the repository $repo but this one is $GITHUB_REPOSITORY: set github.repo (and homepage)" >&2; exit 1; }
+          done < <(jq -r '.dependencies[]? | select(.github != null) | .github.repo' plugin.json)
+          # guard:end
 
   build:
     needs: check
@@ -66,9 +73,14 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           (cd dist && sha256sum -- * > SHA2-256SUMS)
-          # The installed manifest follows exactly this release, not whatever is latest later.
+          # The installed manifest follows exactly this release, and names the exact programs in it
+          # by their SHA-256, so a release asset swapped after publishing (the checksum file with it)
+          # is refused, and an older FetchBox, which ignores the hashes, still checks SHA2-256SUMS.
           mkdir package
-          jq --arg tag "$tag" '(.dependencies[]? | select(.github != null) | .github.tag) = $tag' plugin.json > package/plugin.json
+          # pin:begin
+          sums="$(jq -Rn --arg prefix "__ID__-" '[inputs | split("  ") | select(length == 2) | {key: (.[1] | ltrimstr($prefix)), value: .[0]}] | from_entries' dist/SHA2-256SUMS)"
+          jq --arg tag "$tag" --argjson sums "$sums" '(.dependencies[]? | select(.github != null) | .github) |= (.tag = $tag | .sha256 = $sums)' plugin.json > package/plugin.json
+          # pin:end
           cp README.md package/
           zip="__ID__-${tag#v}.zip"
           (cd package && zip -r "../dist/$zip" .)

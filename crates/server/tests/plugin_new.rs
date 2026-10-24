@@ -393,3 +393,166 @@ fn link_puts_the_manifest_and_the_built_program_where_the_plugin_will_look() {
     assert!(data.join("plugins/plain/plugin.json").is_file());
     assert!(!data.join("plugin-data/plain").exists());
 }
+
+// ---- the release workflow ---------------------------------------------------------------------
+
+/// The shell between `# <name>:begin` and `# <name>:end` of the release workflow, one command per
+/// line as the workflow has them (indentation dropped).
+fn workflow_block(project: &Path, name: &str) -> String {
+    let yml = std::fs::read_to_string(project.join(".github/workflows/release.yml"))
+        .expect("release.yml");
+    let mut lines = yml.lines().map(str::trim);
+    lines
+        .by_ref()
+        .find(|l| *l == format!("# {name}:begin"))
+        .unwrap_or_else(|| panic!("no {name} block"));
+    lines
+        .take_while(|l| *l != format!("# {name}:end"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The blocks need `jq` and bash 4 (the runners of GitHub have both); a machine without skips.
+fn can_run_workflow_blocks() -> bool {
+    let jq = Command::new("jq")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    let bash4 = Command::new("bash")
+        .args(["-c", "[ \"${BASH_VERSINFO[0]}\" -ge 4 ]"])
+        .status()
+        .is_ok_and(|s| s.success());
+    jq && bash4
+}
+
+fn bash_in(dir: &Path, script: &str, env: &[(&str, &str)]) -> Output {
+    Command::new("bash")
+        .current_dir(dir)
+        .args(["-c", &format!("set -euo pipefail\n{script}")])
+        .envs(env.iter().copied())
+        .output()
+        .expect("run bash")
+}
+
+#[test]
+fn the_release_workflow_pins_the_programs_it_built_in_the_manifest_it_ships() {
+    if !can_run_workflow_blocks() {
+        eprintln!("skipped: needs jq and bash 4");
+        return;
+    }
+    let cwd = tempfile::tempdir().expect("tmp");
+    assert!(run(
+        cwd.path(),
+        &[
+            "plugin",
+            "new",
+            "pinned",
+            "-t",
+            "process",
+            "-r",
+            "Me/Pinned"
+        ]
+    )
+    .status
+    .success());
+    let project = cwd.path().join("pinned");
+
+    // What the build jobs leave in dist/: a program per platform, and the sums of them.
+    let dist = project.join("dist");
+    std::fs::create_dir_all(&dist).expect("dist");
+    let mut sums = String::new();
+    let mut expected = serde_json::Map::new();
+    for platform in ["linux-x86_64", "linux-aarch64", "macos-aarch64"] {
+        let bytes = format!("program for {platform}");
+        std::fs::write(dist.join(format!("pinned-{platform}")), &bytes).expect("program");
+        let hash = fetchbox_plugins::install::sha256_hex(bytes.as_bytes());
+        sums.push_str(&format!("{hash}  pinned-{platform}\n"));
+        expected.insert(platform.into(), Value::String(hash));
+    }
+    std::fs::write(dist.join("SHA2-256SUMS"), sums).expect("sums");
+
+    let script = format!(
+        "tag=v1.2.3\nmkdir package\n{}",
+        workflow_block(&project, "pin")
+    );
+    let out = bash_in(&project, &script, &[]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+
+    let shipped = std::fs::read(project.join("package/plugin.json")).expect("package/plugin.json");
+    // The manifest that ships is one FetchBox accepts...
+    let manifest = fetchbox_plugins::install::parse_manifest(&shipped).expect("a valid manifest");
+    let github = manifest.dependencies[0]
+        .github
+        .as_ref()
+        .expect("github dependency");
+    // ...pinned to the release and to the exact programs, with the sums file kept for older FetchBoxes.
+    assert_eq!(github.tag.as_deref(), Some("v1.2.3"));
+    assert_eq!(github.sha256_asset.as_deref(), Some("SHA2-256SUMS"));
+    let pinned: serde_json::Map<String, Value> = github
+        .sha256
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+        .collect();
+    assert_eq!(pinned, expected);
+    // The manifest in the repository is not touched.
+    let source: Value =
+        serde_json::from_slice(&std::fs::read(project.join("plugin.json")).expect("source"))
+            .expect("json");
+    assert!(source["dependencies"][0]["github"].get("sha256").is_none());
+    assert!(source["dependencies"][0]["github"].get("tag").is_none());
+}
+
+#[test]
+fn the_release_workflow_refuses_a_manifest_that_names_another_repository() {
+    if !can_run_workflow_blocks() {
+        eprintln!("skipped: needs jq and bash 4");
+        return;
+    }
+    let cwd = tempfile::tempdir().expect("tmp");
+    assert!(run(
+        cwd.path(),
+        &[
+            "plugin",
+            "new",
+            "guarded",
+            "-t",
+            "resolver",
+            "-r",
+            "Me/Guarded"
+        ]
+    )
+    .status
+    .success());
+    let project = cwd.path().join("guarded");
+    let guard = workflow_block(&project, "guard");
+
+    // This repository, whatever the case.
+    let ok = bash_in(&project, &guard, &[("GITHUB_REPOSITORY", "me/guarded")]);
+    assert!(ok.status.success(), "{}", text(&ok.stderr));
+    // Another one.
+    let other = bash_in(&project, &guard, &[("GITHUB_REPOSITORY", "someone/else")]);
+    assert!(!other.status.success());
+    assert!(
+        text(&other.stderr).contains("names the repository Me/Guarded"),
+        "{}",
+        text(&other.stderr)
+    );
+
+    // The placeholder of a project that never said where it lives.
+    assert!(
+        run(cwd.path(), &["plugin", "new", "unset", "-t", "process"])
+            .status
+            .success()
+    );
+    let unset = bash_in(
+        &cwd.path().join("unset"),
+        &guard,
+        &[("GITHUB_REPOSITORY", "me/unset")],
+    );
+    assert!(!unset.status.success());
+    assert!(
+        text(&unset.stderr).contains("OWNER/unset"),
+        "{}",
+        text(&unset.stderr)
+    );
+}

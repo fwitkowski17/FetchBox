@@ -1024,7 +1024,10 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   letters, `..`, links, duplicates, more than 2000 entries, 512 MiB unpacked, a ratio above 200:1 or 16 levels are refused. A
   ZIP of a plugin is at most 32 MiB and has `plugin.json` at its top or in its only top-level folder.
 - **Dependencies** (`deps`): per platform, pinned (`url` + `sha256`, `archive`, `strip`, `bin`, `size`) or following a GitHub
-  repository (`github.repo`, per-platform asset names, a mandatory `sha256_asset` that lists the checksums). Downloaded through
+  repository (`github.repo`, per-platform asset names, a `sha256_asset` that lists the checksums, mandatory unless `github.sha256` pins every platform).
+  `github.sha256` (platform -> hex, needs `github.tag`, only for platforms that have an asset) pins the hash in the manifest: the download must match it and
+  the release's checksum file is not asked for, because whoever can replace an asset can replace the list; `Installer::state` counts the dependency as
+  installed only when the recorded hash is the pinned one (a rebuilt asset of the same tag is fetched again; a local build stands in). Downloaded through
   the URL policy, hashed while arriving, unpacked into a temporary folder, made executable and swapped in atomically with a
   record (`.fetchbox-dependency.json`); one install at a time; progress is published as `plugin` events. A platform entry may
   have its own `bin`. `optional` dependencies gate presets through `requires`.
@@ -1127,8 +1130,10 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   - **Distribution.** The program is a `github` dependency on the project's own repository (assets `<id>-linux-x86_64`, `-linux-aarch64`,
     `-macos-aarch64`, checksums in `SHA2-256SUMS`), used as `${dep:<id>}`: nothing new in FetchBox. On a tag `v<version>` that equals the version of
     `plugin.json` and `Cargo.toml`, `release.yml` builds static musl programs for Linux (the Docker image is distroless) and a native one for
-    macOS, uploads them with `SHA2-256SUMS` and a ZIP of the plugin whose `github.tag` is set to the release, and prints the ZIP's SHA-256 for the
-    store catalog. The workflows were not run on GitHub; their `jq` filter and the musl build were run by hand.
+    macOS, uploads them with `SHA2-256SUMS` and a ZIP of the plugin whose `github.tag` is set to the release and whose `github.sha256` holds the hash of
+    each program it built (read from `SHA2-256SUMS`; `sha256_asset` stays for an older FetchBox), and prints the ZIP's SHA-256 for the store catalog. The check
+    job also refuses a `github.repo` that is not the repository the workflow runs in (a leftover `OWNER/<id>`). The trust chain: the ZIP's hash pins `plugin.json`,
+    the approved `plugin.json` pins the programs. The workflows were not run on GitHub; the `pin` and `guard` shell blocks of `release.yml` are run by a test (with `jq` and bash 4; it skips without them) and the musl build was run by hand.
   - **`fetchbox plugin link [project] [--dependency id] [--bin path]`** (`server/src/link.rs`, `fetchbox_plugins::deps::link_local`) is how an
     author tries a project before a release exists: it copies `plugin.json` into `<data>/plugins/<id>/` and links the built program (default
     `target/release/<dependency>`) to the dependency's place, with an install record (`local build`, host `local`), so enabling the plugin
@@ -1140,7 +1145,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   - **Tests.** `scaffold::tests` (every template makes a valid plugin and the files of a repository, hidden ones included; escaping; defaults;
     refusals), `tests/plugin_new.rs` (the real binary in an empty folder, which stays free of `data/` and `downloads/`; the Rust templates are
     scaffolded and must pass `cargo fmt --check`, `clippy -D warnings` and their own tests, are built, and are spoken to over the protocol /
-    asked for a range; `plugin link` and its refusals), `deps::tests` (`link_local`) and `tests_plugins` (a linked program runs without any
+    asked for a range; `plugin link` and its refusals; the `pin` and `guard` blocks of the release workflow), `deps::tests` (`link_local`) and `tests_plugins` (a linked program runs without any
     download).
 - **Extensions that ship.** `webhook-notify` (a request when a download finishes or fails: settings, a test dialog, a hook; no
   program) and `yt-dlp` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds; yt-dlp from its GitHub

@@ -674,11 +674,31 @@ pub fn validate(m: &Manifest) -> Check {
             if g.assets.is_empty() {
                 return Err(format!("{name}: `github.assets` is empty"));
             }
+            // Every platform pinned in the manifest needs no checksum file of the release.
+            let all_pinned = g.assets.keys().all(|p| g.sha256.contains_key(p));
             match &g.sha256_asset {
                 Some(a) if !a.is_empty() && !a.contains(['/', '\\']) => {}
+                None if all_pinned => {}
                 _ => {
                     return Err(format!(
-                        "{name}: `github.sha256_asset` is required (the release asset that lists the SHA-256 of the others)"
+                        "{name}: `github.sha256_asset` is required (the release asset that lists the SHA-256 of the others), unless `github.sha256` pins every platform"
+                    ));
+                }
+            }
+            if !g.sha256.is_empty() && g.tag.as_deref().is_none_or(str::is_empty) {
+                return Err(format!(
+                    "{name}: `github.sha256` needs a `github.tag` (a hash belongs to one release)"
+                ));
+            }
+            for (p, hash) in &g.sha256 {
+                if !g.assets.contains_key(p) {
+                    return Err(format!(
+                        "{name}: `github.sha256` has a hash for {p}, which has no asset"
+                    ));
+                }
+                if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(format!(
+                        "{name}: `github.sha256` for {p} must be 64 hexadecimal digits"
                     ));
                 }
             }
@@ -1085,6 +1105,57 @@ mod tests {
             "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SHA2-256SUMS"}
         });
         check(v).expect("valid");
+    }
+
+    #[test]
+    fn a_github_dependency_can_pin_the_hashes_of_its_assets_instead_of_a_checksum_file() {
+        let hash = "a".repeat(64);
+        let with = |extra: serde_json::Value| {
+            let mut github = serde_json::json!({"repo": "o/r", "assets": {"linux-x86_64": "x", "macos-aarch64": "y"}, "tag": "v1.0.0"});
+            for (k, v) in extra.as_object().expect("object") {
+                github[k] = v.clone();
+            }
+            let mut v = base();
+            v["dependencies"][0] = serde_json::json!({"id": "tool", "github": github});
+            v
+        };
+        let all = serde_json::json!({"linux-x86_64": hash, "macos-aarch64": hash});
+        // Pinned for every platform: no checksum file needed; with one, an older FetchBox still works.
+        check(with(serde_json::json!({"sha256": all}))).expect("pinned");
+        check(with(
+            serde_json::json!({"sha256": all, "sha256_asset": "SUMS"}),
+        ))
+        .expect("both");
+        // A platform left out falls back to the file, which is then required.
+        let some = serde_json::json!({"linux-x86_64": hash});
+        let e = err_of(with(serde_json::json!({"sha256": some})), |_| {});
+        assert!(e.contains("sha256_asset"), "{e}");
+        check(with(
+            serde_json::json!({"sha256": some, "sha256_asset": "SUMS"}),
+        ))
+        .expect("mixed");
+
+        // A hash belongs to one release.
+        let e = err_of(
+            with(serde_json::json!({"sha256": all, "tag": null})),
+            |_| {},
+        );
+        assert!(e.contains("tag"), "{e}");
+        let e = err_of(
+            with(
+                serde_json::json!({"sha256": {"linux-x86_64": hash, "windows-x86_64": hash}, "sha256_asset": "SUMS"}),
+            ),
+            |_| {},
+        );
+        assert!(
+            e.contains("windows-x86_64") && e.contains("no asset"),
+            "{e}"
+        );
+        let e = err_of(
+            with(serde_json::json!({"sha256": {"linux-x86_64": "abc"}, "sha256_asset": "SUMS"})),
+            |_| {},
+        );
+        assert!(e.contains("64 hexadecimal"), "{e}");
     }
 
     #[test]

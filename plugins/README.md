@@ -102,10 +102,13 @@ project's own repository**, the way the `yt-dlp` extension follows yt-dlp's:
 Tag `v<version>` (the version of `plugin.json` and `Cargo.toml`) and `release.yml` builds the program for Linux (static
 musl builds, x86_64 and aarch64, so it also runs in the official Docker image, which has no libc to match) and macOS
 (Apple silicon), publishes the programs, the `SHA2-256SUMS` file FetchBox checks them against, and `<id>-<version>.zip`
-with `plugin.json` in which `github.tag` is set to that release: an installed version never downloads a newer program,
-and an update of the extension brings the program of its release (a dependency pinned by `tag` counts as installed only
-as that release). The job summary prints the ZIP's SHA-256 for an entry in the store [catalog](#packaging-and-the-store). A
-program is built with `serde_json` only: a TLS library would need a C toolchain for each target, which the workflow does
+with `plugin.json` in which `github.tag` is set to that release and `github.sha256` holds the SHA-256 of each program it
+built: an installed version never downloads a newer program, an update of the extension brings the program of its release
+(a dependency pinned by `tag` and `sha256` counts as installed only as exactly that file), and a release asset swapped
+after publishing, `SHA2-256SUMS` with it, is refused. The chain of trust is: the ZIP's SHA-256 (in the store
+[catalog](#packaging-and-the-store), and printed in the job summary of the release) pins `plugin.json`, the approved
+`plugin.json` pins the programs. The workflow also refuses to release while `github.repo` is not the repository it runs
+in (the `OWNER/<id>` placeholder, for one). A program is built with `serde_json` only: a TLS library would need a C toolchain for each target, which the workflow does
 not set up. Another platform is a line in the workflow's `matrix`, in `assets` and in `platforms`.
 
 ### Trying it before the first release
@@ -231,6 +234,19 @@ without the manifest changing.
 **Following a GitHub repository**: FetchBox asks for the latest release (or `tag`), takes the asset named for the
 platform and checks it against a checksum list that the release itself publishes (`sha256_asset`; required). This
 is how the `yt-dlp` extension keeps yt-dlp current (the **Update** button fetches the newest release).
+
+The list comes from the same place as the file, so whoever can replace a release asset can replace the list. A manifest
+can do better and pin the hashes itself: with a `tag`, `github.sha256` maps a platform to the SHA-256 of its asset,
+and the download must match it (the release's list is then not even asked for, and `sha256_asset` is optional when every
+platform is pinned). The approved manifest then names the exact programs. You do not write these by hand: the release
+workflow of a project made by `fetchbox plugin new` puts the `tag` and the hashes of the programs it built into the
+manifest in the ZIP it publishes (see below).
+
+```json
+"github": { "repo": "you/my-bridge", "tag": "v0.2.0", "sha256_asset": "SHA2-256SUMS",
+  "assets": { "linux-x86_64": "my-bridge-linux-x86_64" },
+  "sha256": { "linux-x86_64": "<64 hex digits of that asset>" } }
+```
 
 ```json
 {

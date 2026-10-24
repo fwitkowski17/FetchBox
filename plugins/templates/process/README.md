@@ -50,7 +50,8 @@ echo '{"id":1,"method":"initialize","params":{"settings":{"greeting":"hi"}}}' | 
    of FetchBox with the address of the ZIP and its SHA-256 (the job summary of the release prints it); see
    `plugins/README.md` in the FetchBox repository.
 
-The installed manifest is pinned to its release (`github.tag` is written into the ZIP's `plugin.json`), so an old
-version of the extension never downloads a newer program.
+The installed manifest is pinned to its release and to the exact programs in it (`github.tag` and `github.sha256`, the
+SHA-256 of each program, are written into the ZIP's `plugin.json`), so an old version of the extension never downloads a
+newer program and an asset swapped after publishing is refused. Do not write these two by hand.
 
 The full guide to what a manifest can do is `plugins/README.md` in the FetchBox repository.

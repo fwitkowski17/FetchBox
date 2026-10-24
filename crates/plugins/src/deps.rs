@@ -208,12 +208,22 @@ impl Installer {
         }
         let raw = std::fs::read(self.dep_dir(plugin, dep).join(INFO_FILE)).ok()?;
         let info: DepInfo = serde_json::from_slice(&raw).ok()?;
-        let pinned = dep.github.as_ref().and_then(|g| g.tag.as_deref());
-        match (pinned, info.version.as_deref()) {
-            (Some(tag), Some(have)) if have != tag && have != LOCAL_BUILD => None,
-            (Some(_), None) => None,
-            _ => Some(info),
+        if info.version.as_deref() != Some(LOCAL_BUILD) {
+            let github = dep.github.as_ref();
+            if let Some(tag) = github.and_then(|g| g.tag.as_deref()) {
+                if info.version.as_deref() != Some(tag) {
+                    return None;
+                }
+            }
+            // The manifest of an update can keep the release and still name other programs (a
+            // rebuilt asset): what is installed must be the file the manifest pins.
+            if let Some(want) = github.and_then(|g| g.sha256.get(&self.platform)) {
+                if !info.sha256.eq_ignore_ascii_case(want) {
+                    return None;
+                }
+            }
         }
+        Some(info)
     }
 
     async fn github_json(&self, url: &str) -> Result<serde_json::Value> {
@@ -290,6 +300,18 @@ impl Installer {
                 g.repo
             )));
         };
+        // A hash pinned in the manifest is the stronger word: the release's own checksum file is
+        // published by whoever could replace the asset.
+        if let Some(pinned) = g.sha256.get(&self.platform) {
+            return Ok(Resolved {
+                url: asset_url,
+                sha256: pinned.to_ascii_lowercase(),
+                archive: archive_of(asset),
+                strip: 0,
+                max: cap(size),
+                version: tag,
+            });
+        }
         let Some(sums_name) = &g.sha256_asset else {
             return Err(Error::Fetch(format!(
                 "{} lists no checksum file, so its download cannot be verified",
@@ -671,6 +693,7 @@ mod tests {
                 assets: BTreeMap::new(),
                 sha256_asset: Some("SUMS".into()),
                 tag: tag.map(str::to_owned),
+                sha256: BTreeMap::new(),
             }),
             shared: None,
         };
@@ -932,6 +955,7 @@ mod tests {
                 assets: BTreeMap::new(),
                 sha256_asset: Some("SHA2-256SUMS".into()),
                 tag: None,
+                sha256: BTreeMap::new(),
             }),
             shared: None,
         };
@@ -1319,6 +1343,7 @@ mod tests {
                 assets,
                 sha256_asset: sha_asset.map(str::to_owned),
                 tag: None,
+                sha256: BTreeMap::new(),
             }),
             shared: None,
         }
@@ -1356,6 +1381,120 @@ mod tests {
             .expect_err("mismatch");
         assert!(err.to_string().contains("does not match"), "{err}");
         assert_eq!(inst.state("demo", &dep), None);
+    }
+
+    /// A GitHub with one release, `2026.01.01`, that counts how often its checksum file is asked for.
+    async fn github_tagged(asset_body: Vec<u8>, sums: String) -> (String, Arc<AtomicU64>) {
+        let sums_hits = Arc::new(AtomicU64::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        let release = {
+            let (base, len, sums_len) = (base.clone(), asset_body.len(), sums.len());
+            move || {
+                let doc = serde_json::json!({
+                    "tag_name": "2026.01.01",
+                    "assets": [
+                        {"name": "tool_linux", "size": len, "browser_download_url": format!("{base}/dl/tool_linux")},
+                        {"name": "SHA2-256SUMS", "size": sums_len, "browser_download_url": format!("{base}/dl/SUMS")},
+                    ]
+                });
+                async move { doc.to_string() }
+            }
+        };
+        let counted = sums_hits.clone();
+        let app = Router::new()
+            .route("/repos/o/r/releases/tags/2026.01.01", get(release))
+            .route(
+                "/dl/tool_linux",
+                get(move || {
+                    let body = asset_body.clone();
+                    async move { body }
+                }),
+            )
+            .route(
+                "/dl/SUMS",
+                get(move || {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    let sums = sums.clone();
+                    async move { sums }
+                }),
+            );
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        (base, sums_hits)
+    }
+
+    fn pinned_github_dep(hash: &str, sha_asset: Option<&str>) -> Dependency {
+        let mut dep = github_dep(sha_asset, "tool_linux");
+        let github = dep.github.as_mut().expect("github");
+        github.tag = Some("2026.01.01".into());
+        github.sha256.insert("linux-x86_64".into(), hash.into());
+        dep
+    }
+
+    #[tokio::test]
+    async fn a_hash_pinned_in_the_manifest_replaces_the_checksum_file_of_the_release() {
+        let body = b"tool binary".to_vec();
+        // The release's own list says something else: whoever replaced the asset could have
+        // replaced it too, so it is not asked for at all.
+        let (api, sums_hits) =
+            github_tagged(body.clone(), format!("{}  tool_linux\n", "0".repeat(64))).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inst = installer(tmp.path(), Some(&api));
+        let dep = pinned_github_dep(&sha(&body).to_uppercase(), Some("SHA2-256SUMS"));
+
+        let info = inst.install("demo", &dep, &nothing).await.expect("install");
+        assert_eq!(info.sha256, sha(&body));
+        assert_eq!(info.version.as_deref(), Some("2026.01.01"));
+        assert_eq!(
+            sums_hits.load(Ordering::SeqCst),
+            0,
+            "the checksum file was not fetched"
+        );
+        assert!(inst.state("demo", &dep).is_some());
+    }
+
+    #[tokio::test]
+    async fn an_asset_that_matches_the_release_list_but_not_the_pinned_hash_is_refused() {
+        let body = b"tool binary".to_vec();
+        // A swapped asset with a list that vouches for it: the old kind of check would pass.
+        let (api, _) = github_tagged(body.clone(), format!("{}  tool_linux\n", sha(&body))).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inst = installer(tmp.path(), Some(&api));
+        let dep = pinned_github_dep(&"1".repeat(64), Some("SHA2-256SUMS"));
+
+        let err = inst
+            .install("demo", &dep, &nothing)
+            .await
+            .expect_err("pinned");
+        assert!(err.to_string().contains("does not match"), "{err}");
+        assert_eq!(inst.state("demo", &dep), None, "nothing was installed");
+    }
+
+    #[tokio::test]
+    async fn a_rebuilt_asset_of_the_same_release_is_fetched_again_when_the_manifest_pins_it() {
+        let old = b"tool binary".to_vec();
+        let (api, _) = github_tagged(old.clone(), String::new()).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inst = installer(tmp.path(), Some(&api));
+
+        // Installed against an older manifest that pinned this build...
+        let dep = pinned_github_dep(&sha(&old), None);
+        inst.install("demo", &dep, &nothing).await.expect("install");
+        assert!(inst.state("demo", &dep).is_some());
+
+        // ...and the manifest of an update keeps the tag but names another build.
+        let rebuilt = pinned_github_dep(&sha(b"another build"), None);
+        assert!(
+            inst.state("demo", &rebuilt).is_none(),
+            "the program that is there is not the one the manifest pins"
+        );
+        // A program linked from a local build still stands in.
+        let built = tmp.path().join("built");
+        std::fs::write(&built, b"local").expect("program");
+        link_local(&Layout::new(tmp.path()), "demo", &rebuilt, &built).expect("linked");
+        assert!(inst.state("demo", &rebuilt).is_some());
     }
 
     #[tokio::test]
