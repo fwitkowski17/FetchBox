@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use fetchbox_core::plugin::{
-    shared_programs, ArchiveKind, Dependency, GithubDependency, SharedProgram,
+    shared_programs, ArchiveKind, Dependency, DependencyPlan, GithubDependency, SharedProgram,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
@@ -407,6 +407,18 @@ impl Installer {
             "plugin dependency installed"
         );
         Ok(info)
+    }
+
+    /// What switching a plugin on does about this dependency: the one rule `prepare` follows and the
+    /// review before installing shows, so the two cannot say different things.
+    pub fn plan(&self, plugin: &str, dep: &Dependency) -> DependencyPlan {
+        if self.state(plugin, dep).is_some() {
+            DependencyPlan::Present
+        } else if !dep.optional || self.was_installed_before(plugin, dep) {
+            DependencyPlan::Download
+        } else {
+            DependencyPlan::OnRequest
+        }
     }
 
     /// Was this shared program installed before, in a version that is not the current one? That is
@@ -860,6 +872,37 @@ mod tests {
         assert!(!programs.join("1").exists(), "the old version is gone");
         assert!(programs.join("2").is_dir());
         assert!(programs.join(".tmp-other").is_dir());
+    }
+
+    #[tokio::test]
+    async fn the_plan_says_what_switching_a_plugin_on_does_about_a_dependency() {
+        let base = serve(Router::new().route("/two", get(|| async { b"two".to_vec() }))).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inst = installer(tmp.path(), None).with_shared_programs(vec![shared_entry(
+            "2",
+            format!("{base}/two"),
+            b"two",
+        )]);
+        let optional = shared_dep("ffmpeg");
+        let mut required = shared_dep("ffmpeg");
+        required.optional = false;
+
+        // Nothing is there: a required program is downloaded, an optional one only on request.
+        assert_eq!(inst.plan("demo", &required), DependencyPlan::Download);
+        assert_eq!(inst.plan("demo", &optional), DependencyPlan::OnRequest);
+
+        // An optional program that was chosen before comes again with the new version of the list.
+        let old = tmp.path().join("plugin-programs/ffmpeg/1");
+        std::fs::create_dir_all(&old).expect("old version");
+        std::fs::write(old.join(INFO_FILE), "{}").expect("record");
+        assert_eq!(inst.plan("demo", &optional), DependencyPlan::Download);
+
+        // Once it is there, for this plugin and for any other that names it, nothing is downloaded.
+        inst.install("demo", &optional, &nothing)
+            .await
+            .expect("installed");
+        assert_eq!(inst.plan("demo", &optional), DependencyPlan::Present);
+        assert_eq!(inst.plan("another", &required), DependencyPlan::Present);
     }
 
     #[tokio::test]

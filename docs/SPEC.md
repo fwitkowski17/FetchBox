@@ -1016,8 +1016,8 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
 - **Trust.** Installing an extension lets it run programs as the FetchBox user. So: the whole system is off with `--plugins
   off` (`FETCHBOX_PLUGINS`) and **while the server runs with `--no-auth`** (a warning says so; the API answers `available:
   false` with `reason`); every route is behind sign-in; a package is unpacked and read first and the user sees a permission
-  summary derived from the manifest (`PermissionSummary`: programs, download hosts, webhook hosts, events, API parts, a
-  process, downloads made by the extension), grouped as accordions with the author's reason for each group, with what an update adds marked; the approved SHA-256 of `plugin.json` is stored and
+  summary derived from the manifest (`PermissionSummary`: the programs of its own, webhook hosts, events, API parts, a
+  process, downloads made by the extension; its dependencies are listed apart in `dependencies` and are not permissions, see the Frontend bullet), grouped as accordions with the author's reason for each group, with what an update adds marked; the approved SHA-256 of `plugin.json` is stored and
   a manifest that differs on disk puts the extension in `needs_review` (it does not run); dependencies are checked by SHA-256
   before use. `permissions.network` is informational for programs and enforced for what FetchBox fetches itself.
 - **Archives.** Zip, tar, tar.gz and tar.xz are unpacked by `archive` only inside the target folder: absolute paths, drive
@@ -1040,7 +1040,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   once; the work folder is next to the target; a successful install removes the other version folders of that program (every manifest resolves to the
   list's version; a program still running from one keeps running). `Fetch::Update` ("Download programs") does nothing for a shared program that is in place,
   `Fetch::One` installs a missing one. Removing a plugin leaves shared programs; `plugin link` ignores them. The permission summary lists such a dependency as
-  "<id> (dependency from FetchBox's list)" with the hosts of the entry, and counts it as `programs` and `network`. **Trust:** the addresses and hashes are
+  as a `DependencyNeed` (`source: shared`, the hosts and size of the entry, the label of the entry when the manifest gives none), and counts it as `programs` and `network`. **Trust:** the addresses and hashes are
   FetchBox's, they change with a FetchBox update and the plugin is not reviewed again for that. An older FetchBox refuses the manifest (it does not know `shared`).
   The `yt-dlp` plugin uses it for ffmpeg (1.1.0). ffmpeg is optional, which `prepare` skips, so `Installer::was_installed_before` says that a shared program was
   installed before (an earlier version folder with a record, or the plugin's own legacy `deps/<id>/` record): then `Missing` and `Update` fetch it again by
@@ -1105,7 +1105,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
 - **Frontend.** The side menu has **Extensions** above Settings (a dot when something needs attention). `routes/Extensions.svelte`
   has the tabs *Installed* (`PluginCard`: state, dependencies with progress, enable switch, approve or review, update, restart, log,
   remove, the extension's own card actions) and *Store* (`PluginStore`), "Install from file" and "Rescan". Installing opens
-  `InstallPluginDialog` with the permission list (`PermissionList`: one accordion per group with an icon, a count, the author's reason and the items; closed unless an update widened the group, which is marked "new"; a group with content the manifest did not declare is shown and flagged). Settings has the tabs *General*
+  `InstallPluginDialog` with the permission list (`PermissionList`: one accordion per group with an icon, a count, the author's reason and the items; closed unless an update widened the group, which is marked "new"; a group with content the manifest did not declare is shown and flagged) and, below it, **Additional dependencies** (`DependencyList`, `util/dependencies`): `PermissionSummary.dependencies` (`DependencyNeed`: id, label, `optional`, `source` pinned / github / shared, hosts, size on the server's platform when the manifest or the list says; a GitHub release is not asked about while staging) and `StagedPlugin.dependency_plan` (`present`, `download`, `on_request` per dependency, from `Installer::plan`, the rule `prepare` follows too: required, or optional and installed before, is downloaded; a program that is in place is not). A dependency is not a permission and is not in the accordions, but `used_groups` still counts it as `network` and `programs`, so manifests are validated as before. When any dependency is `download` the dialog shows a checkbox ("I agree that FetchBox downloads N programs from the internet", the total size, "at least" when some are unknown, and when: at once for an update of an extension that is on, `StagedReplaces.enabled`, else when it is switched on) and **Install** stays disabled until it is ticked; the tick resets for every staged package. Optional dependencies nobody asked for have no checkbox. Settings has the tabs *General*
   (the old form with its save bar), *Extensions* (a card per extension that has settings, `PluginSettingsForm`, saved by the
   plugin's own endpoint) and one tab for each extension that declares `ui.tab`; the routes are `#/settings`,
   `#/settings/extensions`, `#/settings/ext/<id>`, `#/extensions`, `#/extensions/store`. Plugin interface is drawn from the schema

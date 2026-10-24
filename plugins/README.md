@@ -299,8 +299,8 @@ program (today: `ffmpeg`). A dependency names one:
   your extension's own folder from before it took the program from the list) is fetched again by itself, the old folder is
   removed and the extension's own copy too; an optional program nobody downloaded stays an opt-in. Removing an extension
   leaves a shared program in place.
-- The review screen shows it as "ffmpeg (dependency from FetchBox's list)" and lists the hosts the files come from; the group
-  `network` and `programs` are still yours to declare in `permissions.uses`.
+- The review screen lists it under "Additional dependencies" (see [Permissions](#permissions-and-the-trust-model)), with
+  the hosts the files come from; the groups `network` and `programs` are still yours to declare in `permissions.uses`.
 - **Trust.** The addresses and SHA-256 values of a shared program are FetchBox's, not yours: they change with a FetchBox
   update and the extension is not reviewed again for it. That is the point, and the reason the list is short and each entry
   is pinned (an address, a SHA-256 and a size per platform). To add a program, send a pull request that adds an entry to
@@ -616,9 +616,17 @@ folder, the database included). What it does to keep that reasonable:
   Add a sentence per group in `permissions.reasons` so the user knows *why*.
 - Before anything is installed, FetchBox unpacks and reads the package (nothing runs) and shows **what it asks for** as
   one accordion per group (the way a phone lists permissions), with your reason and the concrete items inside: the
-  programs it can run, where its dependencies come from, hosts it sends webhooks to, the events it receives. The items
-  are worked out from the manifest, not from what the author claims. An update opens the groups that grew and marks
-  what is new in red.
+  programs of its own it can run, hosts it sends webhooks to, the events it receives. The items are worked out from the
+  manifest, not from what the author claims. An update opens the groups that grew and marks what is new in red.
+- Your **dependencies are not permissions**, so they are not in those accordions: the review shows them apart, as
+  **Additional dependencies**. For each: its label and id, whether it is required or optional, where it comes from (the
+  host, `github.com/owner/name`, or FetchBox's list), how big it is when the manifest or the list says (a GitHub release is
+  not asked about while reviewing, so its size shows as not known yet) and what happens to it: *already on this machine*,
+  *will be downloaded* (required, or an optional program the user chose earlier) or *downloaded only if you choose*
+  (optional). When something will be downloaded the user has to tick an agreement, with the total size, before **Install**
+  works; a new extension downloads when it is switched on, an update of one that is on downloads at once. An update marks the
+  dependencies it adds as new. The wording of the dialog comes from FetchBox, not from the manifest, so give your
+  dependencies a clear `label`. The dialog is the same for the store and for a ZIP.
 - The user approves the manifest (its SHA-256 is stored). **If `plugin.json` changes on disk** (an edit, a bad
   update), the extension is switched off and shown as *needs review* until it is approved again.
 - Dependencies are verified by SHA-256 before they are used; a pinned source cannot change without the manifest

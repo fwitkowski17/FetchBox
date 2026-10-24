@@ -51,6 +51,8 @@ export type StoreList = Schemas['StoreList'];
 export type ActionResult = Schemas['ActionResult'];
 export type ActionView = Schemas['ActionView'];
 export type DependencyView = Schemas['DependencyView'];
+export type DependencyNeed = Schemas['DependencyNeed'];
+export type DependencyPlan = Schemas['DependencyPlan'];
 export type NoticeLevel = Schemas['NoticeLevel'];
 /** A setting or a field of a plugin's dialog. */
 export type PluginField = Schemas['Field'];

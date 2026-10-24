@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use super::manifest::{
-    Action, ActionKind, Dialog, Field, HookAction, Manifest, PermissionGroup, Placement,
-    SettingValue, Tab,
+    Action, ActionKind, Dependency, Dialog, Field, HookAction, Manifest, PermissionGroup,
+    Placement, SettingValue, Tab,
 };
 use super::text::host_of;
 
@@ -92,10 +92,10 @@ pub struct PermissionSummary {
     pub network: Vec<String>,
     /// Parts of FetchBox's API it uses.
     pub api: Vec<String>,
-    /// Programs it can run (dependencies and files of its own).
+    /// Programs of its own that it can run (its dependencies are listed apart, in `dependencies`).
     pub programs: Vec<String>,
-    /// Where its dependencies are downloaded from.
-    pub download_hosts: Vec<String>,
+    /// The programs it needs and FetchBox downloads for it, by id.
+    pub dependencies: Vec<DependencyNeed>,
     /// Where FetchBox sends webhooks on its behalf.
     pub webhook_hosts: Vec<String>,
     /// Events it receives.
@@ -104,6 +104,58 @@ pub struct PermissionSummary {
     pub process: bool,
     /// It downloads files with its own program instead of FetchBox's engine.
     pub runs_downloads: bool,
+}
+
+/// Where a dependency comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DependencySource {
+    /// A file per platform at an address the manifest gives.
+    Pinned,
+    /// The releases of a GitHub repository.
+    Github,
+    /// A program of FetchBox's own list, installed once for every plugin that names it.
+    Shared,
+}
+
+/// A program a plugin needs, as the review shows it: not a permission, but something FetchBox
+/// downloads from the internet for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DependencyNeed {
+    pub id: String,
+    /// The manifest's label, else the shared program's, else the id.
+    pub label: String,
+    /// It works without it: nothing is downloaded until the user asks for it.
+    pub optional: bool,
+    pub source: DependencySource,
+    /// Where it is downloaded from (`github.com/owner/name`, or a host), sorted.
+    pub hosts: Vec<String>,
+    /// Bytes to download on this machine's platform, when the manifest or the list says (a GitHub
+    /// release is not asked about while a package is only being reviewed).
+    pub size: Option<u64>,
+}
+
+/// What switching a plugin on does about one dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyPlan {
+    /// It is on this machine already (for a shared program, another plugin may have fetched it).
+    Present,
+    /// It is downloaded when the plugin is switched on.
+    Download,
+    /// It is optional and nobody asked for it: downloaded only if the user chooses to.
+    OnRequest,
+}
+
+/// One dependency of a staged plugin and what happens to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StagedDependency {
+    pub id: String,
+    pub plan: DependencyPlan,
 }
 
 /// A declared group and why the plugin wants it.
@@ -117,17 +169,18 @@ pub struct PermissionGroupView {
     pub reason_i18n: BTreeMap<String, String>,
 }
 
-fn program_label(command: &str) -> String {
-    match command
-        .strip_prefix("${dep:")
-        .and_then(|r| r.strip_suffix('}'))
-    {
-        Some(dep) => format!("{dep} (dependency)"),
-        None => command
+/// How a command is listed among the programs it can run. A dependency (`${dep:id}`) is not: it is
+/// listed in `dependencies`.
+fn program_label(command: &str) -> Option<String> {
+    if command.starts_with("${dep:") && command.ends_with('}') {
+        return None;
+    }
+    Some(
+        command
             .strip_prefix("${plugin_dir}/")
             .unwrap_or(command)
             .to_owned(),
-    }
+    )
 }
 
 fn url_label(url: &str) -> String {
@@ -136,6 +189,43 @@ fn url_label(url: &str) -> String {
             .and_then(|r| r.strip_suffix('}'))
             .map_or_else(|| url.to_owned(), |k| format!("{{setting:{k}}}"))
     })
+}
+
+/// A dependency as the review shows it (see [`DependencyNeed`]).
+fn dependency_need(d: &Dependency) -> DependencyNeed {
+    let shared = d
+        .shared
+        .as_deref()
+        .and_then(super::programs::shared_program);
+    let (source, files) = match (shared, &d.github) {
+        (Some(program), _) => (DependencySource::Shared, Some(&program.platforms)),
+        (None, Some(_)) => (DependencySource::Github, None),
+        (None, None) => (DependencySource::Pinned, Some(&d.platforms)),
+    };
+    let mut hosts: Vec<String> = files
+        .into_iter()
+        .flat_map(|files| files.values().map(|src| url_label(&src.url)))
+        .collect();
+    if let Some(g) = &d.github {
+        hosts.push(format!("github.com/{}", g.repo));
+    }
+    hosts.sort();
+    hosts.dedup();
+    let label = if !d.label.is_empty() {
+        d.label.clone()
+    } else {
+        shared.map_or_else(|| d.id.clone(), |program| program.label.clone())
+    };
+    DependencyNeed {
+        id: d.id.clone(),
+        label,
+        optional: d.optional,
+        source,
+        hosts,
+        size: files
+            .and_then(|files| files.get(&super::text::platform_key()))
+            .and_then(|src| src.size),
+    }
 }
 
 /// Work out what the plugin may do. Pure and stable (sorted, no duplicates), so two versions can
@@ -148,34 +238,14 @@ pub fn derive_permissions(m: &Manifest) -> PermissionSummary {
         ..PermissionSummary::default()
     };
     for d in &m.dependencies {
-        for src in d.platforms.values() {
-            p.download_hosts.push(url_label(&src.url));
-        }
-        if let Some(g) = &d.github {
-            p.download_hosts.push(format!("github.com/{}", g.repo));
-        }
-        match d
-            .shared
-            .as_deref()
-            .and_then(super::programs::shared_program)
-        {
-            // Its files are FetchBox's choice, not the plugin's: say where they come from anyway.
-            Some(program) => {
-                for src in program.platforms.values() {
-                    p.download_hosts.push(url_label(&src.url));
-                }
-                p.programs
-                    .push(format!("{} (dependency from FetchBox's list)", d.id));
-            }
-            None => p.programs.push(format!("{} (dependency)", d.id)),
-        }
+        p.dependencies.push(dependency_need(d));
     }
     for r in &m.resolvers {
         if let Some(c) = &r.probe {
-            p.programs.push(program_label(&c.command));
+            p.programs.extend(program_label(&c.command));
         }
         if let Some(c) = &r.run {
-            p.programs.push(program_label(&c.command));
+            p.programs.extend(program_label(&c.command));
             p.runs_downloads = true;
         }
     }
@@ -183,7 +253,7 @@ pub fn derive_permissions(m: &Manifest) -> PermissionSummary {
         p.events.extend(h.on.iter().cloned());
         match &h.action {
             HookAction::Webhook(w) => p.webhook_hosts.push(url_label(&w.url)),
-            HookAction::Run(c) => p.programs.push(program_label(&c.command)),
+            HookAction::Run(c) => p.programs.extend(program_label(&c.command)),
             HookAction::Process(_) => {}
         }
     }
@@ -191,7 +261,7 @@ pub fn derive_permissions(m: &Manifest) -> PermissionSummary {
         match a.kind {
             ActionKind::Run => {
                 if let Some(c) = &a.command {
-                    p.programs.push(program_label(c));
+                    p.programs.extend(program_label(c));
                 }
             }
             ActionKind::Webhook => {
@@ -203,19 +273,19 @@ pub fn derive_permissions(m: &Manifest) -> PermissionSummary {
         }
     }
     if let Some(proc) = &m.process {
-        p.programs.push(program_label(&proc.command));
+        p.programs.extend(program_label(&proc.command));
     }
     for list in [
         &mut p.network,
         &mut p.api,
         &mut p.programs,
-        &mut p.download_hosts,
         &mut p.webhook_hosts,
         &mut p.events,
     ] {
         list.sort();
         list.dedup();
     }
+    p.dependencies.sort_by(|a, b| a.id.cmp(&b.id));
     p.groups = PermissionGroup::ALL
         .into_iter()
         .filter(|g| m.permissions.uses.contains(g))
@@ -252,10 +322,13 @@ pub fn used_groups(m: &Manifest) -> BTreeSet<PermissionGroup> {
         }
     };
     add(
-        !p.network.is_empty() || !p.download_hosts.is_empty() || !p.webhook_hosts.is_empty(),
+        !p.network.is_empty() || !p.dependencies.is_empty() || !p.webhook_hosts.is_empty(),
         PermissionGroup::Network,
     );
-    add(!p.programs.is_empty(), PermissionGroup::Programs);
+    add(
+        !p.programs.is_empty() || !p.dependencies.is_empty(),
+        PermissionGroup::Programs,
+    );
     add(!p.events.is_empty(), PermissionGroup::Events);
     add(p.process, PermissionGroup::Background);
     add(p.runs_downloads, PermissionGroup::Downloads);
@@ -405,6 +478,8 @@ pub struct StagedPlugin {
     pub icon: Option<String>,
     pub source: PluginSource,
     pub permissions: PermissionSummary,
+    /// What switching it on does about each of its dependencies on this machine.
+    pub dependency_plan: Vec<StagedDependency>,
     /// What it replaces: the installed version and what that one was allowed.
     pub replaces: Option<StagedReplaces>,
 }
@@ -415,6 +490,8 @@ pub struct StagedPlugin {
 pub struct StagedReplaces {
     pub version: String,
     pub permissions: PermissionSummary,
+    /// It is switched on now, so its dependencies are downloaded as soon as the update is installed.
+    pub enabled: bool,
 }
 
 /// Where a store entry is fetched from.
@@ -516,7 +593,43 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_program_shows_where_fetchbox_gets_it_from() {
+    fn dependencies_are_listed_apart_from_the_programs_it_runs() {
+        let p = derive_permissions(&manifest());
+        assert_eq!(p.network, vec!["a.example", "b.example"]);
+        // The programs of its own; a dependency is not a permission, it is listed in `dependencies`.
+        assert_eq!(p.programs, vec!["bin/daemon", "bin/notify"]);
+        let deps: Vec<_> = p
+            .dependencies
+            .iter()
+            .map(|d| (d.id.as_str(), d.source, d.hosts.clone(), d.optional))
+            .collect();
+        assert_eq!(
+            deps,
+            vec![
+                (
+                    "other",
+                    DependencySource::Github,
+                    vec!["github.com/o/r".to_owned()],
+                    false
+                ),
+                (
+                    "tool",
+                    DependencySource::Pinned,
+                    vec!["dl.example.com".to_owned()],
+                    false
+                ),
+            ]
+        );
+        assert_eq!(p.webhook_hosts, vec!["hooks.example.org", "{setting:url}"]);
+        assert_eq!(p.events, vec!["*", "download.completed", "download.failed"]);
+        assert!(p.process);
+        assert!(p.runs_downloads);
+        // The permission model is the same as before: the groups the manifest needs.
+        assert_eq!(used_groups(&manifest()).len(), 5);
+    }
+
+    #[test]
+    fn a_shared_program_shows_where_fetchbox_gets_it_from_and_how_big_it_is() {
         let mut m = manifest();
         m.dependencies.push(super::super::Dependency {
             id: "ffmpeg".into(),
@@ -528,17 +641,25 @@ mod tests {
             shared: Some("ffmpeg".into()),
         });
         let p = derive_permissions(&m);
-        assert!(p
-            .programs
-            .contains(&"ffmpeg (dependency from FetchBox's list)".to_owned()));
-        assert!(
-            p.download_hosts
-                .contains(&"files.pythonhosted.org".to_owned()),
-            "{:?}",
-            p.download_hosts
-        );
+        let ffmpeg = p
+            .dependencies
+            .iter()
+            .find(|d| d.id == "ffmpeg")
+            .expect("ffmpeg");
+        assert_eq!(ffmpeg.source, DependencySource::Shared);
+        assert!(ffmpeg.optional);
+        assert_eq!(ffmpeg.hosts, vec!["files.pythonhosted.org"]);
+        // The label falls back to the entry's, and the size is that of this machine's platform.
+        let entry = super::super::shared_program("ffmpeg").expect("entry");
+        assert_eq!(ffmpeg.label, entry.label);
+        let expected = entry
+            .platforms
+            .get(&super::super::platform_key())
+            .and_then(|s| s.size);
+        assert_eq!(ffmpeg.size, expected);
+        assert!(!p.programs.iter().any(|x| x.contains("ffmpeg")));
 
-        // A plugin whose only download is a shared program still needs `network` and `programs`.
+        // A plugin whose only need is a shared program still needs `network` and `programs`.
         let only: Manifest = serde_json::from_value(serde_json::json!({
             "api_version": 1, "id": "demo", "name": "Demo", "version": "1.0.0",
             "dependencies": [{"id": "ffmpeg", "shared": "ffmpeg"}]
@@ -546,26 +667,6 @@ mod tests {
         .expect("manifest");
         let used: Vec<_> = used_groups(&only).into_iter().map(|g| g.as_str()).collect();
         assert_eq!(used, ["network", "programs"]);
-    }
-
-    #[test]
-    fn permissions_are_worked_out_from_the_manifest() {
-        let p = derive_permissions(&manifest());
-        assert_eq!(p.network, vec!["a.example", "b.example"]);
-        assert_eq!(
-            p.programs,
-            vec![
-                "bin/daemon",
-                "bin/notify",
-                "other (dependency)",
-                "tool (dependency)"
-            ]
-        );
-        assert_eq!(p.download_hosts, vec!["dl.example.com", "github.com/o/r"]);
-        assert_eq!(p.webhook_hosts, vec!["hooks.example.org", "{setting:url}"]);
-        assert_eq!(p.events, vec!["*", "download.completed", "download.failed"]);
-        assert!(p.process);
-        assert!(p.runs_downloads);
     }
 
     #[test]

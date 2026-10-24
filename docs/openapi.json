@@ -3740,6 +3740,58 @@
           }
         }
       },
+      "DependencyNeed": {
+        "type": "object",
+        "description": "A program a plugin needs, as the review shows it: not a permission, but something FetchBox\ndownloads from the internet for it.",
+        "required": [
+          "id",
+          "label",
+          "optional",
+          "source",
+          "hosts"
+        ],
+        "properties": {
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Where it is downloaded from (`github.com/owner/name`, or a host), sorted."
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "The manifest's label, else the shared program's, else the id."
+          },
+          "optional": {
+            "type": "boolean",
+            "description": "It works without it: nothing is downloaded until the user asks for it."
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Bytes to download on this machine's platform, when the manifest or the list says (a GitHub\nrelease is not asked about while a package is only being reviewed).",
+            "minimum": 0
+          },
+          "source": {
+            "$ref": "#/components/schemas/DependencySource"
+          }
+        }
+      },
+      "DependencyPlan": {
+        "type": "string",
+        "description": "What switching a plugin on does about one dependency.",
+        "enum": [
+          "present",
+          "download",
+          "on_request"
+        ]
+      },
       "DependencyProgress": {
         "type": "object",
         "description": "How far a dependency is on its way.",
@@ -3765,6 +3817,15 @@
             "minimum": 0
           }
         }
+      },
+      "DependencySource": {
+        "type": "string",
+        "description": "Where a dependency comes from.",
+        "enum": [
+          "pinned",
+          "github",
+          "shared"
+        ]
       },
       "DependencyView": {
         "type": "object",
@@ -4822,7 +4883,7 @@
           "network",
           "api",
           "programs",
-          "download_hosts",
+          "dependencies",
           "webhook_hosts",
           "events",
           "process",
@@ -4836,12 +4897,12 @@
             },
             "description": "Parts of FetchBox's API it uses."
           },
-          "download_hosts": {
+          "dependencies": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/DependencyNeed"
             },
-            "description": "Where its dependencies are downloaded from."
+            "description": "The programs it needs and FetchBox downloads for it, by id."
           },
           "events": {
             "type": "array",
@@ -4873,7 +4934,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Programs it can run (dependencies and files of its own)."
+            "description": "Programs of its own that it can run (its dependencies are listed apart, in `dependencies`)."
           },
           "runs_downloads": {
             "type": "boolean",
@@ -5453,6 +5514,22 @@
           }
         }
       },
+      "StagedDependency": {
+        "type": "object",
+        "description": "One dependency of a staged plugin and what happens to it.",
+        "required": [
+          "id",
+          "plan"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/DependencyPlan"
+          }
+        }
+      },
       "StagedPlugin": {
         "type": "object",
         "description": "A plugin that was uploaded and read but is not installed yet: the user reviews it first.",
@@ -5464,11 +5541,19 @@
           "description",
           "author",
           "source",
-          "permissions"
+          "permissions",
+          "dependency_plan"
         ],
         "properties": {
           "author": {
             "type": "string"
+          },
+          "dependency_plan": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StagedDependency"
+            },
+            "description": "What switching it on does about each of its dependencies on this machine."
           },
           "description": {
             "type": "string"
@@ -5528,9 +5613,14 @@
         "description": "The installed plugin a staged one would replace.",
         "required": [
           "version",
-          "permissions"
+          "permissions",
+          "enabled"
         ],
         "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "It is switched on now, so its dependencies are downloaded as soon as the update is installed."
+          },
           "permissions": {
             "$ref": "#/components/schemas/PermissionSummary"
           },

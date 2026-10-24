@@ -11,7 +11,7 @@ function group(id: Group['id'], over: Partial<Group> = {}): Group {
 function summary(over: Partial<PermissionSummary> = {}): PermissionSummary {
   return {
     api: [],
-    download_hosts: [],
+    dependencies: [],
     events: [],
     groups: [],
     network: [],
@@ -36,28 +36,30 @@ describe('permissionView', () => {
       summary({
         groups: [group('events'), group('programs', { reason: 'Runs yt-dlp.' })],
         events: ['download.completed'],
-        programs: ['yt-dlp (dependency)'],
+        programs: ['bin/yt-dlp'],
       }),
     );
     expect(v.groups.map((g) => g.id)).toEqual(['programs', 'events']);
     expect(v.groups[0]?.reason).toBe('Runs yt-dlp.');
-    expect(v.groups[0]?.rows[0]?.added).toEqual(['yt-dlp (dependency)']);
+    expect(v.groups[0]?.rows[0]?.added).toEqual(['bin/yt-dlp']);
     expect(v.groups[0]?.count).toBe(1);
     expect(v.none).toBe(false);
   });
 
-  it('puts the three kinds of servers in one network group', () => {
+  it('puts the kinds of servers in one network group, and leaves dependencies out of the permissions', () => {
     const v = permissionView(
       summary({
         groups: [group('network')],
         network: ['example.com'],
-        download_hosts: ['github.com/o/r'],
         webhook_hosts: ['hooks.example'],
+        dependencies: [
+          { id: 'tool', label: 'tool', optional: false, source: 'github', hosts: ['github.com/o/r'], size: null },
+        ],
       }),
     );
     const g = v.groups[0];
-    expect(g?.rows.map((r) => r.kind)).toEqual(['network', 'download_hosts', 'webhook_hosts']);
-    expect(g?.count).toBe(3);
+    expect(g?.rows.map((r) => r.kind)).toEqual(['network', 'webhook_hosts']);
+    expect(g?.count).toBe(2);
   });
 
   it('groups without a list are a yes', () => {
@@ -80,12 +82,12 @@ describe('permissionView', () => {
     const before = summary({
       groups: [group('programs'), group('network')],
       programs: ['yt-dlp'],
-      download_hosts: ['github.com'],
+      network: ['github.com'],
     });
     const after = summary({
       groups: [group('programs'), group('network'), group('background')],
       programs: ['yt-dlp', 'ffmpeg'],
-      download_hosts: ['github.com'],
+      network: ['github.com'],
       process: true,
     });
     const v = permissionView(after, before);
