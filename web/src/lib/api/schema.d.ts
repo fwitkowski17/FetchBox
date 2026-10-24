@@ -1506,6 +1506,21 @@ export interface components {
         PeerState: "queued" | "connecting" | "connected" | "idle" | "dead";
         /** @enum {string} */
         PeerTransport: "tcp" | "utp" | "socks";
+        /**
+         * @description A kind of thing a plugin may do. The user sees one accordion per group.
+         * @enum {string}
+         */
+        PermissionGroup: "network" | "programs" | "events" | "background" | "downloads" | "api";
+        /** @description A declared group and why the plugin wants it. */
+        PermissionGroupView: {
+            id: components["schemas"]["PermissionGroup"];
+            /** @description The author's reason (English, as written in the manifest). */
+            reason?: string | null;
+            /** @description The reason in the languages the manifest translates it to (`locale` -> text). */
+            reason_i18n: {
+                [key: string]: string;
+            };
+        };
         /** @description What a plugin may do, worked out from its manifest and shown before it is installed. */
         PermissionSummary: {
             /** @description Parts of FetchBox's API it uses. */
@@ -1514,6 +1529,8 @@ export interface components {
             download_hosts: string[];
             /** @description Events it receives. */
             events: string[];
+            /** @description The groups it declares, in display order, each with the author's reason. */
+            groups: components["schemas"]["PermissionGroupView"][];
             /** @description Hosts it says it talks to. */
             network: string[];
             /** @description It has a program that runs for as long as it is enabled. */

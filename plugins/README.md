@@ -61,6 +61,13 @@ An extension that sends a request to a web address when a download finishes. Mak
   "version": "1.0.0",
   "description": "Posts a message to ntfy when a download finishes.",
   "author": "You",
+  "permissions": {
+    "uses": ["network", "events"],
+    "reasons": {
+      "network": "Sends the message to the address you enter.",
+      "events": "Needs to know when a download finishes."
+    }
+  },
   "settings": [
     { "key": "topic_url", "type": "text", "label": "ntfy address", "placeholder": "https://ntfy.sh/my-topic", "required": true }
   ],
@@ -74,7 +81,7 @@ An extension that sends a request to a web address when a download finishes. Mak
 ```
 
 Put the folder into `<data dir>/plugins/` (the data dir is the one given with `--data-dir`; `/var/lib/fetchbox`
-for the packages, `/data` in Docker), open **Extensions**, press **Rescan**, review what it asks for, approve it,
+for the packages, `/data` in Docker), open **Extensions**, press **Rescan**, review what it asks for (the groups you declared in `permissions.uses`), approve it,
 switch it on, and set its address in **Settings → Extensions**. Or zip the *contents* of the folder and use
 **Install from file**.
 
@@ -105,7 +112,8 @@ hello-hook/
 ## The manifest
 
 Unknown keys are ignored (so a newer manifest still reads on an older FetchBox, unless it needs a newer
-`api_version`). A manifest is at most 256 KiB. Anything invalid is reported with the reason on the plugin's card.
+`api_version`). The exception is `permissions.uses`: it must list exactly the groups the manifest
+needs (see [permissions](#permissions-and-the-trust-model)), and a group name this FetchBox does not know is an error. A manifest is at most 256 KiB. Anything invalid is reported with the reason on the plugin's card.
 
 ### Identity and platforms
 
@@ -117,6 +125,8 @@ Unknown keys are ignored (so a newer manifest still reads on an older FetchBox, 
 | `min_fetchbox` | Lowest FetchBox version it works with. |
 | `platforms` | `linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `macos-x86_64`, `windows-x86_64`. Empty means any. Where the machine is not listed, the plugin is *not supported* and cannot be switched on. |
 | `permissions.network` | Host patterns the extension says it talks to (`example.com`, `*.example.com`, `*`, `${setting:key}`). Shown to the user; see [permissions](#permissions-and-the-trust-model). |
+| `permissions.uses` | The groups of permissions the extension uses: `network`, `programs`, `downloads`, `background`, `events`, `api`. **Required to match the rest of the manifest**, see [permissions](#permissions-and-the-trust-model). |
+| `permissions.reasons` | Why it needs a group, one sentence each (`{"network": "..."}`, at most 200 characters, only for groups in `uses`). Shown to the user inside the group; translated through `i18n`. |
 
 ### Dependencies
 
@@ -464,10 +474,25 @@ folder, the database included). What it does to keep that reasonable:
 
 - Extensions are **off** when the server runs with `--no-auth` (anyone who can reach the port could install one
   otherwise) and with `--plugins off` (`FETCHBOX_PLUGINS=off`). The API for them is for signed-in users only.
-- Before anything is installed, FetchBox unpacks and reads the package (nothing runs) and shows **what it asks for**,
-  worked out from the manifest and not from what the author claims: the programs it can run, where its dependencies
-  come from, hosts it sends webhooks to, the events it receives, whether it keeps a program running, whether it
-  downloads files itself. An update shows what is new in red.
+- You **declare** what the extension uses in `permissions.uses`, and FetchBox holds the manifest to it: a manifest that
+  runs a program but does not list `programs`, or lists `background` without a `process`, is refused when it is read.
+  What each group covers:
+
+  | Group | Covers |
+  |---|---|
+  | `network` | `permissions.network`, where dependencies are downloaded from, hosts that webhooks are sent to |
+  | `programs` | every program it can run (dependencies, commands, the `process`) |
+  | `downloads` | a resolver with `run`: its own program fetches the files |
+  | `background` | a `process` that runs while the extension is on |
+  | `events` | the events of its hooks |
+  | `api` | `permissions.api` (reserved) |
+
+  Add a sentence per group in `permissions.reasons` so the user knows *why*.
+- Before anything is installed, FetchBox unpacks and reads the package (nothing runs) and shows **what it asks for** as
+  one accordion per group (the way a phone lists permissions), with your reason and the concrete items inside: the
+  programs it can run, where its dependencies come from, hosts it sends webhooks to, the events it receives. The items
+  are worked out from the manifest, not from what the author claims. An update opens the groups that grew and marks
+  what is new in red.
 - The user approves the manifest (its SHA-256 is stored). **If `plugin.json` changes on disk** (an edit, a bad
   update), the extension is switched off and shown as *needs review* until it is approved again.
 - Dependencies are verified by SHA-256 before they are used; a pinned source cannot change without the manifest

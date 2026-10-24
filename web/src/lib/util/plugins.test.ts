@@ -25,6 +25,7 @@ function plugin(over: Partial<PluginView> = {}): PluginView {
     state: 'disabled',
     provides: { resolvers: [], hooks: 0, process: false },
     permissions: {
+      groups: [],
       network: [],
       api: [],
       programs: [],

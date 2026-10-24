@@ -1,12 +1,13 @@
 //! What the interface is told about plugins. These are projections of the manifest: they carry no
 //! commands and no stored secrets, only what is needed to draw the cards, forms and dialogs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use super::manifest::{
-    Action, ActionKind, Dialog, Field, HookAction, Manifest, Placement, SettingValue, Tab,
+    Action, ActionKind, Dialog, Field, HookAction, Manifest, PermissionGroup, Placement,
+    SettingValue, Tab,
 };
 use super::text::host_of;
 
@@ -85,6 +86,8 @@ pub enum NoticeLevel {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct PermissionSummary {
+    /// The groups it declares, in display order, each with the author's reason.
+    pub groups: Vec<PermissionGroupView>,
     /// Hosts it says it talks to.
     pub network: Vec<String>,
     /// Parts of FetchBox's API it uses.
@@ -101,6 +104,17 @@ pub struct PermissionSummary {
     pub process: bool,
     /// It downloads files with its own program instead of FetchBox's engine.
     pub runs_downloads: bool,
+}
+
+/// A declared group and why the plugin wants it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PermissionGroupView {
+    pub id: PermissionGroup,
+    /// The author's reason (English, as written in the manifest).
+    pub reason: Option<String>,
+    /// The reason in the languages the manifest translates it to (`locale` -> text).
+    pub reason_i18n: BTreeMap<String, String>,
 }
 
 fn program_label(command: &str) -> String {
@@ -188,7 +202,51 @@ pub fn derive_permissions(m: &Manifest) -> PermissionSummary {
         list.sort();
         list.dedup();
     }
+    p.groups = PermissionGroup::ALL
+        .into_iter()
+        .filter(|g| m.permissions.uses.contains(g))
+        .map(|g| {
+            let reason = m.permissions.reasons.get(g.as_str()).cloned();
+            let reason_i18n = reason
+                .as_deref()
+                .map(|r| {
+                    m.i18n
+                        .iter()
+                        .filter_map(|(locale, texts)| {
+                            texts.get(r).map(|t| (locale.clone(), t.clone()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            PermissionGroupView {
+                id: g,
+                reason,
+                reason_i18n,
+            }
+        })
+        .collect();
     p
+}
+
+/// The groups the manifest really needs, whatever it declares: what `validate` holds `uses` to.
+pub fn used_groups(m: &Manifest) -> BTreeSet<PermissionGroup> {
+    let p = derive_permissions(m);
+    let mut used = BTreeSet::new();
+    let mut add = |on: bool, g: PermissionGroup| {
+        if on {
+            used.insert(g);
+        }
+    };
+    add(
+        !p.network.is_empty() || !p.download_hosts.is_empty() || !p.webhook_hosts.is_empty(),
+        PermissionGroup::Network,
+    );
+    add(!p.programs.is_empty(), PermissionGroup::Programs);
+    add(!p.events.is_empty(), PermissionGroup::Events);
+    add(p.process, PermissionGroup::Background);
+    add(p.runs_downloads, PermissionGroup::Downloads);
+    add(!p.api.is_empty(), PermissionGroup::Api);
+    used
 }
 
 /// A setting as the interface needs it: the field, and whether it has a value.
@@ -419,7 +477,12 @@ mod tests {
         serde_json::from_str(
             r#"{
               "api_version": 1, "id": "demo", "name": "Demo", "version": "1.0.0",
-              "permissions": {"network": ["b.example", "a.example", "a.example"]},
+              "permissions": {
+                "uses": ["events", "network", "programs", "downloads", "background"],
+                "reasons": {"network": "Talks to servers."},
+                "network": ["b.example", "a.example", "a.example"]
+              },
+              "i18n": {"pl": {"Talks to servers.": "Łączy się z serwerami."}},
               "dependencies": [
                 {"id": "tool", "platforms": {"linux-x86_64": {"url": "https://dl.example.com/t.tar.gz", "sha256": "00"}}},
                 {"id": "other", "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}}}
@@ -456,6 +519,30 @@ mod tests {
         assert_eq!(p.events, vec!["*", "download.completed", "download.failed"]);
         assert!(p.process);
         assert!(p.runs_downloads);
+    }
+
+    #[test]
+    fn declared_groups_come_in_display_order_with_their_reasons() {
+        let m = manifest();
+        let p = derive_permissions(&m);
+        let ids: Vec<_> = p.groups.iter().map(|g| g.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                PermissionGroup::Network,
+                PermissionGroup::Programs,
+                PermissionGroup::Downloads,
+                PermissionGroup::Background,
+                PermissionGroup::Events,
+            ]
+        );
+        assert_eq!(p.groups[0].reason.as_deref(), Some("Talks to servers."));
+        assert_eq!(
+            p.groups[0].reason_i18n.get("pl").map(String::as_str),
+            Some("Łączy się z serwerami.")
+        );
+        assert_eq!(p.groups[1].reason, None);
+        assert_eq!(used_groups(&m).len(), 5);
     }
 
     #[test]

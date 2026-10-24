@@ -2,12 +2,17 @@
   "api_version": 1,
   "id": "webhook-notify",
   "name": "Webhook notifications",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sends a request to a web address when a download finishes or fails: Home Assistant, ntfy, Gotify, n8n, Discord through a bridge, or your own script.",
   "author": "FetchBox",
   "homepage": "https://github.com/fwitkowski17/WebDownloadManager/tree/main/plugins/official/webhook-notify",
   "license": "MIT",
   "permissions": {
+    "uses": ["network", "events"],
+    "reasons": {
+      "network": "FetchBox sends a request to the webhook address you enter in the settings.",
+      "events": "Needs to know when a download finishes or fails."
+    },
     "network": ["{setting:url}"]
   },
   "settings": [
@@ -91,7 +96,9 @@
       "Send": "Wyślij",
       "Close": "Zamknij",
       "Message": "Wiadomość",
-      "Sends a request to the webhook address now, to check that it arrives.": "Wysyła teraz żądanie pod adres webhooka, aby sprawdzić, czy dociera."
+      "Sends a request to the webhook address now, to check that it arrives.": "Wysyła teraz żądanie pod adres webhooka, aby sprawdzić, czy dociera.",
+      "FetchBox sends a request to the webhook address you enter in the settings.": "FetchBox wysyła żądanie pod adres webhooka, który wpiszesz w ustawieniach.",
+      "Needs to know when a download finishes or fails.": "Musi wiedzieć, kiedy pobieranie się kończy lub nie powiedzie."
     }
   }
 }

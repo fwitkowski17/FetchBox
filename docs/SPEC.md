@@ -1007,11 +1007,17 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   the extension's own, kept across updates. Storage: tables `plugins` (id, enabled, approved manifest hash, source,
   installed version) and `plugin_settings` (migration 0016), and `downloads.runner` (`<plugin>/<resolver>`) for downloads made by
   a program; the preset is kept in the download's `runner_ref`.
+- **Declared permissions.** `permissions.uses` lists the groups the extension uses (`network`, `programs`, `downloads`,
+  `background`, `events`, `api`; `core::plugin::PermissionGroup`) and `permissions.reasons` gives a sentence per group
+  (at most 200 characters, translated through `i18n`). `validate` compares the declaration with `used_groups(manifest)`, which
+  is worked out from the rest of the manifest: a group that is used and not declared, or declared and not used, refuses the
+  manifest. `PermissionSummary.groups` carries the declared groups in display order with `reason` and `reason_i18n`;
+  the lists (`network`, `programs`, ...) stay worked out by the host.
 - **Trust.** Installing an extension lets it run programs as the FetchBox user. So: the whole system is off with `--plugins
   off` (`FETCHBOX_PLUGINS`) and **while the server runs with `--no-auth`** (a warning says so; the API answers `available:
   false` with `reason`); every route is behind sign-in; a package is unpacked and read first and the user sees a permission
   summary derived from the manifest (`PermissionSummary`: programs, download hosts, webhook hosts, events, API parts, a
-  process, downloads made by the extension), with what an update adds marked; the approved SHA-256 of `plugin.json` is stored and
+  process, downloads made by the extension), grouped as accordions with the author's reason for each group, with what an update adds marked; the approved SHA-256 of `plugin.json` is stored and
   a manifest that differs on disk puts the extension in `needs_review` (it does not run); dependencies are checked by SHA-256
   before use. `permissions.network` is informational for programs and enforced for what FetchBox fetches itself.
 - **Archives.** Zip, tar, tar.gz and tar.xz are unpacked by `archive` only inside the target folder: absolute paths, drive
@@ -1079,7 +1085,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
 - **Frontend.** The side menu has **Extensions** above Settings (a dot when something needs attention). `routes/Extensions.svelte`
   has the tabs *Installed* (`PluginCard`: state, dependencies with progress, enable switch, approve or review, update, restart, log,
   remove, the extension's own card actions) and *Store* (`PluginStore`), "Install from file" and "Rescan". Installing opens
-  `InstallPluginDialog` with the permission list (`PermissionList`, an update marks what is new). Settings has the tabs *General*
+  `InstallPluginDialog` with the permission list (`PermissionList`: one accordion per group with an icon, a count, the author's reason and the items; closed unless an update widened the group, which is marked "new"; a group with content the manifest did not declare is shown and flagged). Settings has the tabs *General*
   (the old form with its save bar), *Extensions* (a card per extension that has settings, `PluginSettingsForm`, saved by the
   plugin's own endpoint) and one tab for each extension that declares `ui.tab`; the routes are `#/settings`,
   `#/settings/extensions`, `#/settings/ext/<id>`, `#/extensions`, `#/extensions/store`. Plugin interface is drawn from the schema

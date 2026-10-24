@@ -41,8 +41,23 @@ pub fn fake_plugin() -> PathBuf {
     .clone()
 }
 
+/// The manifest with `permissions.uses` filled in from what it really uses, so a test does not have
+/// to repeat it (the check that the two agree is tested in `fetchbox_core::plugin::validate`).
+fn declared(manifest: &Value) -> Value {
+    let mut m = manifest.clone();
+    let parsed: fetchbox_core::plugin::Manifest =
+        serde_json::from_value(m.clone()).expect("a manifest");
+    let uses: Vec<&str> = fetchbox_core::plugin::used_groups(&parsed)
+        .into_iter()
+        .map(|g| g.as_str())
+        .collect();
+    m["permissions"]["uses"] = json!(uses);
+    m
+}
+
 /// A plugin package: `plugin.json`, and the stand-in program as `bin/fake` when asked.
 fn package(manifest: &Value, with_program: bool) -> Vec<u8> {
+    let manifest = &declared(manifest);
     let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let plain =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
@@ -491,7 +506,7 @@ async fn files_that_change_on_disk_must_be_approved_again() {
     let mut m: Value = serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
     m["version"] = json!("1.0.1");
     m["permissions"] = json!({"network": ["evil.example"]});
-    std::fs::write(&path, m.to_string()).expect("write");
+    std::fs::write(&path, declared(&m).to_string()).expect("write");
 
     let list = rig.mgr.plugin_rescan().await.expect("rescan");
     let v = &list.plugins[0];

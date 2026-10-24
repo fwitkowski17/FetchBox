@@ -2,7 +2,7 @@
   "api_version": 1,
   "id": "yt-dlp",
   "name": "Video sites (yt-dlp)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Downloads videos and audio from YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and more than a thousand other sites with yt-dlp. Paste a video, playlist or channel address; pick the quality in the add dialog. Use it only for content you have the right to download.",
   "author": "FetchBox",
   "homepage": "https://github.com/fwitkowski17/WebDownloadManager/tree/main/plugins/official/yt-dlp",
@@ -14,6 +14,16 @@
     "macos-x86_64"
   ],
   "permissions": {
+    "uses": [
+      "network",
+      "programs",
+      "downloads"
+    ],
+    "reasons": {
+      "network": "yt-dlp connects to the video site you paste, and its programs are downloaded from GitHub and PyPI.",
+      "programs": "Runs yt-dlp to read an address, and ffmpeg (optional) to merge video and audio.",
+      "downloads": "yt-dlp fetches the video itself, so these downloads are not made by the FetchBox engine."
+    },
     "network": [
       "*"
     ]
@@ -292,7 +302,10 @@
       "Audio only, as MP3": "Tylko dźwięk, jako MP3",
       "Update yt-dlp": "Zaktualizuj yt-dlp",
       "Download the newest yt-dlp now? Sites change often, and an old yt-dlp stops working with them.": "Pobrać teraz najnowszy yt-dlp? Serwisy często się zmieniają, a stary yt-dlp przestaje z nimi działać.",
-      "ffmpeg (merges video and audio, makes MP3)": "ffmpeg (łączy obraz z dźwiękiem, robi MP3)"
+      "ffmpeg (merges video and audio, makes MP3)": "ffmpeg (łączy obraz z dźwiękiem, robi MP3)",
+      "yt-dlp connects to the video site you paste, and its programs are downloaded from GitHub and PyPI.": "yt-dlp łączy się z serwisem, którego adres wklejasz, a jego programy są pobierane z GitHuba i PyPI.",
+      "Runs yt-dlp to read an address, and ffmpeg (optional) to merge video and audio.": "Uruchamia yt-dlp, by odczytać adres, oraz ffmpeg (opcjonalnie), by połączyć obraz z dźwiękiem.",
+      "yt-dlp fetches the video itself, so these downloads are not made by the FetchBox engine.": "yt-dlp pobiera film samodzielnie, więc te pobierania nie są wykonywane przez silnik FetchBox."
     }
   }
 }

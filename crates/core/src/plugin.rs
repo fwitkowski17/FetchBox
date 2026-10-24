@@ -13,17 +13,19 @@ pub mod template;
 pub use manifest::{
     Action, ActionKind, ArchiveKind, Arg, Builtin, Button, ButtonStyle, Choice, Command, DepSource,
     Dependency, Dialog, Field, FieldKind, FieldOption, GithubDependency, Hook, HookAction, ItemMap,
-    Manifest, Permissions, Placement, Pointers, ProcessSpec, Resolver, RestartPolicy, ResultMap,
-    Section, SettingValue, ShowIf, SingleMap, Tab, Ui, UiKind, Webhook, WebhookBody,
+    Manifest, PermissionGroup, Permissions, Placement, Pointers, ProcessSpec, Resolver,
+    RestartPolicy, ResultMap, Section, SettingValue, ShowIf, SingleMap, Tab, Ui, UiKind, Webhook,
+    WebhookBody,
 };
 pub use text::{
     glob_match, host_of, is_safe_relative, is_valid_id, is_valid_key, platform_key, tr, PLATFORMS,
 };
 pub use validate::{check_setting_value, event_matches, validate, EVENT_NAMES, MAX_TEXT_SETTING};
 pub use view::{
-    derive_permissions, ActionResult, ActionView, DependencyProgress, DependencyView, FieldView,
-    NoticeLevel, PermissionSummary, PluginList, PluginSource, PluginState, PluginView, Provides,
-    StagedPlugin, StagedReplaces, StoreDownload, StoreEntry, StoreList, UiView,
+    derive_permissions, used_groups, ActionResult, ActionView, DependencyProgress, DependencyView,
+    FieldView, NoticeLevel, PermissionGroupView, PermissionSummary, PluginList, PluginSource,
+    PluginState, PluginView, Provides, StagedPlugin, StagedReplaces, StoreDownload, StoreEntry,
+    StoreList, UiView,
 };
 
 /// The manifest format this build understands (`Manifest::api_version`).

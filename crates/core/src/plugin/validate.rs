@@ -4,11 +4,12 @@
 use std::collections::HashSet;
 
 use super::manifest::{
-    Action, ActionKind, Arg, Command, Dialog, Field, FieldKind, HookAction, Manifest, Resolver,
-    SettingValue, UiKind, Webhook, WebhookBody,
+    Action, ActionKind, Arg, Command, Dialog, Field, FieldKind, HookAction, Manifest,
+    PermissionGroup, Resolver, SettingValue, UiKind, Webhook, WebhookBody,
 };
 use super::template::{self, Token};
 use super::text::{is_safe_relative, is_valid_id, is_valid_key, PLATFORMS};
+use super::view::used_groups;
 use super::API_VERSION;
 use crate::version::parse_version;
 
@@ -78,6 +79,47 @@ fn unique<'a>(what: &str, ids: impl Iterator<Item = &'a str>) -> Check {
         if !seen.insert(id) {
             return Err(format!("{what} \"{id}\" appears twice"));
         }
+    }
+    Ok(())
+}
+
+/// `permissions.uses` is the plugin's own statement of what it needs, so it has to match what the
+/// rest of the manifest does: nothing used without being declared, nothing declared without being used.
+fn check_declared_groups(m: &Manifest) -> Check {
+    let p = &m.permissions;
+    let used = used_groups(m);
+    unique("permission group", p.uses.iter().map(|g| g.as_str()))?;
+    for g in &used {
+        if !p.uses.contains(g) {
+            return Err(format!(
+                "it needs the \"{}\" permission but `permissions.uses` does not list it",
+                g.as_str()
+            ));
+        }
+    }
+    for g in &p.uses {
+        if !used.contains(g) {
+            return Err(format!(
+                "`permissions.uses` lists \"{}\" but nothing in the manifest uses it",
+                g.as_str()
+            ));
+        }
+    }
+    for (key, reason) in &p.reasons {
+        if !PermissionGroup::ALL.iter().any(|g| g.as_str() == key) {
+            return Err(format!(
+                "`permissions.reasons` has an unknown group \"{key}\""
+            ));
+        }
+        if !p.uses.iter().any(|g| g.as_str() == key) {
+            return Err(format!(
+                "`permissions.reasons` explains \"{key}\" which is not in `permissions.uses`"
+            ));
+        }
+        if reason.trim().is_empty() {
+            return Err(format!("the reason for \"{key}\" is empty"));
+        }
+        text(&format!("the reason for \"{key}\""), reason, 200)?;
     }
     Ok(())
 }
@@ -738,7 +780,7 @@ pub fn validate(m: &Manifest) -> Check {
             text("a translation", v, 2000)?;
         }
     }
-    Ok(())
+    check_declared_groups(m)
 }
 
 /// Most characters a text setting may have.
@@ -807,6 +849,7 @@ mod tests {
     fn base() -> serde_json::Value {
         serde_json::json!({
             "api_version": 1, "id": "demo", "name": "Demo", "version": "1.0.0",
+            "permissions": {"uses": ["network", "programs", "downloads"]},
             "dependencies": [{
                 "id": "tool",
                 "platforms": {"linux-x86_64": {"url": "https://example.com/tool", "sha256": SHA}}
@@ -850,6 +893,59 @@ mod tests {
     fn a_minimal_manifest_passes() {
         check(serde_json::json!({"api_version": 1, "id": "ab", "name": "A", "version": "0.1"}))
             .expect("valid");
+    }
+
+    #[test]
+    fn what_is_used_must_be_declared() {
+        let e = err_of(base(), |v| {
+            v["permissions"]["uses"] = serde_json::json!(["network", "programs"])
+        });
+        assert!(
+            e.contains("\"downloads\"") && e.contains("does not list"),
+            "{e}"
+        );
+        let e = err_of(base(), |v| v["permissions"] = serde_json::json!({}));
+        assert!(e.contains("does not list"), "{e}");
+    }
+
+    #[test]
+    fn what_is_declared_must_be_used() {
+        let e = err_of(base(), |v| {
+            v["permissions"]["uses"] =
+                serde_json::json!(["network", "programs", "downloads", "background"]);
+        });
+        assert!(
+            e.contains("\"background\"") && e.contains("nothing in the manifest"),
+            "{e}"
+        );
+        let e = err_of(base(), |v| {
+            v["permissions"]["uses"] =
+                serde_json::json!(["network", "network", "programs", "downloads"]);
+        });
+        assert!(e.contains("appears twice"), "{e}");
+    }
+
+    #[test]
+    fn reasons_belong_to_declared_groups() {
+        let mut ok = base();
+        ok["permissions"]["reasons"] = serde_json::json!({"network": "Talks to video sites."});
+        check(ok).expect("valid");
+        let e = err_of(base(), |v| {
+            v["permissions"]["reasons"] = serde_json::json!({"camera": "x"})
+        });
+        assert!(e.contains("unknown group"), "{e}");
+        let e = err_of(base(), |v| {
+            v["permissions"]["reasons"] = serde_json::json!({"events": "x"})
+        });
+        assert!(e.contains("not in `permissions.uses`"), "{e}");
+        let e = err_of(base(), |v| {
+            v["permissions"]["reasons"] = serde_json::json!({"network": " "})
+        });
+        assert!(e.contains("empty"), "{e}");
+        let e = err_of(base(), |v| {
+            v["permissions"]["reasons"] = serde_json::json!({"network": "x".repeat(201)});
+        });
+        assert!(e.contains("200"), "{e}");
     }
 
     #[test]
@@ -1026,6 +1122,7 @@ mod tests {
         v["resolvers"][0]["result"] = serde_json::json!({
             "items": "/entries", "item": {"name": "/title", "url": "/url"}
         });
+        v["permissions"]["uses"] = serde_json::json!(["network", "programs"]);
         check(v).expect("a list of direct addresses is fine");
         // A process resolver is read the same way.
         let e = err_of(base(), |v| {
@@ -1060,6 +1157,8 @@ mod tests {
             {"on": ["download.*", "torrent.completed"], "action": {"webhook": {"url": "https://x.example/h", "method": "POST"}}},
             {"on": ["*"], "action": {"webhook": {"url": "${setting:mode}"}}}
         ]);
+        v["permissions"]["uses"] =
+            serde_json::json!(["network", "programs", "downloads", "events"]);
         check(v).expect("valid hooks");
     }
 
@@ -1203,6 +1302,8 @@ mod tests {
         let mut v = base();
         v["process"] =
             serde_json::json!({"command": "bin/d", "env": {"TOKEN": "${setting:token}"}});
+        v["permissions"]["uses"] =
+            serde_json::json!(["network", "programs", "downloads", "background"]);
         check(v).expect("valid");
     }
 }

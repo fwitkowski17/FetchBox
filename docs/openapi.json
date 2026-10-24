@@ -4772,10 +4772,53 @@
           "socks"
         ]
       },
+      "PermissionGroup": {
+        "type": "string",
+        "description": "A kind of thing a plugin may do. The user sees one accordion per group.",
+        "enum": [
+          "network",
+          "programs",
+          "events",
+          "background",
+          "downloads",
+          "api"
+        ]
+      },
+      "PermissionGroupView": {
+        "type": "object",
+        "description": "A declared group and why the plugin wants it.",
+        "required": [
+          "id",
+          "reason_i18n"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/PermissionGroup"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The author's reason (English, as written in the manifest)."
+          },
+          "reason_i18n": {
+            "type": "object",
+            "description": "The reason in the languages the manifest translates it to (`locale` -> text).",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "PermissionSummary": {
         "type": "object",
         "description": "What a plugin may do, worked out from its manifest and shown before it is installed.",
         "required": [
+          "groups",
           "network",
           "api",
           "programs",
@@ -4806,6 +4849,13 @@
               "type": "string"
             },
             "description": "Events it receives."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionGroupView"
+            },
+            "description": "The groups it declares, in display order, each with the author's reason."
           },
           "network": {
             "type": "array",

@@ -58,9 +58,59 @@ pub struct Manifest {
     pub i18n: BTreeMap<String, BTreeMap<String, String>>,
 }
 
-/// What the plugin says it will reach. The rest (programs, events, ...) the host works out itself.
+/// A kind of thing a plugin may do. The user sees one accordion per group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionGroup {
+    /// Talks to servers: its own hosts, where its dependencies come from, where webhooks go.
+    Network,
+    /// Runs programs.
+    Programs,
+    /// Receives events about downloads and torrents.
+    Events,
+    /// Keeps a program running for as long as it is enabled.
+    Background,
+    /// Downloads files with its own program instead of FetchBox's engine.
+    Downloads,
+    /// Uses parts of FetchBox's own API.
+    Api,
+}
+
+impl PermissionGroup {
+    /// The order the groups are shown in.
+    pub const ALL: [PermissionGroup; 6] = [
+        PermissionGroup::Network,
+        PermissionGroup::Programs,
+        PermissionGroup::Downloads,
+        PermissionGroup::Background,
+        PermissionGroup::Events,
+        PermissionGroup::Api,
+    ];
+
+    /// The name used in the manifest.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PermissionGroup::Network => "network",
+            PermissionGroup::Programs => "programs",
+            PermissionGroup::Events => "events",
+            PermissionGroup::Background => "background",
+            PermissionGroup::Downloads => "downloads",
+            PermissionGroup::Api => "api",
+        }
+    }
+}
+
+/// What the plugin says it uses. `uses` must name every group the rest of the manifest needs
+/// (checked by `validate`), so the user can read it as the plugin's own statement.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Permissions {
+    /// The groups it uses: `network`, `programs`, `downloads`, `background`, `events`, `api`.
+    #[serde(default)]
+    pub uses: Vec<PermissionGroup>,
+    /// Why it needs a group, in a sentence (key: the group). Translated through `i18n`.
+    #[serde(default)]
+    pub reasons: BTreeMap<String, String>,
     /// Host patterns the plugin talks to (`example.com`, `*.example.com`, `*`, `{setting:key}`).
     #[serde(default)]
     pub network: Vec<String>,
