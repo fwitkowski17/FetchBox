@@ -1578,6 +1578,7 @@ async fn a_bundled_plugin_is_installed_through_the_same_review() {
         .await
         .expect("stage");
     assert_eq!(staged.source, PluginSource::Bundled);
+    let staged_version = staged.version.clone();
     assert_eq!(staged.permissions.webhook_hosts, ["{setting:url}"]);
     assert_eq!(
         staged.permissions.events,
@@ -1599,7 +1600,8 @@ async fn a_bundled_plugin_is_installed_through_the_same_review() {
         .iter()
         .find(|e| e.id == "webhook-notify")
         .expect("entry");
-    assert_eq!(e.installed.as_deref(), Some("1.0.0"));
+    // Whatever version the bundled manifest has: the test is about the review, not about a number.
+    assert_eq!(e.installed.as_deref(), Some(staged_version.as_str()));
     assert!(!e.update_available);
     let e = rig
         .mgr
@@ -1717,12 +1719,13 @@ async fn a_catalog_plugin_is_downloaded_checked_and_installed() {
 #[tokio::test]
 async fn an_installed_plugin_learns_about_a_newer_version_in_the_store() {
     let rig_dir = tempfile::tempdir().expect("tmp");
-    // First: only the bundled webhook-notify (1.0.0) is installed.
+    // First: only the bundled webhook-notify is installed (at whatever version it ships).
     let offline = Rig::boot(rig_dir.path(), PluginsMode::On, None, "").await;
     let staged = offline
         .plugin_stage_store("webhook-notify".into())
         .await
         .expect("stage");
+    let bundled = staged.version.clone();
     offline.plugin_install(staged.token).await.expect("install");
     offline.stop_plugins().await;
     // Then the server starts with a catalog that has 2.0.0.
@@ -1742,7 +1745,7 @@ async fn an_installed_plugin_learns_about_a_newer_version_in_the_store() {
         .expect("entry");
     assert_eq!(
         (e.installed.as_deref(), e.update_available),
-        (Some("1.0.0"), true)
+        (Some(bundled.as_str()), true)
     );
     let plugins = online.plugins().await.expect("list");
     assert_eq!(
@@ -1755,7 +1758,7 @@ async fn an_installed_plugin_learns_about_a_newer_version_in_the_store() {
         .plugin_stage_store("webhook-notify".into())
         .await
         .expect("stage");
-    assert_eq!(staged.replaces.expect("replaces").version, "1.0.0");
+    assert_eq!(staged.replaces.expect("replaces").version, bundled);
     assert_eq!(staged.version, "2.0.0");
 }
 
