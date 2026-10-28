@@ -606,6 +606,253 @@ async fn a_folder_put_in_the_plugins_directory_waits_for_approval() {
     assert!(list.plugins.iter().all(|p| p.id != "dropped"));
 }
 
+/// `fetchbox plugin link`: a project whose program is a dependency on its own GitHub releases runs
+/// from the program that was built, without anything being fetched (the release does not exist).
+#[tokio::test]
+async fn a_linked_program_runs_without_anything_being_downloaded() {
+    let rig = Rig::new().await;
+    let project = rig.root.path().join("project");
+    std::fs::create_dir_all(&project).expect("project");
+    // `main` makes the data directory when the server starts; `plugin link` does not.
+    std::fs::create_dir_all(rig.root.path().join("data")).expect("data dir");
+    let manifest = declared(&manifest(
+        "linked",
+        json!({
+            "dependencies": [{
+                "id": "linked",
+                "github": {
+                    "repo": "nobody/linked",
+                    "assets": {platform_key(): "linked-asset"},
+                    "sha256_asset": "SHA2-256SUMS"
+                }
+            }],
+            "process": {"command": "${dep:linked}", "args": ["echo"]},
+            "ui": {"actions": [{"id": "ping", "label": "Ping", "kind": "process"}]}
+        }),
+    ));
+    std::fs::write(project.join("plugin.json"), manifest.to_string()).expect("manifest");
+
+    let linked = crate::link::link(&crate::link::LinkRequest {
+        project,
+        data_dir: rig.root.path().join("data"),
+        dependency: None,
+        bin: Some(fake_plugin()),
+    })
+    .expect("linked");
+    assert_eq!(linked.plugin_dir, rig.plugin_dir("linked"));
+
+    let list = rig.mgr.plugin_rescan().await.expect("rescan");
+    let found = list
+        .plugins
+        .iter()
+        .find(|p| p.id == "linked")
+        .expect("plugin")
+        .clone();
+    assert_eq!(found.state, PluginState::NeedsReview);
+    assert!(
+        found.dependencies.iter().all(|d| d.installed),
+        "the linked program counts as installed: {:?}",
+        found.dependencies
+    );
+    rig.mgr
+        .plugin_approve("linked".into(), found.manifest_hash)
+        .await
+        .expect("approve");
+    rig.mgr
+        .plugin_set_enabled("linked".into(), true)
+        .await
+        .expect("enable");
+    let running = rig.wait_for("linked", PluginState::Running).await;
+    assert!(running.error.is_none(), "{:?}", running.error);
+
+    let answer = rig
+        .mgr
+        .plugin_action("linked".into(), "ping".into(), BTreeMap::new())
+        .await
+        .expect("ping");
+    assert!(answer.ok);
+}
+
+/// A program of FetchBox's list is installed once and run by every plugin that names it. It is put
+/// in place by hand here (the real addresses are on PyPI); nothing may be fetched, and the update
+/// of a plugin's dependencies leaves it alone.
+#[tokio::test]
+async fn plugins_share_a_program_from_fetchboxs_list() {
+    use fetchbox_core::plugin::shared_program;
+
+    let rig = Rig::new().await;
+    let entry = shared_program("ffmpeg").expect("ffmpeg is on the list");
+    let Some(source) = entry.platforms.get(&platform_key()) else {
+        return; // no ffmpeg for this platform: nothing to run
+    };
+    let folder = rig
+        .root
+        .path()
+        .join("data/plugin-programs/ffmpeg")
+        .join(&entry.version);
+    let program = folder.join(source.bin.as_deref().expect("a program path"));
+    std::fs::create_dir_all(program.parent().expect("parent")).expect("folder");
+    std::fs::copy(fake_plugin(), &program).expect("program");
+    std::fs::write(
+        folder.join(".fetchbox-dependency.json"),
+        json!({"version": entry.version, "sha256": "", "host": "test", "installed_at": 0})
+            .to_string(),
+    )
+    .expect("record");
+
+    let plugin = |id: &str| {
+        manifest(
+            id,
+            json!({
+                "platforms": [platform_key()],
+                "dependencies": [{"id": "ffmpeg", "shared": "ffmpeg"}],
+                "process": {"command": "${dep:ffmpeg}", "args": ["echo"]},
+                "ui": {"actions": [{"id": "ping", "label": "Ping", "kind": "process"}]}
+            }),
+        )
+    };
+    for id in ["alpha", "beta"] {
+        let installed = rig.install(&plugin(id), false).await;
+        assert!(
+            installed.dependencies[0].installed,
+            "it is there before anything is fetched"
+        );
+        assert_eq!(
+            installed.dependencies[0].version.as_deref(),
+            Some(entry.version.as_str())
+        );
+        rig.mgr
+            .plugin_set_enabled(id.into(), true)
+            .await
+            .expect("enable");
+    }
+    for id in ["alpha", "beta"] {
+        let running = rig.wait_for(id, PluginState::Running).await;
+        assert!(running.error.is_none(), "{:?}", running.error);
+        let answer = rig
+            .mgr
+            .plugin_action(id.into(), "ping".into(), BTreeMap::new())
+            .await
+            .expect("ping");
+        assert!(answer.ok);
+    }
+    assert!(
+        !rig.root.path().join("data/plugin-data/alpha/deps").exists(),
+        "nothing was put in the plugin's own folder"
+    );
+
+    // "Download programs" leaves a shared program alone: it moves with FetchBox, and a new copy
+    // would replace the folder the other plugin is running from.
+    let before = std::fs::metadata(&program)
+        .expect("meta")
+        .modified()
+        .expect("mtime");
+    let again = rig
+        .mgr
+        .plugin_dependencies("alpha".into(), None)
+        .await
+        .expect("update");
+    assert!(again.enabled);
+    rig.wait_for("alpha", PluginState::Running).await;
+    assert_eq!(
+        std::fs::metadata(&program)
+            .expect("meta")
+            .modified()
+            .expect("mtime"),
+        before
+    );
+    rig.wait_for("beta", PluginState::Running).await;
+}
+
+/// The review before installing lists the dependencies apart from the permissions and says, for each,
+/// what switching the plugin on does: the rule is the one the installer follows.
+#[tokio::test]
+async fn the_review_lists_dependencies_apart_and_says_what_will_be_downloaded() {
+    use fetchbox_core::plugin::{shared_program, DependencyPlan, DependencySource};
+
+    let rig = Rig::new().await;
+    let plan = |staged: &fetchbox_core::plugin::StagedPlugin, id: &str| {
+        staged
+            .dependency_plan
+            .iter()
+            .find(|d| d.id == id)
+            .unwrap_or_else(|| panic!("no plan for {id}"))
+            .plan
+    };
+    let stage = || async {
+        let staged = rig
+            .mgr
+            .plugin_stage_store("yt-dlp".into())
+            .await
+            .expect("stage");
+        rig.mgr
+            .plugin_cancel(staged.token.clone())
+            .await
+            .expect("cancel");
+        staged
+    };
+
+    let first = stage().await;
+    let deps: Vec<_> = first
+        .permissions
+        .dependencies
+        .iter()
+        .map(|d| (d.id.as_str(), d.source, d.optional))
+        .collect();
+    assert_eq!(
+        deps,
+        [
+            ("ffmpeg", DependencySource::Shared, true),
+            ("yt-dlp", DependencySource::Github, false)
+        ]
+    );
+    assert!(
+        !first
+            .permissions
+            .programs
+            .iter()
+            .any(|p| p.contains("dependency")),
+        "a dependency is not a program it runs: {:?}",
+        first.permissions.programs
+    );
+    assert_eq!(plan(&first, "yt-dlp"), DependencyPlan::Download, "required");
+    assert_eq!(
+        plan(&first, "ffmpeg"),
+        DependencyPlan::OnRequest,
+        "optional"
+    );
+
+    // Somebody chose ffmpeg before, in a version the list has moved on from: it comes again.
+    let programs = rig.root.path().join("data/plugin-programs/ffmpeg");
+    std::fs::create_dir_all(programs.join("an-older-version")).expect("old version");
+    std::fs::write(
+        programs.join("an-older-version/.fetchbox-dependency.json"),
+        "{}",
+    )
+    .expect("record");
+    assert_eq!(plan(&stage().await, "ffmpeg"), DependencyPlan::Download);
+
+    // And once the current version is on this machine (put there by hand: the real address is PyPI's)
+    // nothing is downloaded for it, whichever plugin asks.
+    let entry = shared_program("ffmpeg").expect("ffmpeg is on the list");
+    let Some(source) = entry.platforms.get(&platform_key()) else {
+        return;
+    };
+    let folder = programs.join(&entry.version);
+    let program = folder.join(source.bin.as_deref().expect("a program path"));
+    std::fs::create_dir_all(program.parent().expect("parent")).expect("folder");
+    std::fs::write(&program, b"ffmpeg").expect("program");
+    std::fs::write(
+        folder.join(".fetchbox-dependency.json"),
+        json!({"version": entry.version, "sha256": "", "host": "test", "installed_at": 0})
+            .to_string(),
+    )
+    .expect("record");
+    let last = stage().await;
+    assert_eq!(plan(&last, "ffmpeg"), DependencyPlan::Present);
+    assert_eq!(plan(&last, "yt-dlp"), DependencyPlan::Download);
+}
+
 #[tokio::test]
 async fn an_update_replaces_the_plugin_and_keeps_its_choices() {
     let rig = Rig::new().await;
@@ -634,6 +881,10 @@ async fn an_update_replaces_the_plugin_and_keeps_its_choices() {
         .expect("stage");
     let old = staged.replaces.clone().expect("replaces");
     assert_eq!(old.version, "1.0.0");
+    assert!(
+        old.enabled,
+        "the review can say that an update of a plugin that is on downloads at once"
+    );
     assert!(old.permissions.network.is_empty());
     assert_eq!(
         staged.permissions.network,
@@ -829,6 +1080,110 @@ async fn a_dependency_is_fetched_when_the_plugin_is_switched_on() {
         }
     }
     assert!(progress, "the interface saw the download");
+}
+
+/// A tiny GitHub with several releases of `o/r`, each with its own program (by tag).
+async fn fake_github_tags(releases: &[(&str, &'static [u8])]) -> String {
+    use axum::extract::Path as UrlPath;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let bodies: Arc<BTreeMap<String, &'static [u8]>> = Arc::new(
+        releases
+            .iter()
+            .map(|(tag, body)| ((*tag).to_owned(), *body))
+            .collect(),
+    );
+    let release = {
+        let (base, bodies) = (base.clone(), bodies.clone());
+        move |UrlPath(tag): UrlPath<String>| {
+            let found = bodies.get(&tag).map(|body| {
+                json!({
+                    "tag_name": tag,
+                    "assets": [
+                        {"name": "tool_asset", "size": body.len(), "browser_download_url": format!("{base}/dl/{tag}/tool")},
+                        {"name": "SUMS", "size": 100, "browser_download_url": format!("{base}/dl/{tag}/sums")},
+                    ]
+                })
+                .to_string()
+                .into_response()
+            });
+            async move { found.unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()) }
+        }
+    };
+    let program = {
+        let bodies = bodies.clone();
+        move |UrlPath(tag): UrlPath<String>| {
+            let found = bodies.get(&tag).map(|body| body.to_vec().into_response());
+            async move { found.unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()) }
+        }
+    };
+    let sums = move |UrlPath(tag): UrlPath<String>| {
+        let found = bodies
+            .get(&tag)
+            .map(|body| format!("{}  tool_asset\n", sha(body)).into_response());
+        async move { found.unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()) }
+    };
+    let app = axum::Router::new()
+        .route(
+            "/repos/o/r/releases/tags/{tag}",
+            axum::routing::get(release),
+        )
+        .route("/dl/{tag}/tool", axum::routing::get(program))
+        .route("/dl/{tag}/sums", axum::routing::get(sums));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    base
+}
+
+/// The program of an extension that is pinned to a release must follow its updates: the data folder
+/// outlives the old version, and the program of the old release is still in it.
+#[tokio::test]
+async fn an_update_pinned_to_a_newer_release_fetches_that_release() {
+    let api = fake_github_tags(&[("v1.0.0", b"program one"), ("v2.0.0", b"program two")]).await;
+    let rig = rig_with_github(api).await;
+    let pinned = |version: &str, tag: &str| {
+        manifest(
+            "needy",
+            json!({"version": version, "platforms": [platform_key()], "dependencies": [{
+                "id": "tool",
+                "github": {"repo": "o/r", "assets": {platform_key(): "tool_asset"},
+                           "sha256_asset": "SUMS", "tag": tag}
+            }]}),
+        )
+    };
+    let program = rig
+        .root
+        .path()
+        .join("data/plugin-data/needy/deps/tool/tool");
+
+    rig.install(&pinned("1.0.0", "v1.0.0"), false).await;
+    rig.mgr
+        .plugin_set_enabled("needy".into(), true)
+        .await
+        .expect("enable");
+    let v = rig.wait_for("needy", PluginState::Ready).await;
+    assert_eq!(v.dependencies[0].version.as_deref(), Some("v1.0.0"));
+    assert_eq!(std::fs::read(&program).expect("program"), b"program one");
+
+    let staged = rig
+        .mgr
+        .plugin_stage(package(&pinned("2.0.0", "v2.0.0"), false))
+        .await
+        .expect("stage");
+    let updated = rig.mgr.plugin_install(staged.token).await.expect("update");
+    assert!(updated.enabled);
+    let v = rig.wait_for("needy", PluginState::Ready).await;
+    assert_eq!(v.version, "2.0.0");
+    assert_eq!(v.dependencies[0].version.as_deref(), Some("v2.0.0"));
+    assert_eq!(
+        std::fs::read(&program).expect("program"),
+        b"program two",
+        "the program of the old release was replaced"
+    );
 }
 
 #[tokio::test]
@@ -1223,6 +1578,7 @@ async fn a_bundled_plugin_is_installed_through_the_same_review() {
         .await
         .expect("stage");
     assert_eq!(staged.source, PluginSource::Bundled);
+    let staged_version = staged.version.clone();
     assert_eq!(staged.permissions.webhook_hosts, ["{setting:url}"]);
     assert_eq!(
         staged.permissions.events,
@@ -1244,7 +1600,8 @@ async fn a_bundled_plugin_is_installed_through_the_same_review() {
         .iter()
         .find(|e| e.id == "webhook-notify")
         .expect("entry");
-    assert_eq!(e.installed.as_deref(), Some("1.0.0"));
+    // Whatever version the bundled manifest has: the test is about the review, not about a number.
+    assert_eq!(e.installed.as_deref(), Some(staged_version.as_str()));
     assert!(!e.update_available);
     let e = rig
         .mgr
@@ -1362,12 +1719,13 @@ async fn a_catalog_plugin_is_downloaded_checked_and_installed() {
 #[tokio::test]
 async fn an_installed_plugin_learns_about_a_newer_version_in_the_store() {
     let rig_dir = tempfile::tempdir().expect("tmp");
-    // First: only the bundled webhook-notify (1.0.0) is installed.
+    // First: only the bundled webhook-notify is installed (at whatever version it ships).
     let offline = Rig::boot(rig_dir.path(), PluginsMode::On, None, "").await;
     let staged = offline
         .plugin_stage_store("webhook-notify".into())
         .await
         .expect("stage");
+    let bundled = staged.version.clone();
     offline.plugin_install(staged.token).await.expect("install");
     offline.stop_plugins().await;
     // Then the server starts with a catalog that has 2.0.0.
@@ -1387,7 +1745,7 @@ async fn an_installed_plugin_learns_about_a_newer_version_in_the_store() {
         .expect("entry");
     assert_eq!(
         (e.installed.as_deref(), e.update_available),
-        (Some("1.0.0"), true)
+        (Some(bundled.as_str()), true)
     );
     let plugins = online.plugins().await.expect("list");
     assert_eq!(
@@ -1400,7 +1758,7 @@ async fn an_installed_plugin_learns_about_a_newer_version_in_the_store() {
         .plugin_stage_store("webhook-notify".into())
         .await
         .expect("stage");
-    assert_eq!(staged.replaces.expect("replaces").version, "1.0.0");
+    assert_eq!(staged.replaces.expect("replaces").version, bundled);
     assert_eq!(staged.version, "2.0.0");
 }
 

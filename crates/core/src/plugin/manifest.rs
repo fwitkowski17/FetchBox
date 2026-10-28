@@ -171,6 +171,13 @@ pub struct GithubDependency {
     /// A tag; the latest release when absent.
     #[serde(default)]
     pub tag: Option<String>,
+    /// SHA-256 of the release asset, per platform (hexadecimal), pinned in the manifest. It needs
+    /// a `tag`: a hash belongs to one release. Where a platform has one, the download is checked
+    /// against it and the release's checksum file is not asked for. The plugin's release workflow
+    /// writes it into the manifest it ships, so the approved manifest pins the exact programs: a
+    /// release asset swapped after publishing, checksum file included, is refused.
+    #[serde(default)]
+    pub sha256: BTreeMap<String, String>,
 }
 
 /// A program or file the plugin needs and FetchBox fetches for it.
@@ -191,6 +198,11 @@ pub struct Dependency {
     /// Following form: the releases of a repository.
     #[serde(default)]
     pub github: Option<GithubDependency>,
+    /// Shared form: a program from FetchBox's own list (`plugins/programs.json`), installed once
+    /// for every plugin that names it. The entry decides the files, so `platforms`, `github` and
+    /// `bin` are absent; `label` and `optional` are still the plugin's.
+    #[serde(default)]
+    pub shared: Option<String>,
 }
 
 /// What a settings field or a dialog field is.

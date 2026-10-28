@@ -1,0 +1,72 @@
+{
+  "api_version": 1,
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "Turns an address with a numbered range, such as https://example.com/img[001-020].jpg, into a list of files to choose from.",
+  "author": "__AUTHOR__",
+  "homepage": "https://github.com/__REPO__",
+  "license": "MIT",
+  "platforms": ["linux-x86_64", "linux-aarch64", "macos-aarch64"],
+  "permissions": {
+    "uses": ["network", "programs"],
+    "reasons": {
+      "network": "Downloads its program from the GitHub releases of __REPO__.",
+      "programs": "Runs the program it downloaded to read the addresses you paste."
+    }
+  },
+  "dependencies": [
+    {
+      "id": "__ID__",
+      "label": "__NAME__ program",
+      "github": {
+        "repo": "__REPO__",
+        "assets": {
+          "linux-x86_64": "__ID__-linux-x86_64",
+          "linux-aarch64": "__ID__-linux-aarch64",
+          "macos-aarch64": "__ID__-macos-aarch64"
+        },
+        "sha256_asset": "SHA2-256SUMS"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "key": "sites",
+      "type": "textarea",
+      "label": "Sites",
+      "help": "One address pattern per line. Addresses that match are expanded by this extension, for example https://example.com/gallery/*.",
+      "placeholder": "https://example.com/gallery/*"
+    },
+    {
+      "key": "limit",
+      "type": "number",
+      "label": "Most files in a list",
+      "help": "A range with more files than this is cut short.",
+      "default": 100,
+      "min": 1,
+      "max": 500
+    }
+  ],
+  "resolvers": [
+    {
+      "id": "range",
+      "match": ["${setting:sites}"],
+      "probe": {
+        "command": "${dep:__ID__}",
+        "args": ["${url}", "${setting:limit}"],
+        "timeout_s": 30
+      },
+      "result": {
+        "items": "/entries",
+        "item": {
+          "name": ["/name"],
+          "url": ["/url"]
+        }
+      }
+    }
+  ],
+  "ui": {
+    "icon": "list"
+  }
+}

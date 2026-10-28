@@ -4,6 +4,7 @@
 //! `plugins` crate and the server do that.
 
 mod manifest;
+mod programs;
 mod text;
 mod validate;
 mod view;
@@ -17,15 +18,17 @@ pub use manifest::{
     RestartPolicy, ResultMap, Section, SettingValue, ShowIf, SingleMap, Tab, Ui, UiKind, Webhook,
     WebhookBody,
 };
+pub use programs::{is_valid_version, shared_program, shared_programs, SharedProgram};
 pub use text::{
     glob_match, host_of, is_safe_relative, is_valid_id, is_valid_key, platform_key, tr, PLATFORMS,
 };
 pub use validate::{check_setting_value, event_matches, validate, EVENT_NAMES, MAX_TEXT_SETTING};
 pub use view::{
-    derive_permissions, used_groups, ActionResult, ActionView, DependencyProgress, DependencyView,
-    FieldView, NoticeLevel, PermissionGroupView, PermissionSummary, PluginList, PluginSource,
-    PluginState, PluginView, Provides, StagedPlugin, StagedReplaces, StoreDownload, StoreEntry,
-    StoreList, UiView,
+    derive_permissions, used_groups, ActionResult, ActionView, DependencyNeed, DependencyPlan,
+    DependencyProgress, DependencySource, DependencyView, FieldView, NoticeLevel,
+    PermissionGroupView, PermissionSummary, PluginList, PluginSource, PluginState, PluginView,
+    Provides, StagedDependency, StagedPlugin, StagedReplaces, StoreDownload, StoreEntry, StoreList,
+    UiView,
 };
 
 /// The manifest format this build understands (`Manifest::api_version`).

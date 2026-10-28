@@ -29,7 +29,7 @@ function plugin(over: Partial<PluginView> = {}): PluginView {
       network: [],
       api: [],
       programs: [],
-      download_hosts: [],
+      dependencies: [],
       webhook_hosts: [],
       events: [],
       process: false,

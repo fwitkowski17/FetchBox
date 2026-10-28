@@ -31,6 +31,7 @@ The user (Filip) communicates in Polish. Reply in Polish. Code, identifiers, com
 - Frontend check: `cd web && npm run check`
 - Full build: `./scripts/build.sh` (web build, then `cargo build --release`)
 - Dev backend: `cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads`
+- New extension project: `cargo new-plugin <id> [-t hook|resolver|process] -r owner/name -o <dir>` (same as `fetchbox plugin new`); try it in the dev backend with `cargo plugin-link <dir>` after `cargo build --release` there (SPEC 6.15)
 
 ## Conventions
 

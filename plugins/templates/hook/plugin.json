@@ -1,0 +1,106 @@
+{
+  "api_version": 1,
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "Sends a message to a web address when a download finishes or fails.",
+  "author": "__AUTHOR__",
+  "homepage": "https://github.com/__REPO__",
+  "license": "MIT",
+  "permissions": {
+    "uses": ["network", "events"],
+    "reasons": {
+      "network": "Sends the message to the address you enter in the settings.",
+      "events": "Needs to know when a download finishes or fails."
+    },
+    "network": ["${setting:url}"]
+  },
+  "settings": [
+    {
+      "key": "url",
+      "type": "text",
+      "label": "Address",
+      "help": "Where the message is sent, as a POST request. An http:// address on your own network works too.",
+      "placeholder": "https://ntfy.sh/my-downloads",
+      "required": true
+    },
+    {
+      "key": "token",
+      "type": "secret",
+      "label": "Authorization header",
+      "help": "Sent as the Authorization header, for example Bearer abc123. Leave it empty if the service needs none."
+    }
+  ],
+  "hooks": [
+    {
+      "on": ["download.completed"],
+      "action": {
+        "webhook": {
+          "url": "${setting:url}",
+          "headers": { "Authorization": "${setting:token}" },
+          "body": "template",
+          "template": "Finished: {{download.filename}}"
+        }
+      }
+    },
+    {
+      "on": ["download.failed"],
+      "action": {
+        "webhook": {
+          "url": "${setting:url}",
+          "headers": { "Authorization": "${setting:token}" },
+          "body": "template",
+          "template": "Failed: {{download.filename}} ({{download.error}})"
+        }
+      }
+    }
+  ],
+  "ui": {
+    "icon": "bell",
+    "actions": [
+      {
+        "id": "test",
+        "label": "Send a test message",
+        "icon": "play",
+        "placement": "card",
+        "kind": "open_dialog",
+        "dialog": "test"
+      },
+      {
+        "id": "send_test",
+        "label": "Send",
+        "placement": "hidden",
+        "kind": "webhook",
+        "webhook": {
+          "url": "${setting:url}",
+          "headers": { "Authorization": "${setting:token}" },
+          "body": "template",
+          "template": "{{input.message}}"
+        }
+      }
+    ],
+    "dialogs": [
+      {
+        "id": "test",
+        "title": "Send a test message",
+        "description": "Sends a message to the address now, to check that it arrives.",
+        "fields": [
+          { "key": "message", "type": "text", "label": "Message", "default": "Hello from FetchBox" }
+        ],
+        "buttons": [
+          { "id": "cancel", "label": "Close", "style": "default" },
+          { "id": "send", "label": "Send", "style": "primary", "action": "send_test", "closes": false }
+        ]
+      }
+    ]
+  },
+  "i18n": {
+    "pl": {
+      "Send a test message": "Wyślij wiadomość testową",
+      "Send": "Wyślij",
+      "Close": "Zamknij",
+      "Message": "Wiadomość",
+      "Address": "Adres"
+    }
+  }
+}

@@ -25,9 +25,9 @@ export const GROUP_ICONS: Record<GroupId, IconName> = {
 };
 
 /** The lists of the summary that belong to one group, and the flag that stands for the others. */
-type ListKind = 'programs' | 'download_hosts' | 'network' | 'webhook_hosts' | 'events' | 'api';
+type ListKind = 'programs' | 'network' | 'webhook_hosts' | 'events' | 'api';
 const GROUP_LISTS: Record<GroupId, readonly ListKind[]> = {
-  network: ['network', 'download_hosts', 'webhook_hosts'],
+  network: ['network', 'webhook_hosts'],
   programs: ['programs'],
   downloads: [],
   background: [],

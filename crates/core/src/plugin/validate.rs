@@ -604,10 +604,30 @@ pub fn validate(m: &Manifest) -> Check {
             return Err(format!("{name}: not a valid id"));
         }
         text("a dependency label", &d.label, 200)?;
-        if d.platforms.is_empty() == d.github.is_none() {
+        let sources = usize::from(!d.platforms.is_empty())
+            + usize::from(d.github.is_some())
+            + usize::from(d.shared.is_some());
+        if sources != 1 {
             return Err(format!(
-                "{name} needs either `platforms` or `github`, not both and not neither"
+                "{name} needs exactly one of `platforms`, `github` or `shared`"
             ));
+        }
+        if let Some(shared) = &d.shared {
+            if d.bin.is_some() {
+                return Err(format!(
+                    "{name}: `bin` is decided by the shared program \"{shared}\""
+                ));
+            }
+            if super::programs::shared_program(shared).is_none() {
+                let known: Vec<&str> = super::programs::shared_programs()
+                    .iter()
+                    .map(|p| p.id.as_str())
+                    .collect();
+                return Err(format!(
+                    "{name}: FetchBox has no shared program \"{shared}\" (it has: {})",
+                    known.join(", ")
+                ));
+            }
         }
         if let Some(b) = &d.bin {
             if !is_safe_relative(b) {
@@ -654,11 +674,31 @@ pub fn validate(m: &Manifest) -> Check {
             if g.assets.is_empty() {
                 return Err(format!("{name}: `github.assets` is empty"));
             }
+            // Every platform pinned in the manifest needs no checksum file of the release.
+            let all_pinned = g.assets.keys().all(|p| g.sha256.contains_key(p));
             match &g.sha256_asset {
                 Some(a) if !a.is_empty() && !a.contains(['/', '\\']) => {}
+                None if all_pinned => {}
                 _ => {
                     return Err(format!(
-                        "{name}: `github.sha256_asset` is required (the release asset that lists the SHA-256 of the others)"
+                        "{name}: `github.sha256_asset` is required (the release asset that lists the SHA-256 of the others), unless `github.sha256` pins every platform"
+                    ));
+                }
+            }
+            if !g.sha256.is_empty() && g.tag.as_deref().is_none_or(str::is_empty) {
+                return Err(format!(
+                    "{name}: `github.sha256` needs a `github.tag` (a hash belongs to one release)"
+                ));
+            }
+            for (p, hash) in &g.sha256 {
+                if !g.assets.contains_key(p) {
+                    return Err(format!(
+                        "{name}: `github.sha256` has a hash for {p}, which has no asset"
+                    ));
+                }
+                if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(format!(
+                        "{name}: `github.sha256` for {p} must be 64 hexadecimal digits"
                     ));
                 }
             }
@@ -993,11 +1033,11 @@ mod tests {
         let e = err_of(base(), |v| {
             v["dependencies"][0]["github"] = serde_json::json!({"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SUMS"});
         });
-        assert!(e.contains("not both"), "{e}");
+        assert!(e.contains("exactly one"), "{e}");
         let e = err_of(base(), |v| {
             v["dependencies"][0] = serde_json::json!({"id": "tool"});
         });
-        assert!(e.contains("not neither"), "{e}");
+        assert!(e.contains("exactly one"), "{e}");
         let e = err_of(base(), |v| {
             v["dependencies"]
                 .as_array_mut()
@@ -1005,6 +1045,49 @@ mod tests {
                 .push(serde_json::json!({"id": "tool", "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SUMS"}}));
         });
         assert!(e.contains("twice"), "{e}");
+    }
+
+    #[test]
+    fn a_shared_dependency_names_a_program_of_fetchboxs_list_and_nothing_else() {
+        let shared = |extra: serde_json::Value| {
+            let mut dep = serde_json::json!({"id": "ffmpeg", "optional": true, "shared": "ffmpeg"});
+            for (k, v) in extra.as_object().expect("object") {
+                dep[k] = v.clone();
+            }
+            dep
+        };
+        let mut v = base();
+        v["dependencies"]
+            .as_array_mut()
+            .expect("array")
+            .push(shared(serde_json::json!({})));
+        check(v).expect("a shared dependency next to a pinned one");
+
+        // The id of the dependency is the plugin's own; the entry is what `shared` names.
+        let mut v = base();
+        v["dependencies"][0] = shared(serde_json::json!({"id": "tool", "shared": "ffmpeg"}));
+        check(v).expect("any id");
+
+        let e = err_of(base(), |v| {
+            v["dependencies"][0] = shared(serde_json::json!({"shared": "nope"}))
+        });
+        assert!(
+            e.contains("no shared program \"nope\"") && e.contains("ffmpeg"),
+            "{e}"
+        );
+        let e = err_of(base(), |v| {
+            v["dependencies"][0] = shared(serde_json::json!({"bin": "x"}))
+        });
+        assert!(e.contains("bin") && e.contains("decided"), "{e}");
+        // One source only: not with `platforms`, not with `github`.
+        let e = err_of(base(), |v| v["dependencies"][0]["shared"] = "ffmpeg".into());
+        assert!(e.contains("exactly one"), "{e}");
+        let e = err_of(base(), |v| {
+            v["dependencies"][0] = shared(serde_json::json!({
+                "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SUMS"}
+            }));
+        });
+        assert!(e.contains("exactly one"), "{e}");
     }
 
     #[test]
@@ -1022,6 +1105,57 @@ mod tests {
             "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SHA2-256SUMS"}
         });
         check(v).expect("valid");
+    }
+
+    #[test]
+    fn a_github_dependency_can_pin_the_hashes_of_its_assets_instead_of_a_checksum_file() {
+        let hash = "a".repeat(64);
+        let with = |extra: serde_json::Value| {
+            let mut github = serde_json::json!({"repo": "o/r", "assets": {"linux-x86_64": "x", "macos-aarch64": "y"}, "tag": "v1.0.0"});
+            for (k, v) in extra.as_object().expect("object") {
+                github[k] = v.clone();
+            }
+            let mut v = base();
+            v["dependencies"][0] = serde_json::json!({"id": "tool", "github": github});
+            v
+        };
+        let all = serde_json::json!({"linux-x86_64": hash, "macos-aarch64": hash});
+        // Pinned for every platform: no checksum file needed; with one, an older FetchBox still works.
+        check(with(serde_json::json!({"sha256": all}))).expect("pinned");
+        check(with(
+            serde_json::json!({"sha256": all, "sha256_asset": "SUMS"}),
+        ))
+        .expect("both");
+        // A platform left out falls back to the file, which is then required.
+        let some = serde_json::json!({"linux-x86_64": hash});
+        let e = err_of(with(serde_json::json!({"sha256": some})), |_| {});
+        assert!(e.contains("sha256_asset"), "{e}");
+        check(with(
+            serde_json::json!({"sha256": some, "sha256_asset": "SUMS"}),
+        ))
+        .expect("mixed");
+
+        // A hash belongs to one release.
+        let e = err_of(
+            with(serde_json::json!({"sha256": all, "tag": null})),
+            |_| {},
+        );
+        assert!(e.contains("tag"), "{e}");
+        let e = err_of(
+            with(
+                serde_json::json!({"sha256": {"linux-x86_64": hash, "windows-x86_64": hash}, "sha256_asset": "SUMS"}),
+            ),
+            |_| {},
+        );
+        assert!(
+            e.contains("windows-x86_64") && e.contains("no asset"),
+            "{e}"
+        );
+        let e = err_of(
+            with(serde_json::json!({"sha256": {"linux-x86_64": "abc"}, "sha256_asset": "SUMS"})),
+            |_| {},
+        );
+        assert!(e.contains("64 hexadecimal"), "{e}");
     }
 
     #[test]

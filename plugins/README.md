@@ -10,11 +10,12 @@ learn and nothing to compile: the manifest says what the extension needs and wha
 rest (downloads the programs it depends on, draws its settings and dialogs, runs its commands, sends its webhooks).
 
 - [What an extension can do](#what-an-extension-can-do)
+- [Start from a template](#start-from-a-template) (`fetchbox plugin new`, and `plugin link` to try it)
 - [Quick start: a notification in 15 lines](#quick-start)
 - [Folder, ZIP and where things live](#folder-zip-and-where-things-live)
 - [The manifest](#the-manifest) (`plugin.json`)
   - [Identity and platforms](#identity-and-platforms)
-  - [Dependencies: programs FetchBox downloads for you](#dependencies)
+  - [Dependencies: programs FetchBox downloads for you](#dependencies) (and [shared programs](#shared-programs-ffmpeg-and-friends))
   - [Settings](#settings)
   - [Templates for commands](#templates-for-commands)
   - [Resolvers: new sources of downloads](#resolvers)
@@ -47,6 +48,85 @@ extension's own program).
 
 Everything is described in JSON. The interface is *declarative*: you list fields, buttons and dialogs, FetchBox
 draws them (so an extension can never run script in the page that holds the user's session).
+
+## Start from a template
+
+An extension is meant to live in a **repository of its own**: its code, its tests, and a release workflow that
+publishes it. `fetchbox plugin new` makes such a project in a folder, ready to `git init`. It is part of the program, so
+it needs no checkout of this repository and no shell, and it works from a package, a container or a build from source:
+
+```sh
+fetchbox plugin new my-notifier -r you/my-notifier              # a hook: settings, a test button, no program
+fetchbox plugin new page-links -t resolver -r you/page-links    # Add download expands an address into files
+fetchbox plugin new my-bridge -t process -r you/my-bridge       # a program that keeps running
+fetchbox plugin list                                            # the templates
+```
+
+From a checkout of this repository `cargo new-plugin` is the same command (an alias in `.cargo/config.toml`).
+
+| Template | Makes | Program |
+| --- | --- | --- |
+| `hook` (default) | a webhook on `download.completed` and `download.failed`, two settings, a dialog with a test button, a Polish translation | none: only `plugin.json` |
+| `resolver` | a resolver: `src/main.rs` turns an address with a range (`img[001-020].jpg`) into a list of files | Rust |
+| `process` | a long-running program that answers `initialize`, `invoke`, `event` and `settings_changed` | Rust |
+
+What a project holds (`resolver` and `process`; `hook` has no `Cargo.toml` and no `src/`):
+
+```
+plugin.json                      the manifest
+src/main.rs, Cargo.toml          the program, with unit tests; the program is called like the id
+.github/workflows/ci.yml         fmt, clippy and tests
+.github/workflows/release.yml    on a tag: static programs, SHA2-256SUMS and the plugin ZIP
+README.md, CLAUDE.md, .gitignore   CLAUDE.md: notes for Claude Code (commands, the contract, what is easy to break)
+```
+
+Options: `-t/--template`, `-n/--name` (default: the id in words), `-a/--author` (default: `git config user.name`),
+`-r/--repo OWNER/NAME` (the GitHub repository that will hold the project; without it `OWNER/<id>` is written as a
+placeholder to replace before the first release) and `-o/--out DIR` (where to create `<id>/`, default the current
+directory). It refuses an invalid id and a folder that exists, and reads the manifest it made with the code the
+server uses before writing anything. The templates live in [`templates/`](templates) and are embedded in the program;
+tests scaffold each of them, run its checks and build it.
+
+### How a program gets to the user
+
+The program of a `resolver` or `process` project is a [dependency](#dependencies) that **follows the releases of the
+project's own repository**, the way the `yt-dlp` extension follows yt-dlp's:
+
+```json
+"dependencies": [{ "id": "my-bridge", "github": { "repo": "you/my-bridge",
+  "assets": { "linux-x86_64": "my-bridge-linux-x86_64", "linux-aarch64": "my-bridge-linux-aarch64",
+              "macos-aarch64": "my-bridge-macos-aarch64" }, "sha256_asset": "SHA2-256SUMS" } }],
+"process": { "command": "${dep:my-bridge}" }
+```
+
+Tag `v<version>` (the version of `plugin.json` and `Cargo.toml`) and `release.yml` builds the program for Linux (static
+musl builds, x86_64 and aarch64, so it also runs in the official Docker image, which has no libc to match) and macOS
+(Apple silicon), publishes the programs, the `SHA2-256SUMS` file FetchBox checks them against, and `<id>-<version>.zip`
+with `plugin.json` in which `github.tag` is set to that release and `github.sha256` holds the SHA-256 of each program it
+built: an installed version never downloads a newer program, an update of the extension brings the program of its release
+(a dependency pinned by `tag` and `sha256` counts as installed only as exactly that file), and a release asset swapped
+after publishing, `SHA2-256SUMS` with it, is refused. The chain of trust is: the ZIP's SHA-256 (in the store
+[catalog](#packaging-and-the-store), and printed in the job summary of the release) pins `plugin.json`, the approved
+`plugin.json` pins the programs. The workflow also refuses to release while `github.repo` is not the repository it runs
+in (the `OWNER/<id>` placeholder, for one). A program is built with `serde_json` only: a TLS library would need a C toolchain for each target, which the workflow does
+not set up. Another platform is a line in the workflow's `matrix`, in `assets` and in `platforms`.
+
+### Trying it before the first release
+
+The dependency points at a release that does not exist yet, so link the program you built instead:
+
+```sh
+cargo build --release
+fetchbox --data-dir <data dir of your FetchBox> plugin link .   # in the project
+# or, from the root of a FetchBox checkout (dev backend): cargo plugin-link path/to/my-bridge
+```
+
+`plugin link` copies the project's `plugin.json` into `<data dir>/plugins/<id>/` and links `target/release/<id>` (or
+`--bin PATH`) where the dependency would be installed, recorded as installed, so switching the extension on fetches
+nothing. It does not create the data directory (it must be the one FetchBox uses) and does not need FetchBox to be
+stopped: **Extensions → Rescan**, review, approve, switch on. After a rebuild press **Restart** on the card; after a change
+to `plugin.json` run `plugin link` again and approve again. Only `plugin.json` and the dependency's program are put in
+place; files the manifest runs from inside the plugin (a `bin/` folder) are not copied.
 
 ## Quick start
 
@@ -155,6 +235,19 @@ without the manifest changing.
 platform and checks it against a checksum list that the release itself publishes (`sha256_asset`; required). This
 is how the `yt-dlp` extension keeps yt-dlp current (the **Update** button fetches the newest release).
 
+The list comes from the same place as the file, so whoever can replace a release asset can replace the list. A manifest
+can do better and pin the hashes itself: with a `tag`, `github.sha256` maps a platform to the SHA-256 of its asset,
+and the download must match it (the release's list is then not even asked for, and `sha256_asset` is optional when every
+platform is pinned). The approved manifest then names the exact programs. You do not write these by hand: the release
+workflow of a project made by `fetchbox plugin new` puts the `tag` and the hashes of the programs it built into the
+manifest in the ZIP it publishes (see below).
+
+```json
+"github": { "repo": "you/my-bridge", "tag": "v0.2.0", "sha256_asset": "SHA2-256SUMS",
+  "assets": { "linux-x86_64": "my-bridge-linux-x86_64" },
+  "sha256": { "linux-x86_64": "<64 hex digits of that asset>" } }
+```
+
 ```json
 {
   "id": "yt-dlp",
@@ -166,8 +259,11 @@ is how the `yt-dlp` extension keeps yt-dlp current (the **Update** button fetche
 }
 ```
 
+A third form names a program of [FetchBox's own list](#shared-programs-ffmpeg-and-friends): `{ "id": "ffmpeg", "shared": "ffmpeg" }`.
+
 Rules:
 
+- A dependency has exactly one source: `platforms` (pinned), `github` (following) or `shared`.
 - Addresses are `https://` only and go through the same URL policy as downloads (`--block-private-urls`). A hash
   that does not match, a file larger than expected (`size` is an upper bound; the default limit is 500 MiB) or an
   archive that tries to escape its folder fails the install with the reason shown on the card.
@@ -182,6 +278,36 @@ Rules:
   beats "latest" in a URL.
 - Prefer self-contained programs. In the Docker image the program is started directly, so a Python script or a
   PyInstaller binary that needs a shell will not work; a PyInstaller or static binary does.
+
+### Shared programs (ffmpeg and friends)
+
+Some programs are wanted by many extensions, and copying their addresses and hashes into every manifest would also
+download a copy of each. FetchBox keeps a list of such programs, [`programs.json`](programs.json), embedded in the
+program (today: `ffmpeg`). A dependency names one:
+
+```json
+{ "id": "ffmpeg", "label": "ffmpeg (merges video and audio)", "optional": true, "shared": "ffmpeg" }
+```
+
+- It is used like any dependency: `${dep:ffmpeg}`, `${dep_dir:ffmpeg}`, `requires: ["ffmpeg"]`, `{ "when": "dep:ffmpeg", ... }`.
+  `id` is yours (it only has to be unique in your manifest), `shared` is the entry of the list. `label` and `optional` are
+  yours; `platforms`, `github` and `bin` are not allowed (the entry decides, and a name that is not on the list is refused with
+  the names that are).
+- The program is installed **once** for every extension that names it, into `<data>/plugin-programs/<program>/<version>/`,
+  not into your extension's data folder, and **not downloaded again** by **Download programs** (it is updated with FetchBox).
+  When a FetchBox whose list names a newer version starts, a program that was installed before (in the old version, or in
+  your extension's own folder from before it took the program from the list) is fetched again by itself, the old folder is
+  removed and the extension's own copy too; an optional program nobody downloaded stays an opt-in. Removing an extension
+  leaves a shared program in place.
+- The review screen lists it under "Additional dependencies" (see [Permissions](#permissions-and-the-trust-model)), with
+  the hosts the files come from; the groups `network` and `programs` are still yours to declare in `permissions.uses`.
+- **Trust.** The addresses and SHA-256 values of a shared program are FetchBox's, not yours: they change with a FetchBox
+  update and the extension is not reviewed again for it. That is the point, and the reason the list is short and each entry
+  is pinned (an address, a SHA-256 and a size per platform). To add a program, send a pull request that adds an entry to
+  [`programs.json`](programs.json): `id`, `label`, a `version` that is also a folder name, and per platform the `url`,
+  `sha256`, `size`, `archive` and the `bin` path inside it. A test checks every entry.
+- An older FetchBox does not know `shared` and refuses the manifest ("needs either `platforms` or `github`"). Programs that
+  FetchBox does not list still use `platforms` or `github`.
 
 ### Settings
 
@@ -383,7 +509,7 @@ notifications:
 Requests from the program to FetchBox (`id` and `method` from the plugin) are answered with "not implemented" for
 now; the names are reserved for calls such as `downloads.add` in a future API version.
 
-A minimal program in Python (on a host install; in Docker use a binary):
+A minimal program in Python (on a host install; in Docker use a binary; `fetchbox plugin new -t process` makes the same in Rust):
 
 ```python
 #!/usr/bin/env python3
@@ -490,9 +616,17 @@ folder, the database included). What it does to keep that reasonable:
   Add a sentence per group in `permissions.reasons` so the user knows *why*.
 - Before anything is installed, FetchBox unpacks and reads the package (nothing runs) and shows **what it asks for** as
   one accordion per group (the way a phone lists permissions), with your reason and the concrete items inside: the
-  programs it can run, where its dependencies come from, hosts it sends webhooks to, the events it receives. The items
-  are worked out from the manifest, not from what the author claims. An update opens the groups that grew and marks
-  what is new in red.
+  programs of its own it can run, hosts it sends webhooks to, the events it receives. The items are worked out from the
+  manifest, not from what the author claims. An update opens the groups that grew and marks what is new in red.
+- Your **dependencies are not permissions**, so they are not in those accordions: the review shows them apart, as
+  **Additional dependencies**. For each: its label and id, whether it is required or optional, where it comes from (the
+  host, `github.com/owner/name`, or FetchBox's list), how big it is when the manifest or the list says (a GitHub release is
+  not asked about while reviewing, so its size shows as not known yet) and what happens to it: *already on this machine*,
+  *will be downloaded* (required, or an optional program the user chose earlier) or *downloaded only if you choose*
+  (optional). When something will be downloaded the user has to tick an agreement, with the total size, before **Install**
+  works; a new extension downloads when it is switched on, an update of one that is on downloads at once. An update marks the
+  dependencies it adds as new. The wording of the dialog comes from FetchBox, not from the manifest, so give your
+  dependencies a clear `label`. The dialog is the same for the store and for a ZIP.
 - The user approves the manifest (its SHA-256 is stored). **If `plugin.json` changes on disk** (an edit, a bad
   update), the extension is switched off and shown as *needs review* until it is approved again.
 - Dependencies are verified by SHA-256 before they are used; a pinned source cannot change without the manifest
@@ -507,6 +641,8 @@ Write your manifest so that what it asks for is as little and as clear as possib
 it does and what it needs.
 
 ## Testing on your machine
+
+For a project made by `fetchbox plugin new` use [`plugin link`](#trying-it-before-the-first-release), which also puts the program you built in place. By hand:
 
 ```sh
 cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads   # or any build of FetchBox

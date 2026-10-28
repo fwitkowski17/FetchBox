@@ -64,14 +64,14 @@ FetchBox/
 ├── Cargo.toml                  # workspace
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,disks,version,error}.rs and plugin/{manifest,view,validate,template,text}.rs
+│   ├── core/src/{lib,model,category,scheduler,schedule,limiter,stats,torrent,disks,version,error}.rs and plugin/{manifest,view,validate,template,text,programs}.rs
 │   ├── http_engine/src/{lib,segments,worker,source,ftp,sftp,hostkeys,net,listing,probe}.rs   # also FTP(S) and SFTP, see 6.12
 │   ├── torrent_engine/{src/{lib,parse,error}.rs,examples/seed.rs}   # BitTorrent over librqbit, see 6.13
 │   ├── storage/{migrations/,src/{lib,downloads,known_hosts,plugins,segments,settings,stats,torrents}.rs}
 │   ├── plugins/{src/{lib,archive,install,fetch,deps,expand,mapping,proc,oneshot,protocol,process,webhook,store}.rs,tests/}   # extensions, see 6.15
 │   ├── test_plugin/src/main.rs        # a stand-in plugin program for the tests (`fake-plugin`), see 6.15
 │   ├── api/src/{lib,routes,torrents,plugins,sse,auth,openapi}.rs
-│   └── server/src/main.rs
+│   └── server/src/{main,scaffold,link}.rs   # scaffold: `fetchbox plugin new`, link: `fetchbox plugin link`, 6.15
 ├── web/
 │   ├── src/
 │   │   ├── lib/{api/,components/,stores/}
@@ -80,7 +80,7 @@ FetchBox/
 │   ├── static/                # manifest.webmanifest, icons
 │   ├── package.json
 │   └── vite.config.ts
-├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), see 6.15
+├── plugins/                   # README.md (guide for authors), index.json (store catalog), official/<id>/plugin.json (ship in the binary), programs.json (programs plugins share), templates/{hook,resolver,process,_rust}/ (starting points for new extension projects), see 6.15
 ├── vendor/librqbit-tracker-comms/   # one upstream crate with a one-function patch, see 6.13
 ├── scripts/build.sh
 ├── deploy/                    # install.sh (Linux host, systemd) and proxmox/ (LXC installer)
@@ -1004,7 +1004,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   (downloads made by a program) and `plugin_hooks` (events). `crates/test_plugin` is a stand-in program for the tests.
 - **Files.** `<data>/plugins/<id>/` is the code (written only by the host), `<data>/plugins/.staging/<token>/` holds a
   package that was unpacked and awaits approval (swept after 15 minutes), `<data>/plugin-data/<id>/{deps,tmp,home,state}` is
-  the extension's own, kept across updates. Storage: tables `plugins` (id, enabled, approved manifest hash, source,
+  the extension's own, kept across updates. `<data>/plugin-programs/<program>/<version>/` holds the programs plugins share (below). Storage: tables `plugins` (id, enabled, approved manifest hash, source,
   installed version) and `plugin_settings` (migration 0016), and `downloads.runner` (`<plugin>/<resolver>`) for downloads made by
   a program; the preset is kept in the download's `runner_ref`.
 - **Declared permissions.** `permissions.uses` lists the groups the extension uses (`network`, `programs`, `downloads`,
@@ -1016,18 +1016,38 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
 - **Trust.** Installing an extension lets it run programs as the FetchBox user. So: the whole system is off with `--plugins
   off` (`FETCHBOX_PLUGINS`) and **while the server runs with `--no-auth`** (a warning says so; the API answers `available:
   false` with `reason`); every route is behind sign-in; a package is unpacked and read first and the user sees a permission
-  summary derived from the manifest (`PermissionSummary`: programs, download hosts, webhook hosts, events, API parts, a
-  process, downloads made by the extension), grouped as accordions with the author's reason for each group, with what an update adds marked; the approved SHA-256 of `plugin.json` is stored and
+  summary derived from the manifest (`PermissionSummary`: the programs of its own, webhook hosts, events, API parts, a
+  process, downloads made by the extension; its dependencies are listed apart in `dependencies` and are not permissions, see the Frontend bullet), grouped as accordions with the author's reason for each group, with what an update adds marked; the approved SHA-256 of `plugin.json` is stored and
   a manifest that differs on disk puts the extension in `needs_review` (it does not run); dependencies are checked by SHA-256
   before use. `permissions.network` is informational for programs and enforced for what FetchBox fetches itself.
 - **Archives.** Zip, tar, tar.gz and tar.xz are unpacked by `archive` only inside the target folder: absolute paths, drive
   letters, `..`, links, duplicates, more than 2000 entries, 512 MiB unpacked, a ratio above 200:1 or 16 levels are refused. A
   ZIP of a plugin is at most 32 MiB and has `plugin.json` at its top or in its only top-level folder.
 - **Dependencies** (`deps`): per platform, pinned (`url` + `sha256`, `archive`, `strip`, `bin`, `size`) or following a GitHub
-  repository (`github.repo`, per-platform asset names, a mandatory `sha256_asset` that lists the checksums). Downloaded through
+  repository (`github.repo`, per-platform asset names, a `sha256_asset` that lists the checksums, mandatory unless `github.sha256` pins every platform).
+  `github.sha256` (platform -> hex, needs `github.tag`, only for platforms that have an asset) pins the hash in the manifest: the download must match it and
+  the release's checksum file is not asked for, because whoever can replace an asset can replace the list; `Installer::state` counts the dependency as
+  installed only when the recorded hash is the pinned one (a rebuilt asset of the same tag is fetched again; a local build stands in). Downloaded through
   the URL policy, hashed while arriving, unpacked into a temporary folder, made executable and swapped in atomically with a
   record (`.fetchbox-dependency.json`); one install at a time; progress is published as `plugin` events. A platform entry may
   have its own `bin`. `optional` dependencies gate presets through `requires`.
+- **Shared programs.** A dependency has exactly one source: `platforms`, `github` or `shared`. `shared` names an entry of `plugins/programs.json`
+  (`core::plugin::programs`, embedded with `include_str!` and read once, so `validate`, `derive_permissions` and the installer see the same list; an unknown
+  name is refused at install with the names that exist, and `bin` is not allowed). An entry is pinned like a `platforms` dependency (`url`, `sha256`, `size`,
+  `archive`, `bin` per platform) plus `id`, `label` and a `version` that is a folder name. It is installed once, into `<data>/plugin-programs/<id>/<version>/`
+  (`Layout::programs_dir`), whatever the plugins call the dependency; `Installer::dep_dir`, `bin_path`, `state` and `install` map a shared dependency there
+  (the others stay in `plugin-data/<plugin>/deps/<id>/`). `install` re-checks `state` after taking its turn, so two plugins switched on together download
+  once; the work folder is next to the target; a successful install removes the other version folders of that program (every manifest resolves to the
+  list's version; a program still running from one keeps running). `Fetch::Update` ("Download programs") does nothing for a shared program that is in place,
+  `Fetch::One` installs a missing one. Removing a plugin leaves shared programs; `plugin link` ignores them. The permission summary lists such a dependency as
+  as a `DependencyNeed` (`source: shared`, the hosts and size of the entry, the label of the entry when the manifest gives none), and counts it as `programs` and `network`. **Trust:** the addresses and hashes are
+  FetchBox's, they change with a FetchBox update and the plugin is not reviewed again for that. An older FetchBox refuses the manifest (it does not know `shared`).
+  The `yt-dlp` plugin uses it for ffmpeg (1.1.0). ffmpeg is optional, which `prepare` skips, so `Installer::was_installed_before` says that a shared program was
+  installed before (an earlier version folder with a record, or the plugin's own legacy `deps/<id>/` record): then `Missing` and `Update` fetch it again by
+  themselves (one automatic re-download per user who had ffmpeg, and again for every version bump of the list), and a successful install removes the plugin's
+  legacy copy; a program nobody downloaded stays an opt-in. Tests: `core::plugin::programs` (every entry valid), `validate` and `derive_permissions` (shared, unknown, mixed), `deps::tests` (one download for two
+  plugins, a newer entry replaces the old folder, was-installed-before, refusals) and `tests_plugins` (two plugins run from one seeded program, nothing in their own folders, "Download
+  programs" leaves it alone).
 - **Commands** (`oneshot`) run without a shell, with a minimal environment (no FetchBox secrets), a timeout (30 s by default, 120
   s at most), 8 MiB of standard output and 64 KiB of standard error kept, at most 4 at once overall and 2 per plugin, and the
   whole process group is killed on timeout or drop. Arguments are templates (`core::plugin::template`): `${url}`,
@@ -1085,7 +1105,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
 - **Frontend.** The side menu has **Extensions** above Settings (a dot when something needs attention). `routes/Extensions.svelte`
   has the tabs *Installed* (`PluginCard`: state, dependencies with progress, enable switch, approve or review, update, restart, log,
   remove, the extension's own card actions) and *Store* (`PluginStore`), "Install from file" and "Rescan". Installing opens
-  `InstallPluginDialog` with the permission list (`PermissionList`: one accordion per group with an icon, a count, the author's reason and the items; closed unless an update widened the group, which is marked "new"; a group with content the manifest did not declare is shown and flagged). Settings has the tabs *General*
+  `InstallPluginDialog` with the permission list (`PermissionList`: one accordion per group with an icon, a count, the author's reason and the items; closed unless an update widened the group, which is marked "new"; a group with content the manifest did not declare is shown and flagged) and, below it, **Additional dependencies** (`DependencyList`, `util/dependencies`): `PermissionSummary.dependencies` (`DependencyNeed`: id, label, `optional`, `source` pinned / github / shared, hosts, size on the server's platform when the manifest or the list says; a GitHub release is not asked about while staging) and `StagedPlugin.dependency_plan` (`present`, `download`, `on_request` per dependency, from `Installer::plan`, the rule `prepare` follows too: required, or optional and installed before, is downloaded; a program that is in place is not). A dependency is not a permission and is not in the accordions, but `used_groups` still counts it as `network` and `programs`, so manifests are validated as before. When any dependency is `download` the dialog shows a checkbox ("I agree that FetchBox downloads N programs from the internet", the total size, "at least" when some are unknown, and when: at once for an update of an extension that is on, `StagedReplaces.enabled`, else when it is switched on) and **Install** stays disabled until it is ticked; the tick resets for every staged package. Optional dependencies nobody asked for have no checkbox. Settings has the tabs *General*
   (the old form with its save bar), *Extensions* (a card per extension that has settings, `PluginSettingsForm`, saved by the
   plugin's own endpoint) and one tab for each extension that declares `ui.tab`; the routes are `#/settings`,
   `#/settings/extensions`, `#/settings/ext/<id>`, `#/extensions`, `#/extensions/store`. Plugin interface is drawn from the schema
@@ -1093,6 +1113,40 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   `isSafeExternalUrl` and icons only from the app's own set. In the add dialog the entries made by an extension carry the preset
   as a label and "via <extension>", are keyed by address and preset (`entryKey`), and are added with `via` and the title as the
   file name; while the look takes long the dialog says which extensions it is asking.
+- **Starting a new extension.** An extension is meant to live in a repository of its own. `fetchbox plugin new <id> [-t hook|resolver|process]
+  [-n name] [-a author] [-r owner/name] [-o dir]` and `fetchbox plugin list` (`server/src/scaffold.rs`; `cargo new-plugin` is an alias in
+  `.cargo/config.toml`) copy a template of `plugins/templates/` to `<dir>/<id>/`. The templates are embedded in the binary like the plugins
+  that ship, so this works from a package or the Docker image and needs no shell, interpreter or checkout. `__ID__`, `__NAME__`, `__AUTHOR__`
+  and `__REPO__` are replaced (escaped as a JSON string in `.json` files, as they are elsewhere; the author defaults to `git config
+  user.name`, the name to the id in words, the repository to the placeholder `OWNER/<id>` which the command points out). A folder of
+  `plugins/templates/` whose name starts with `_` is not a template but files that several templates share (`_rust`: `Cargo.toml`,
+  `.gitignore`, the workflows). Each template also has a `CLAUDE.md` for the project: its commands, the contract of its program or manifest, and what is
+  easy to break (the places that must stay in step: versions, ids, assets, platforms). Like `reset-password` the command runs before the data and download directories are created or the database
+  opened. The manifest is read with `install::parse_manifest` before anything is written; an invalid id or repository, a name the manifest
+  refuses or an existing folder is an error and leaves nothing behind.
+  - `hook`: JSON only (a webhook, settings, a test dialog) with a workflow that publishes the plugin ZIP. `resolver` and `process`: a Cargo
+    project (`serde_json` only, an empty `[workspace]` so a project inside a checkout is its own, the package prefixed
+    `fetchbox-plugin-` and the program called like the id) with unit tests, `ci.yml` (fmt, clippy, tests) and `release.yml`.
+  - **Distribution.** The program is a `github` dependency on the project's own repository (assets `<id>-linux-x86_64`, `-linux-aarch64`,
+    `-macos-aarch64`, checksums in `SHA2-256SUMS`), used as `${dep:<id>}`: nothing new in FetchBox. On a tag `v<version>` that equals the version of
+    `plugin.json` and `Cargo.toml`, `release.yml` builds static musl programs for Linux (the Docker image is distroless) and a native one for
+    macOS, uploads them with `SHA2-256SUMS` and a ZIP of the plugin whose `github.tag` is set to the release and whose `github.sha256` holds the hash of
+    each program it built (read from `SHA2-256SUMS`; `sha256_asset` stays for an older FetchBox), and prints the ZIP's SHA-256 for the store catalog. The check
+    job also refuses a `github.repo` that is not the repository the workflow runs in (a leftover `OWNER/<id>`). The trust chain: the ZIP's hash pins `plugin.json`,
+    the approved `plugin.json` pins the programs. The workflows were not run on GitHub; the `pin` and `guard` shell blocks of `release.yml` are run by a test (with `jq` and bash 4; it skips without them) and the musl build was run by hand.
+  - **`fetchbox plugin link [project] [--dependency id] [--bin path]`** (`server/src/link.rs`, `fetchbox_plugins::deps::link_local`) is how an
+    author tries a project before a release exists: it copies `plugin.json` into `<data>/plugins/<id>/` and links the built program (default
+    `target/release/<dependency>`) to the dependency's place, with an install record (`local build`, host `local`), so enabling the plugin
+    fetches nothing (a dependency that is installed is skipped; only Update fetches again). A dependency pinned by `github.tag` counts as installed only as that
+    release (`Installer::state`; a local build stands in for any tag), because `plugin-data/<id>/` outlives an update of the plugin and would keep the
+    program of the version before; the update test serves two releases and requires the second program. The plugin folder itself cannot be a link
+    (`discover` takes real folders only). The data directory must exist (a wrong `--data-dir` is an error, nothing is created), the program
+    must be built (nothing is changed when it is not), and files other than `plugin.json` are not copied.
+  - **Tests.** `scaffold::tests` (every template makes a valid plugin and the files of a repository, hidden ones included; escaping; defaults;
+    refusals), `tests/plugin_new.rs` (the real binary in an empty folder, which stays free of `data/` and `downloads/`; the Rust templates are
+    scaffolded and must pass `cargo fmt --check`, `clippy -D warnings` and their own tests, are built, and are spoken to over the protocol /
+    asked for a range; `plugin link` and its refusals; the `pin` and `guard` blocks of the release workflow), `deps::tests` (`link_local`) and `tests_plugins` (a linked program runs without any
+    download).
 - **Extensions that ship.** `webhook-notify` (a request when a download finishes or fails: settings, a test dialog, a hook; no
   program) and `yt-dlp` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds; yt-dlp from its GitHub
   releases checked against `SHA2-256SUMS`, and an optional static ffmpeg pinned to the `imageio-ffmpeg` 0.6.0 wheels on PyPI, whose

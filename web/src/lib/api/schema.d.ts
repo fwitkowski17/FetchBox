@@ -1105,6 +1105,31 @@ export interface components {
              */
             start: number;
         };
+        /**
+         * @description A program a plugin needs, as the review shows it: not a permission, but something FetchBox
+         *     downloads from the internet for it.
+         */
+        DependencyNeed: {
+            /** @description Where it is downloaded from (`github.com/owner/name`, or a host), sorted. */
+            hosts: string[];
+            id: string;
+            /** @description The manifest's label, else the shared program's, else the id. */
+            label: string;
+            /** @description It works without it: nothing is downloaded until the user asks for it. */
+            optional: boolean;
+            /**
+             * Format: int64
+             * @description Bytes to download on this machine's platform, when the manifest or the list says (a GitHub
+             *     release is not asked about while a package is only being reviewed).
+             */
+            size?: number | null;
+            source: components["schemas"]["DependencySource"];
+        };
+        /**
+         * @description What switching a plugin on does about one dependency.
+         * @enum {string}
+         */
+        DependencyPlan: "present" | "download" | "on_request";
         /** @description How far a dependency is on its way. */
         DependencyProgress: {
             dependency: string;
@@ -1113,6 +1138,11 @@ export interface components {
             /** Format: int64 */
             total?: number | null;
         };
+        /**
+         * @description Where a dependency comes from.
+         * @enum {string}
+         */
+        DependencySource: "pinned" | "github" | "shared";
         /** @description A dependency and whether it is in place. */
         DependencyView: {
             id: string;
@@ -1525,8 +1555,8 @@ export interface components {
         PermissionSummary: {
             /** @description Parts of FetchBox's API it uses. */
             api: string[];
-            /** @description Where its dependencies are downloaded from. */
-            download_hosts: string[];
+            /** @description The programs it needs and FetchBox downloads for it, by id. */
+            dependencies: components["schemas"]["DependencyNeed"][];
             /** @description Events it receives. */
             events: string[];
             /** @description The groups it declares, in display order, each with the author's reason. */
@@ -1535,7 +1565,7 @@ export interface components {
             network: string[];
             /** @description It has a program that runs for as long as it is enabled. */
             process: boolean;
-            /** @description Programs it can run (dependencies and files of its own). */
+            /** @description Programs of its own that it can run (its dependencies are listed apart, in `dependencies`). */
             programs: string[];
             /** @description It downloads files with its own program instead of FetchBox's engine. */
             runs_downloads: boolean;
@@ -1805,9 +1835,16 @@ export interface components {
             /** @description The plugin's id, from `GET /plugin-store`. */
             id: string;
         };
+        /** @description One dependency of a staged plugin and what happens to it. */
+        StagedDependency: {
+            id: string;
+            plan: components["schemas"]["DependencyPlan"];
+        };
         /** @description A plugin that was uploaded and read but is not installed yet: the user reviews it first. */
         StagedPlugin: {
             author: string;
+            /** @description What switching it on does about each of its dependencies on this machine. */
+            dependency_plan: components["schemas"]["StagedDependency"][];
             description: string;
             homepage?: string | null;
             icon?: string | null;
@@ -1823,6 +1860,8 @@ export interface components {
         };
         /** @description The installed plugin a staged one would replace. */
         StagedReplaces: {
+            /** @description It is switched on now, so its dependencies are downloaded as soon as the update is installed. */
+            enabled: boolean;
             permissions: components["schemas"]["PermissionSummary"];
             version: string;
         };

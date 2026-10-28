@@ -15,9 +15,9 @@ use std::time::Duration;
 
 use fetchbox_core::plugin::{
     self, derive_permissions, platform_key, ActionKind, ActionResult, ActionView, Builtin,
-    DependencyProgress, DependencyView, FieldKind, FieldView, Manifest, NoticeLevel, PluginList,
-    PluginSource, PluginState, PluginView, Provides, SettingValue, StagedPlugin, StagedReplaces,
-    UiView,
+    DependencyPlan, DependencyProgress, DependencyView, FieldKind, FieldView, Manifest,
+    NoticeLevel, PluginList, PluginSource, PluginState, PluginView, Provides, SettingValue,
+    StagedDependency, StagedPlugin, StagedReplaces, UiView,
 };
 use fetchbox_core::version::is_newer;
 use fetchbox_core::{Error, Event, Result};
@@ -371,7 +371,7 @@ impl Manager {
         let mut path_dirs = vec![host.layout.plugin_dir(id).join("bin")];
         for d in &manifest.dependencies {
             if host.installer.state(id, d).is_some() {
-                let dir = host.installer.dep_dir(id, &d.id);
+                let dir = host.installer.dep_dir(id, d);
                 path_dirs.push(dir.clone());
                 deps.insert(
                     d.id.clone(),
@@ -745,10 +745,19 @@ impl Manager {
             return;
         };
         for dep in &manifest.dependencies {
-            let installed = host.installer.state(id, dep).is_some();
+            // The same rule the review before installing shows (`Installer::plan`): an optional
+            // program the user already chose to download stays chosen when it has to be fetched
+            // again (a shared program whose version FetchBox's list moved on).
+            let plan = host.installer.plan(id, dep);
             let wanted = match which {
-                Fetch::Missing => !dep.optional && !installed,
-                Fetch::Update => !dep.optional || installed,
+                Fetch::Missing => plan == DependencyPlan::Download,
+                Fetch::Update => match plan {
+                    // A shared program is updated with FetchBox (its list names the version), and
+                    // fetching it again would replace the folder other plugins are running from.
+                    DependencyPlan::Present => dep.shared.is_none(),
+                    DependencyPlan::Download => true,
+                    DependencyPlan::OnRequest => false,
+                },
                 Fetch::One(only) => *only == dep.id,
             };
             if !wanted {
@@ -1040,8 +1049,17 @@ impl Manager {
             e.manifest.as_ref().map(|old| StagedReplaces {
                 version: old.version.clone(),
                 permissions: derive_permissions(old),
+                enabled: e.enabled(),
             })
         });
+        let dependency_plan = m
+            .dependencies
+            .iter()
+            .map(|d| StagedDependency {
+                id: d.id.clone(),
+                plan: host.installer.plan(&m.id, d),
+            })
+            .collect();
         self.staged_meta()
             .insert(staged.token.clone(), (source, store_sha256));
         Ok(StagedPlugin {
@@ -1056,6 +1074,7 @@ impl Manager {
             icon: m.ui.icon.clone(),
             source,
             permissions: derive_permissions(m),
+            dependency_plan,
             replaces,
         })
     }
