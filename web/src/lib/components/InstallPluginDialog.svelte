@@ -6,6 +6,7 @@
   import { dependencyReview } from '../util/dependencies';
   import { formatBytes } from '../util/format';
   import { isSafeExternalUrl } from '../util/pluginUi';
+  import { compatNote } from '../util/plugins';
   import DependencyList from './DependencyList.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -63,6 +64,11 @@
         {/if}
       </div>
 
+      {#if compatNote(shown.compat)}
+        <p class="flex gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning" role="note" data-part="plugin-compat">
+          <Icon name="alert" size={18} />{t('ext.compat.older', { version: compatNote(shown.compat)?.version ?? 0 })}
+        </p>
+      {/if}
       <p class="flex gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning" role="note">
         <Icon name="alert" size={18} />{t('ext.install.warning')}
       </p>

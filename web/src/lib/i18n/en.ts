@@ -854,6 +854,8 @@ export const en = {
   'ext.deps.fetching': 'Downloading {name}…',
   'ext.install.title': 'Install {name}',
   'ext.install.updateTitle': 'Update {name}',
+  'ext.compat.older':
+    'Made for an older version of FetchBox (plugin API {version}). It may not work correctly; look for an update.',
   'ext.install.warning': 'An extension runs programs on this server with the rights of FetchBox. Install only what you trust.',
   'ext.install.permissions': 'What it asks for',
   'ext.install.permissionsUpdate': 'What it asks for (new items are marked)',

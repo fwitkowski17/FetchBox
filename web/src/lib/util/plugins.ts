@@ -1,6 +1,6 @@
 // Plugins in the interface (SPEC 6.15): applying live events to the list, and the small questions
 // the screens ask about a plugin. Pure, so it can be tested without a browser.
-import type { AppEvent, NoticeLevel, PluginState, PluginView, StoreEntry } from '../api/types';
+import type { AppEvent, CompatWarning, NoticeLevel, PluginState, PluginView, StoreEntry } from '../api/types';
 
 /** Apply one live event to the list of plugins. Returns the same array when nothing changed. */
 export function applyPluginEvent(items: PluginView[], ev: AppEvent): PluginView[] {
@@ -92,4 +92,9 @@ export function filterStore(entries: readonly StoreEntry[], query: string): Stor
     .filter((x) => x.r < 3)
     .sort((a, b) => a.r - b.r || a.e.name.localeCompare(b.e.name))
     .map((x) => x.e);
+}
+
+/** The note for a plugin made for an older plugin API (`compat`), or null when there is none. */
+export function compatNote(compat: CompatWarning | null | undefined): { version: number } | null {
+  return compat ? { version: compat.api_version } : null;
 }

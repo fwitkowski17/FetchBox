@@ -920,6 +920,8 @@ const pl: Messages = {
   'ext.deps.fetching': 'Pobieranie: {name}…',
   'ext.install.title': 'Zainstaluj {name}',
   'ext.install.updateTitle': 'Zaktualizuj {name}',
+  'ext.compat.older':
+    'Zbudowany dla starszej wersji FetchBox (API pluginów {version}). Może nie działać poprawnie, poszukaj aktualizacji.',
   'ext.install.warning': 'Rozszerzenie uruchamia programy na tym serwerze z uprawnieniami FetchBox. Instaluj tylko to, czemu ufasz.',
   'ext.install.permissions': 'O co prosi',
   'ext.install.permissionsUpdate': 'O co prosi (nowe pozycje są oznaczone)',

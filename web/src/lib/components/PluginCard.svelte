@@ -9,7 +9,7 @@
   import { plugins } from '../stores/plugins.svelte';
   import { toast } from '../stores/toast.svelte';
   import { CARD } from '../util/classes';
-  import { cannotEnable, dependencyPercent, isUsable } from '../util/plugins';
+  import { cannotEnable, compatNote, dependencyPercent, isUsable } from '../util/plugins';
   import { iconOrDefault, isSafeExternalUrl, tr } from '../util/pluginUi';
   import Icon, { ICON_NAMES } from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -100,6 +100,11 @@
 
   {#if plugin.description}<p class="[overflow-wrap:anywhere]">{L(plugin.description)}</p>{/if}
 
+  {#if compatNote(plugin.compat)}
+    <p class="flex gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning" role="note" data-part="plugin-compat">
+      <Icon name="alert" size={18} />{t('ext.compat.older', { version: compatNote(plugin.compat)?.version ?? 0 })}
+    </p>
+  {/if}
   {#if plugin.error}
     <p class="flex gap-2 rounded-lg bg-danger-soft px-3 py-2 text-danger [overflow-wrap:anywhere]" role="alert">
       <Icon name="alert" size={18} />{plugin.error}

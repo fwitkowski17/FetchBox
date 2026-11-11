@@ -4,6 +4,7 @@ import {
   applyPluginEvent,
   attentionCount,
   cannotEnable,
+  compatNote,
   dependencyPercent,
   filterStore,
   isUsable,
@@ -151,5 +152,16 @@ describe('filterStore', () => {
     expect(filterStore(entries, 'video').map((e) => e.id)).toEqual(['yt-dlp', 'notify']);
     expect(filterStore(entries, 'YOUTUBE').map((e) => e.id)).toEqual(['yt-dlp']);
     expect(filterStore(entries, 'nothing')).toEqual([]);
+  });
+});
+
+describe('compatNote', () => {
+  it('says nothing for a plugin of the current API', () => {
+    expect(compatNote(null)).toBeNull();
+    expect(compatNote(undefined)).toBeNull();
+  });
+
+  it('names the older API a plugin was made for', () => {
+    expect(compatNote({ api_version: 1, current: 2 })).toEqual({ version: 1 });
   });
 });
