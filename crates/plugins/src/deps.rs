@@ -746,7 +746,13 @@ mod tests {
         std::fs::write(old.join("ffmpeg"), b"old").expect("old program");
         std::fs::write(old.join(INFO_FILE), "{}").expect("old record");
         let inst = installer(tmp.path(), None);
-        let mut dep = pinned("ffmpeg", format!("{base}/ffmpeg"), &body, ArchiveKind::Raw, 0);
+        let mut dep = pinned(
+            "ffmpeg",
+            format!("{base}/ffmpeg"),
+            &body,
+            ArchiveKind::Raw,
+            0,
+        );
         dep.optional = true;
 
         assert_eq!(inst.plan("demo", &dep), DependencyPlan::OnRequest);
@@ -768,7 +774,13 @@ mod tests {
             serve(Router::new().route("/ffmpeg", get(move || async move { served.clone() }))).await;
         let tmp = tempfile::tempdir().expect("tmp");
         let inst = installer(tmp.path(), None);
-        let mut dep = pinned("ffmpeg", format!("{base}/ffmpeg"), &body, ArchiveKind::Raw, 0);
+        let mut dep = pinned(
+            "ffmpeg",
+            format!("{base}/ffmpeg"),
+            &body,
+            ArchiveKind::Raw,
+            0,
+        );
         dep.optional = true;
         assert!(!inst.update_wanted("demo", &dep), "optional, nobody asked");
         inst.install("demo", &dep, &|_| {}).await.expect("install");

@@ -23,8 +23,7 @@ pub use text::{
 pub use validate::{check_setting_value, event_matches, validate, EVENT_NAMES, MAX_TEXT_SETTING};
 pub use view::{
     derive_permissions, used_groups, ActionResult, ActionView, CompatWarning, DependencyNeed,
-    DependencyPlan,
-    DependencyProgress, DependencySource, DependencyView, FieldView, NoticeLevel,
+    DependencyPlan, DependencyProgress, DependencySource, DependencyView, FieldView, NoticeLevel,
     PermissionGroupView, PermissionSummary, PluginList, PluginSource, PluginState, PluginView,
     Provides, StagedDependency, StagedPlugin, StagedReplaces, StoreDownload, StoreEntry, StoreList,
     UiView,

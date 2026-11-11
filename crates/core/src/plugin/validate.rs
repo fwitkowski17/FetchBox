@@ -976,7 +976,9 @@ mod tests {
 
     #[test]
     fn a_newer_plugin_api_asks_for_an_update() {
-        let e = err_of(base(), |v| v["api_version"] = (super::API_VERSION + 1).into());
+        let e = err_of(base(), |v| {
+            v["api_version"] = (super::API_VERSION + 1).into()
+        });
         assert!(e.contains("update FetchBox"), "{e}");
         assert!(err_of(base(), |v| v["api_version"] = 0.into()).contains("missing"));
     }
@@ -1035,16 +1037,19 @@ mod tests {
 
     #[test]
     fn a_shared_dependency_is_refused_with_what_to_do_instead() {
-        let e = err_of(base(), |v| {
-            v["dependencies"][0] =
-                serde_json::json!({"id": "ffmpeg", "optional": true, "shared": "ffmpeg"})
-        });
+        let e = err_of(
+            base(),
+            |v| {
+                v["dependencies"][0] =
+                    serde_json::json!({"id": "ffmpeg", "optional": true, "shared": "ffmpeg"})
+            },
+        );
         assert!(
             e.contains(
                 "`shared` was removed in plugin API 2; declare the program with `platforms` or `github`"
             ),
             "{e}"
-        );        // The card shows this to whoever installed the plugin, not only to its author.
+        ); // The card shows this to whoever installed the plugin, not only to its author.
         assert!(
             e.contains("made for an older FetchBox: look for a newer version of it"),
             "{e}"

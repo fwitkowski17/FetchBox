@@ -649,7 +649,10 @@ mod tests {
         assert_eq!(used, ["network", "programs"]);
         let need = &derive_permissions(&only).dependencies[0];
         assert_eq!(need.source, DependencySource::Pinned);
-        assert_eq!(need.label, "tool", "the id when the manifest gives no label");
+        assert_eq!(
+            need.label, "tool",
+            "the id when the manifest gives no label"
+        );
     }
 
     #[test]
