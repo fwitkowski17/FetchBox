@@ -9,7 +9,7 @@ A small, self-hosted download manager for a homelab, controlled from a web inter
 
 - 🌍 **HTTP, HTTPS, FTP, FTPS and SFTP**: one list, queue and set of limits for all of them, with logins for the servers that need one. [Details](#-sources-and-logins).
 - 🧲 **Torrents**: magnet links and `.torrent` files on a page of their own, with the statuses of a BitTorrent client (fetching metadata, checking files, connecting to peers, downloading, sending...) and, at the bottom of the page, the details of the torrent you click: peers with their speeds, files, a speed chart. [Details](#-torrents).
-- 🧩 **Extensions**: add-ons from a built-in store, a ZIP or a folder, which can add sources (videos from YouTube and other sites through yt-dlp), react to events (webhooks, scripts) and bring settings, dialogs and a tab of their own; a page of their own above Settings. [Details](#-extensions).
+- 🧩 **Extensions**: add-ons from a built-in store, a ZIP or a folder, which can add sources (videos from YouTube and other sites with the separate YouTube Downloader extension), react to events (webhooks, scripts) and bring settings, dialogs and a tab of their own; a page of their own above Settings. [Details](#-extensions).
 - ⬇️ **Downloads** with live progress (status, size, speed, ETA), pause and resume from the saved offset, retry, and several connections per file for speed.
 - 🚦 **Queue and limits**: a cap on simultaneous downloads, a default speed per download, a speed of its own for a single download, and a total speed limit (KB/s, MB/s, Kbit/s or Mbit/s). Changes apply live.
 - 🌙 **Download hours**: download only between two times of the day (a night data package, or a line that must stay free by day), in your time zone. A single download can start now regardless, or be set to begin at a chosen time.
@@ -274,8 +274,14 @@ Open **Extensions** in the side menu (above Settings). There are two ways in: th
 
 What ships with FetchBox:
 
-- **Video sites (yt-dlp)**: paste a YouTube, Vimeo, SoundCloud, Dailymotion or Twitch link (a video, a playlist or a channel; more sites can be added in its settings) and choose the quality in the add dialog: best (video and audio merged), up to 720p, a single file, audio only or MP3. It downloads yt-dlp (and, for merging and MP3, ffmpeg) by itself when you switch it on, checking them by SHA-256; **Update** fetches the newest yt-dlp, which sites make necessary now and then. Mind the terms of the sites and the law: download only what you have the right to.
 - **Webhook notifications**: a request to an address of your choice (ntfy, Home Assistant, Gotify, n8n...) when a download finishes or fails, with a test button.
+
+Extensions with a repository of their own:
+
+- **[YouTube Downloader](https://github.com/fwitkowski17/youtube-downloader)**: paste a YouTube, Vimeo, SoundCloud, Dailymotion or Twitch link (a video, a playlist or a channel; more sites can be added in its settings) and choose the quality in the add dialog: best (video and audio merged), up to 720p, a single file, audio only or MP3. It downloads yt-dlp (and, for merging and MP3, ffmpeg) by itself when you switch it on, checking them by SHA-256; **Update** fetches the newest yt-dlp, which sites make necessary now and then. Mind the terms of the sites and the law: download only what you have the right to. Install it with **Install from file** from the ZIP of its latest release.
+
+> [!NOTE]
+> **Upgrading from FetchBox 0.9.1 or older?** The extension "Video sites (yt-dlp)" used to ship with FetchBox. It is now YouTube Downloader, a project of its own with another id, so it is not updated in place: after the upgrade the old card shows that it was made for an older FetchBox. Remove it in **Extensions** and install YouTube Downloader from its release ZIP; its settings start fresh.
 
 > [!CAUTION]
 > **An extension runs programs on the machine with the rights of FetchBox**, so install only what you trust. For that reason extensions are **off while `--no-auth` is used**, and `--plugins off` switches them off entirely. In the Docker image (which has no shell or interpreter) an extension can only run programs it brings or downloads itself.

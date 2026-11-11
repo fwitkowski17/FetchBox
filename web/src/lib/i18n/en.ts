@@ -854,6 +854,8 @@ export const en = {
   'ext.deps.fetching': 'Downloading {name}…',
   'ext.install.title': 'Install {name}',
   'ext.install.updateTitle': 'Update {name}',
+  'ext.compat.older':
+    'Made for an older version of FetchBox (plugin API {version}). It may not work correctly; look for an update.',
   'ext.install.warning': 'An extension runs programs on this server with the rights of FetchBox. Install only what you trust.',
   'ext.install.permissions': 'What it asks for',
   'ext.install.permissionsUpdate': 'What it asks for (new items are marked)',
@@ -879,7 +881,6 @@ export const en = {
   'ext.dep.plan.present': 'Already on this machine',
   'ext.dep.plan.download': 'Will be downloaded',
   'ext.dep.plan.on_request': 'Downloaded only if you choose',
-  'ext.dep.source.shared': "From FetchBox's list",
   'ext.dep.source.github': 'Releases on GitHub',
   'ext.dep.source.pinned': 'Fixed address',
   'ext.install.install': 'Install',

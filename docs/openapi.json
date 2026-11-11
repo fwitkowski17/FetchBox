@@ -3625,6 +3625,28 @@
           }
         }
       },
+      "CompatWarning": {
+        "type": "object",
+        "description": "A plugin written for an older plugin API than this FetchBox's: it runs, but may not work as\nmeant. The interface words it; the server sends only the numbers.",
+        "required": [
+          "api_version",
+          "current"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The `api_version` of the manifest.",
+            "minimum": 0
+          },
+          "current": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The plugin API of this FetchBox.",
+            "minimum": 0
+          }
+        }
+      },
       "Conflict": {
         "type": "object",
         "description": "Description of a collision, shown to the user so they can choose.",
@@ -3763,7 +3785,7 @@
           },
           "label": {
             "type": "string",
-            "description": "The manifest's label, else the shared program's, else the id."
+            "description": "The manifest's label, else the id."
           },
           "optional": {
             "type": "boolean",
@@ -3775,7 +3797,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Bytes to download on this machine's platform, when the manifest or the list says (a GitHub\nrelease is not asked about while a package is only being reviewed).",
+            "description": "Bytes to download on this machine's platform, when the manifest says (a GitHub\nrelease is not asked about while a package is only being reviewed).",
             "minimum": 0
           },
           "source": {
@@ -3823,8 +3845,7 @@
         "description": "Where a dependency comes from.",
         "enum": [
           "pinned",
-          "github",
-          "shared"
+          "github"
         ]
       },
       "DependencyView": {
@@ -5049,6 +5070,17 @@
           "author": {
             "type": "string"
           },
+          "compat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CompatWarning",
+                "description": "Made for an older plugin API: it runs, but may not work as meant."
+              }
+            ]
+          },
           "dependencies": {
             "type": "array",
             "items": {
@@ -5547,6 +5579,17 @@
         "properties": {
           "author": {
             "type": "string"
+          },
+          "compat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CompatWarning",
+                "description": "Made for an older plugin API: it can be installed, but may not work as meant."
+              }
+            ]
           },
           "dependency_plan": {
             "type": "array",

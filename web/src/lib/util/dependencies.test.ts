@@ -56,7 +56,7 @@ describe('dependencyReview', () => {
   });
 
   it('asks for a yes only when something is going to be downloaded', () => {
-    const deps = [need('yt-dlp'), need('ffmpeg', { optional: true, source: 'shared', size: 30_000_000 })];
+    const deps = [need('yt-dlp'), need('ffmpeg', { optional: true, source: 'pinned', size: 30_000_000 })];
     const r = dependencyReview(
       staged(deps, [
         { id: 'yt-dlp', plan: 'download' },

@@ -115,8 +115,6 @@ pub enum DependencySource {
     Pinned,
     /// The releases of a GitHub repository.
     Github,
-    /// A program of FetchBox's own list, installed once for every plugin that names it.
-    Shared,
 }
 
 /// A program a plugin needs, as the review shows it: not a permission, but something FetchBox
@@ -125,16 +123,27 @@ pub enum DependencySource {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DependencyNeed {
     pub id: String,
-    /// The manifest's label, else the shared program's, else the id.
+    /// The manifest's label, else the id.
     pub label: String,
     /// It works without it: nothing is downloaded until the user asks for it.
     pub optional: bool,
     pub source: DependencySource,
     /// Where it is downloaded from (`github.com/owner/name`, or a host), sorted.
     pub hosts: Vec<String>,
-    /// Bytes to download on this machine's platform, when the manifest or the list says (a GitHub
+    /// Bytes to download on this machine's platform, when the manifest says (a GitHub
     /// release is not asked about while a package is only being reviewed).
     pub size: Option<u64>,
+}
+
+/// A plugin written for an older plugin API than this FetchBox's: it runs, but may not work as
+/// meant. The interface words it; the server sends only the numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CompatWarning {
+    /// The `api_version` of the manifest.
+    pub api_version: u32,
+    /// The plugin API of this FetchBox.
+    pub current: u32,
 }
 
 /// What switching a plugin on does about one dependency.
@@ -142,7 +151,7 @@ pub struct DependencyNeed {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyPlan {
-    /// It is on this machine already (for a shared program, another plugin may have fetched it).
+    /// It is on this machine already.
     Present,
     /// It is downloaded when the plugin is switched on.
     Download,
@@ -193,14 +202,9 @@ fn url_label(url: &str) -> String {
 
 /// A dependency as the review shows it (see [`DependencyNeed`]).
 fn dependency_need(d: &Dependency) -> DependencyNeed {
-    let shared = d
-        .shared
-        .as_deref()
-        .and_then(super::programs::shared_program);
-    let (source, files) = match (shared, &d.github) {
-        (Some(program), _) => (DependencySource::Shared, Some(&program.platforms)),
-        (None, Some(_)) => (DependencySource::Github, None),
-        (None, None) => (DependencySource::Pinned, Some(&d.platforms)),
+    let (source, files) = match &d.github {
+        Some(_) => (DependencySource::Github, None),
+        None => (DependencySource::Pinned, Some(&d.platforms)),
     };
     let mut hosts: Vec<String> = files
         .into_iter()
@@ -211,10 +215,10 @@ fn dependency_need(d: &Dependency) -> DependencyNeed {
     }
     hosts.sort();
     hosts.dedup();
-    let label = if !d.label.is_empty() {
-        d.label.clone()
+    let label = if d.label.is_empty() {
+        d.id.clone()
     } else {
-        shared.map_or_else(|| d.id.clone(), |program| program.label.clone())
+        d.label.clone()
     };
     DependencyNeed {
         id: d.id.clone(),
@@ -459,6 +463,8 @@ pub struct PluginView {
     pub progress: Option<DependencyProgress>,
     /// A newer version in the store.
     pub update_available: Option<String>,
+    /// Made for an older plugin API: it runs, but may not work as meant.
+    pub compat: Option<CompatWarning>,
     pub i18n: BTreeMap<String, BTreeMap<String, String>>,
 }
 
@@ -482,6 +488,8 @@ pub struct StagedPlugin {
     pub dependency_plan: Vec<StagedDependency>,
     /// What it replaces: the installed version and what that one was allowed.
     pub replaces: Option<StagedReplaces>,
+    /// Made for an older plugin API: it can be installed, but may not work as meant.
+    pub compat: Option<CompatWarning>,
 }
 
 /// The installed plugin a staged one would replace.
@@ -629,44 +637,22 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_program_shows_where_fetchbox_gets_it_from_and_how_big_it_is() {
-        let mut m = manifest();
-        m.dependencies.push(super::super::Dependency {
-            id: "ffmpeg".into(),
-            label: String::new(),
-            optional: true,
-            bin: None,
-            platforms: BTreeMap::new(),
-            github: None,
-            shared: Some("ffmpeg".into()),
-        });
-        let p = derive_permissions(&m);
-        let ffmpeg = p
-            .dependencies
-            .iter()
-            .find(|d| d.id == "ffmpeg")
-            .expect("ffmpeg");
-        assert_eq!(ffmpeg.source, DependencySource::Shared);
-        assert!(ffmpeg.optional);
-        assert_eq!(ffmpeg.hosts, vec!["files.pythonhosted.org"]);
-        // The label falls back to the entry's, and the size is that of this machine's platform.
-        let entry = super::super::shared_program("ffmpeg").expect("entry");
-        assert_eq!(ffmpeg.label, entry.label);
-        let expected = entry
-            .platforms
-            .get(&super::super::platform_key())
-            .and_then(|s| s.size);
-        assert_eq!(ffmpeg.size, expected);
-        assert!(!p.programs.iter().any(|x| x.contains("ffmpeg")));
-
-        // A plugin whose only need is a shared program still needs `network` and `programs`.
+    fn a_plugin_whose_only_need_is_a_dependency_still_needs_network_and_programs() {
         let only: Manifest = serde_json::from_value(serde_json::json!({
             "api_version": 1, "id": "demo", "name": "Demo", "version": "1.0.0",
-            "dependencies": [{"id": "ffmpeg", "shared": "ffmpeg"}]
+            "dependencies": [{"id": "tool", "platforms": {"linux-x86_64": {
+                "url": "https://example.com/tool", "sha256": "a".repeat(64)
+            }}}]
         }))
         .expect("manifest");
         let used: Vec<_> = used_groups(&only).into_iter().map(|g| g.as_str()).collect();
         assert_eq!(used, ["network", "programs"]);
+        let need = &derive_permissions(&only).dependencies[0];
+        assert_eq!(need.source, DependencySource::Pinned);
+        assert_eq!(
+            need.label, "tool",
+            "the id when the manifest gives no label"
+        );
     }
 
     #[test]

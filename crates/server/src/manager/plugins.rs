@@ -218,6 +218,14 @@ fn unsupported(m: &Manifest) -> Option<String> {
             return Some(format!("it needs FetchBox {min} or newer"));
         }
     }
+    if plugin::api_compat(m.api_version) == plugin::ApiCompat::TooOld {
+        return Some(format!(
+            "it was made for plugin API {}; this FetchBox supports {} to {}",
+            m.api_version,
+            plugin::MIN_API_VERSION,
+            plugin::API_VERSION
+        ));
+    }
     None
 }
 
@@ -598,6 +606,7 @@ impl Manager {
                 dependencies: Vec::new(),
                 progress: None,
                 update_available: None,
+                compat: None,
                 i18n: BTreeMap::new(),
             });
         };
@@ -671,6 +680,7 @@ impl Manager {
             dependencies,
             progress,
             update_available: self.store_update_for(id, &m.version),
+            compat: plugin::compat_warning(m.api_version),
             i18n: m.i18n.clone(),
         })
     }
@@ -745,19 +755,10 @@ impl Manager {
             return;
         };
         for dep in &manifest.dependencies {
-            // The same rule the review before installing shows (`Installer::plan`): an optional
-            // program the user already chose to download stays chosen when it has to be fetched
-            // again (a shared program whose version FetchBox's list moved on).
-            let plan = host.installer.plan(id, dep);
+            // The same rule the review before installing shows (`Installer::plan`).
             let wanted = match which {
-                Fetch::Missing => plan == DependencyPlan::Download,
-                Fetch::Update => match plan {
-                    // A shared program is updated with FetchBox (its list names the version), and
-                    // fetching it again would replace the folder other plugins are running from.
-                    DependencyPlan::Present => dep.shared.is_none(),
-                    DependencyPlan::Download => true,
-                    DependencyPlan::OnRequest => false,
-                },
+                Fetch::Missing => host.installer.plan(id, dep) == DependencyPlan::Download,
+                Fetch::Update => host.installer.update_wanted(id, dep),
                 Fetch::One(only) => *only == dep.id,
             };
             if !wanted {
@@ -1076,6 +1077,7 @@ impl Manager {
             permissions: derive_permissions(m),
             dependency_plan,
             replaces,
+            compat: plugin::compat_warning(m.api_version),
         })
     }
 

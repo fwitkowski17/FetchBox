@@ -15,7 +15,7 @@ rest (downloads the programs it depends on, draws its settings and dialogs, runs
 - [Folder, ZIP and where things live](#folder-zip-and-where-things-live)
 - [The manifest](#the-manifest) (`plugin.json`)
   - [Identity and platforms](#identity-and-platforms)
-  - [Dependencies: programs FetchBox downloads for you](#dependencies) (and [shared programs](#shared-programs-ffmpeg-and-friends))
+  - [Dependencies: programs FetchBox downloads for you](#dependencies)
   - [Settings](#settings)
   - [Templates for commands](#templates-for-commands)
   - [Resolvers: new sources of downloads](#resolvers)
@@ -29,9 +29,9 @@ rest (downloads the programs it depends on, draws its settings and dialogs, runs
 - [Ideas: VictoriaMetrics and MCP](#ideas-victoriametrics-and-mcp)
 - [Limits](#limits)
 
-The two extensions in [`official/`](official) are complete examples: `webhook-notify` (settings, a dialog and a
-hook, no program at all) and `yt-dlp` (dependencies, a resolver with presets, and a download done by the
-extension's own program).
+Two complete examples: `webhook-notify` in [`official/`](official) (settings, a dialog and a hook, no program at
+all) and [YouTube Downloader](https://github.com/fwitkowski17/youtube-downloader), a project of its own (dependencies, a resolver with presets, and a download done
+by the extension's own program).
 
 ## What an extension can do
 
@@ -90,7 +90,7 @@ tests scaffold each of them, run its checks and build it.
 ### How a program gets to the user
 
 The program of a `resolver` or `process` project is a [dependency](#dependencies) that **follows the releases of the
-project's own repository**, the way the `yt-dlp` extension follows yt-dlp's:
+project's own repository**, the way YouTube Downloader follows yt-dlp's:
 
 ```json
 "dependencies": [{ "id": "my-bridge", "github": { "repo": "you/my-bridge",
@@ -135,7 +135,7 @@ An extension that sends a request to a web address when a download finishes. Mak
 
 ```json
 {
-  "api_version": 1,
+  "api_version": 2,
   "id": "hello-hook",
   "name": "Hello hook",
   "version": "1.0.0",
@@ -199,7 +199,7 @@ needs (see [permissions](#permissions-and-the-trust-model)), and a group name th
 
 | Field | |
 | --- | --- |
-| `api_version` | `1`. A manifest that needs a newer one is shown as *not supported*. |
+| `api_version` | `2`, the plugin API it was written for. A manifest that needs a newer one is refused (update FetchBox). An older one that FetchBox still supports (today `1`) installs and runs, with a note on its card and in the install dialog that it was made for an older FetchBox and may not work correctly; one older than that is *not supported*. FetchBox raises the number only when it changes the format in a way that can break a plugin (2 removed the `shared` form of dependencies), not with every release. |
 | `id` | `^[a-z][a-z0-9-]{1,31}$`; the folder name; never changes. |
 | `name`, `version`, `description`, `author`, `homepage`, `license` | Shown on cards. `version` is `1.2.3` or `1.2.3-rc.1`. `homepage` must be `https://`. |
 | `min_fetchbox` | Lowest FetchBox version it works with. |
@@ -233,7 +233,7 @@ without the manifest changing.
 
 **Following a GitHub repository**: FetchBox asks for the latest release (or `tag`), takes the asset named for the
 platform and checks it against a checksum list that the release itself publishes (`sha256_asset`; required). This
-is how the `yt-dlp` extension keeps yt-dlp current (the **Update** button fetches the newest release).
+is how YouTube Downloader keeps yt-dlp current (the **Update** button fetches the newest release).
 
 The list comes from the same place as the file, so whoever can replace a release asset can replace the list. A manifest
 can do better and pin the hashes itself: with a `tag`, `github.sha256` maps a platform to the SHA-256 of its asset,
@@ -259,18 +259,18 @@ manifest in the ZIP it publishes (see below).
 }
 ```
 
-A third form names a program of [FetchBox's own list](#shared-programs-ffmpeg-and-friends): `{ "id": "ffmpeg", "shared": "ffmpeg" }`.
-
 Rules:
 
-- A dependency has exactly one source: `platforms` (pinned), `github` (following) or `shared`.
+- A dependency has exactly one source: `platforms` (pinned) or `github` (following). An extension carries every program
+  it needs, ffmpeg included, so it never depends on what a given FetchBox version ships. (Plugin API 1 also had a
+  `shared` form, a program from a list kept in FetchBox; it was removed in API 2 and a manifest that uses it is refused.)
 - Addresses are `https://` only and go through the same URL policy as downloads (`--block-private-urls`). A hash
   that does not match, a file larger than expected (`size` is an upper bound; the default limit is 500 MiB) or an
   archive that tries to escape its folder fails the install with the reason shown on the card.
 - `archive` is `raw` (the file is the program; the default), `gz`, `zip`, `tar.gz` or `tar.xz`. For a GitHub asset
   it is taken from the file name. `strip` removes leading path components of archive entries.
 - `bin` is the program's path inside what was unpacked (default: the dependency's `id`). A platform entry can have
-  its own `bin` when a package names its program differently per platform (the ffmpeg of the `yt-dlp` extension
+  its own `bin` when a package names its program differently per platform (the ffmpeg of YouTube Downloader
   does: it is unpacked from a wheel of the `imageio-ffmpeg` package, whose program is called after its platform).
 - `optional: true` means the extension works without it; a preset can ask for it with `requires` (see
   [resolvers](#resolvers)). A missing *required* dependency keeps the extension in *preparing*.
@@ -278,36 +278,6 @@ Rules:
   beats "latest" in a URL.
 - Prefer self-contained programs. In the Docker image the program is started directly, so a Python script or a
   PyInstaller binary that needs a shell will not work; a PyInstaller or static binary does.
-
-### Shared programs (ffmpeg and friends)
-
-Some programs are wanted by many extensions, and copying their addresses and hashes into every manifest would also
-download a copy of each. FetchBox keeps a list of such programs, [`programs.json`](programs.json), embedded in the
-program (today: `ffmpeg`). A dependency names one:
-
-```json
-{ "id": "ffmpeg", "label": "ffmpeg (merges video and audio)", "optional": true, "shared": "ffmpeg" }
-```
-
-- It is used like any dependency: `${dep:ffmpeg}`, `${dep_dir:ffmpeg}`, `requires: ["ffmpeg"]`, `{ "when": "dep:ffmpeg", ... }`.
-  `id` is yours (it only has to be unique in your manifest), `shared` is the entry of the list. `label` and `optional` are
-  yours; `platforms`, `github` and `bin` are not allowed (the entry decides, and a name that is not on the list is refused with
-  the names that are).
-- The program is installed **once** for every extension that names it, into `<data>/plugin-programs/<program>/<version>/`,
-  not into your extension's data folder, and **not downloaded again** by **Download programs** (it is updated with FetchBox).
-  When a FetchBox whose list names a newer version starts, a program that was installed before (in the old version, or in
-  your extension's own folder from before it took the program from the list) is fetched again by itself, the old folder is
-  removed and the extension's own copy too; an optional program nobody downloaded stays an opt-in. Removing an extension
-  leaves a shared program in place.
-- The review screen lists it under "Additional dependencies" (see [Permissions](#permissions-and-the-trust-model)), with
-  the hosts the files come from; the groups `network` and `programs` are still yours to declare in `permissions.uses`.
-- **Trust.** The addresses and SHA-256 values of a shared program are FetchBox's, not yours: they change with a FetchBox
-  update and the extension is not reviewed again for it. That is the point, and the reason the list is short and each entry
-  is pinned (an address, a SHA-256 and a size per platform). To add a program, send a pull request that adds an entry to
-  [`programs.json`](programs.json): `id`, `label`, a `version` that is also a folder name, and per platform the `url`,
-  `sha256`, `size`, `archive` and the `bin` path inside it. A test checks every entry.
-- An older FetchBox does not know `shared` and refuses the manifest ("needs either `platforms` or `github`"). Programs that
-  FetchBox does not list still use `platforms` or `github`.
 
 ### Settings
 
@@ -658,7 +628,7 @@ mkdir -p ./.dev/data/plugins && cp -r hello-hook ./.dev/data/plugins/
    and rescan). Editing your scripts does not.
 
 Test a resolver without a real site: serve a small file with `python3 -m http.server`, add `http://127.0.0.1:8000/*`
-to the extension's *More sites* (for `yt-dlp`) and paste `http://127.0.0.1:8000/clip.mp4`. Test a hook with a
+to the extension's *More sites* (for YouTube Downloader) and paste `http://127.0.0.1:8000/clip.mp4`. Test a hook with a
 throwaway receiver (`nc -l 9000` or a request-bin) and a download that fails or finishes quickly. Test a command by
 running it yourself first: it receives exactly the arguments the template makes.
 

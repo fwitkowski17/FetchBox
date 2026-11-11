@@ -54,7 +54,7 @@ crates/
   storage/         SQLite repositories and migrations
   api/             axum routes, SSE, authentication, the OpenAPI document
   server/          the binary `fetchbox`: wires everything, the download manager, update check, embedded frontend, CLI
-plugins/            the guide for extension authors (README.md), the store catalog (index.json) and the extensions that ship (official/)
+plugins/            the guide for extension authors (README.md), the store catalog (index.json) and the extensions that ship (official/; others live in repositories of their own)
 web/               Svelte 5 + Vite + TypeScript frontend, embedded into the binary at build time
 deploy/install.sh  installer for a Linux host with systemd (run `shellcheck` on it)
 packaging/         DEB and RPM: nfpm description, systemd unit, maintainer scripts, smoke test

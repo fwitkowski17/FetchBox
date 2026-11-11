@@ -362,6 +362,40 @@ async fn switching_on_starts_the_program_and_switching_off_stops_it() {
     assert_eq!(states.last(), Some(&PluginState::Disabled));
 }
 
+/// A plugin written for an older plugin API that this FetchBox still runs: it installs and runs,
+/// and the review and its card say it was made for an older FetchBox.
+#[tokio::test]
+async fn an_older_plugin_api_still_runs_with_a_warning() {
+    use fetchbox_core::plugin::{CompatWarning, API_VERSION};
+
+    let rig = Rig::new().await;
+    let old = manifest("old", json!({"api_version": 1}));
+    let staged = rig
+        .mgr
+        .plugin_stage(package(&old, false))
+        .await
+        .expect("stage");
+    let warning = Some(CompatWarning {
+        api_version: 1,
+        current: API_VERSION,
+    });
+    assert_eq!(staged.compat, warning);
+    rig.mgr.plugin_cancel(staged.token).await.expect("cancel");
+
+    let view = rig.install(&old, false).await;
+    assert_eq!(view.compat, warning);
+    rig.mgr
+        .plugin_set_enabled("old".into(), true)
+        .await
+        .expect("enable");
+    rig.wait_for("old", PluginState::Ready).await;
+
+    let current = rig
+        .install(&manifest("new", json!({"api_version": API_VERSION})), false)
+        .await;
+    assert_eq!(current.compat, None);
+}
+
 #[tokio::test]
 async fn a_plugin_without_a_program_is_simply_ready() {
     let rig = Rig::new().await;
@@ -673,105 +707,41 @@ async fn a_linked_program_runs_without_anything_being_downloaded() {
     assert!(answer.ok);
 }
 
-/// A program of FetchBox's list is installed once and run by every plugin that names it. It is put
-/// in place by hand here (the real addresses are on PyPI); nothing may be fetched, and the update
-/// of a plugin's dependencies leaves it alone.
-#[tokio::test]
-async fn plugins_share_a_program_from_fetchboxs_list() {
-    use fetchbox_core::plugin::shared_program;
-
-    let rig = Rig::new().await;
-    let entry = shared_program("ffmpeg").expect("ffmpeg is on the list");
-    let Some(source) = entry.platforms.get(&platform_key()) else {
-        return; // no ffmpeg for this platform: nothing to run
-    };
-    let folder = rig
-        .root
-        .path()
-        .join("data/plugin-programs/ffmpeg")
-        .join(&entry.version);
-    let program = folder.join(source.bin.as_deref().expect("a program path"));
-    std::fs::create_dir_all(program.parent().expect("parent")).expect("folder");
-    std::fs::copy(fake_plugin(), &program).expect("program");
-    std::fs::write(
-        folder.join(".fetchbox-dependency.json"),
-        json!({"version": entry.version, "sha256": "", "host": "test", "installed_at": 0})
-            .to_string(),
-    )
-    .expect("record");
-
-    let plugin = |id: &str| {
-        manifest(
-            id,
-            json!({
-                "platforms": [platform_key()],
-                "dependencies": [{"id": "ffmpeg", "shared": "ffmpeg"}],
-                "process": {"command": "${dep:ffmpeg}", "args": ["echo"]},
-                "ui": {"actions": [{"id": "ping", "label": "Ping", "kind": "process"}]}
-            }),
-        )
-    };
-    for id in ["alpha", "beta"] {
-        let installed = rig.install(&plugin(id), false).await;
-        assert!(
-            installed.dependencies[0].installed,
-            "it is there before anything is fetched"
-        );
-        assert_eq!(
-            installed.dependencies[0].version.as_deref(),
-            Some(entry.version.as_str())
-        );
-        rig.mgr
-            .plugin_set_enabled(id.into(), true)
-            .await
-            .expect("enable");
-    }
-    for id in ["alpha", "beta"] {
-        let running = rig.wait_for(id, PluginState::Running).await;
-        assert!(running.error.is_none(), "{:?}", running.error);
-        let answer = rig
-            .mgr
-            .plugin_action(id.into(), "ping".into(), BTreeMap::new())
-            .await
-            .expect("ping");
-        assert!(answer.ok);
-    }
-    assert!(
-        !rig.root.path().join("data/plugin-data/alpha/deps").exists(),
-        "nothing was put in the plugin's own folder"
-    );
-
-    // "Download programs" leaves a shared program alone: it moves with FetchBox, and a new copy
-    // would replace the folder the other plugin is running from.
-    let before = std::fs::metadata(&program)
-        .expect("meta")
-        .modified()
-        .expect("mtime");
-    let again = rig
-        .mgr
-        .plugin_dependencies("alpha".into(), None)
-        .await
-        .expect("update");
-    assert!(again.enabled);
-    rig.wait_for("alpha", PluginState::Running).await;
-    assert_eq!(
-        std::fs::metadata(&program)
-            .expect("meta")
-            .modified()
-            .expect("mtime"),
-        before
-    );
-    rig.wait_for("beta", PluginState::Running).await;
-}
-
-/// The review before installing lists the dependencies apart from the permissions and says, for each,
-/// what switching the plugin on does: the rule is the one the installer follows.
 #[tokio::test]
 async fn the_review_lists_dependencies_apart_and_says_what_will_be_downloaded() {
-    use fetchbox_core::plugin::{shared_program, DependencyPlan, DependencySource};
+    use fetchbox_core::plugin::{DependencyPlan, DependencySource};
 
     let rig = Rig::new().await;
-    let plan = |staged: &fetchbox_core::plugin::StagedPlugin, id: &str| {
+    let platform = platform_key();
+    let m = manifest(
+        "deps",
+        json!({
+            "dependencies": [
+                {
+                    "id": "tool",
+                    "github": {
+                        "repo": "o/r",
+                        "assets": {platform.clone(): "tool"},
+                        "sha256_asset": "SHA2-256SUMS"
+                    }
+                },
+                {
+                    "id": "extra",
+                    "optional": true,
+                    "platforms": {platform: {
+                        "url": "https://example.com/extra",
+                        "sha256": "a".repeat(64)
+                    }}
+                }
+            ]
+        }),
+    );
+    let staged = rig
+        .mgr
+        .plugin_stage(package(&m, false))
+        .await
+        .expect("stage");
+    let plan = |id: &str| {
         staged
             .dependency_plan
             .iter()
@@ -779,21 +749,8 @@ async fn the_review_lists_dependencies_apart_and_says_what_will_be_downloaded() 
             .unwrap_or_else(|| panic!("no plan for {id}"))
             .plan
     };
-    let stage = || async {
-        let staged = rig
-            .mgr
-            .plugin_stage_store("yt-dlp".into())
-            .await
-            .expect("stage");
-        rig.mgr
-            .plugin_cancel(staged.token.clone())
-            .await
-            .expect("cancel");
-        staged
-    };
 
-    let first = stage().await;
-    let deps: Vec<_> = first
+    let deps: Vec<_> = staged
         .permissions
         .dependencies
         .iter()
@@ -802,55 +759,21 @@ async fn the_review_lists_dependencies_apart_and_says_what_will_be_downloaded() 
     assert_eq!(
         deps,
         [
-            ("ffmpeg", DependencySource::Shared, true),
-            ("yt-dlp", DependencySource::Github, false)
+            ("extra", DependencySource::Pinned, true),
+            ("tool", DependencySource::Github, false)
         ]
     );
     assert!(
-        !first
+        !staged
             .permissions
             .programs
             .iter()
             .any(|p| p.contains("dependency")),
         "a dependency is not a program it runs: {:?}",
-        first.permissions.programs
+        staged.permissions.programs
     );
-    assert_eq!(plan(&first, "yt-dlp"), DependencyPlan::Download, "required");
-    assert_eq!(
-        plan(&first, "ffmpeg"),
-        DependencyPlan::OnRequest,
-        "optional"
-    );
-
-    // Somebody chose ffmpeg before, in a version the list has moved on from: it comes again.
-    let programs = rig.root.path().join("data/plugin-programs/ffmpeg");
-    std::fs::create_dir_all(programs.join("an-older-version")).expect("old version");
-    std::fs::write(
-        programs.join("an-older-version/.fetchbox-dependency.json"),
-        "{}",
-    )
-    .expect("record");
-    assert_eq!(plan(&stage().await, "ffmpeg"), DependencyPlan::Download);
-
-    // And once the current version is on this machine (put there by hand: the real address is PyPI's)
-    // nothing is downloaded for it, whichever plugin asks.
-    let entry = shared_program("ffmpeg").expect("ffmpeg is on the list");
-    let Some(source) = entry.platforms.get(&platform_key()) else {
-        return;
-    };
-    let folder = programs.join(&entry.version);
-    let program = folder.join(source.bin.as_deref().expect("a program path"));
-    std::fs::create_dir_all(program.parent().expect("parent")).expect("folder");
-    std::fs::write(&program, b"ffmpeg").expect("program");
-    std::fs::write(
-        folder.join(".fetchbox-dependency.json"),
-        json!({"version": entry.version, "sha256": "", "host": "test", "installed_at": 0})
-            .to_string(),
-    )
-    .expect("record");
-    let last = stage().await;
-    assert_eq!(plan(&last, "ffmpeg"), DependencyPlan::Present);
-    assert_eq!(plan(&last, "yt-dlp"), DependencyPlan::Download);
+    assert_eq!(plan("tool"), DependencyPlan::Download, "required");
+    assert_eq!(plan("extra"), DependencyPlan::OnRequest, "optional");
 }
 
 #[tokio::test]
@@ -1859,11 +1782,7 @@ async fn the_store_routes_list_stage_and_refuse() {
         .map(|e| e["id"].as_str().expect("id").to_owned())
         .collect();
     ids.sort();
-    assert_eq!(
-        ids,
-        ["webhook-notify", "yt-dlp"],
-        "what ships with the program"
-    );
+    assert_eq!(ids, ["webhook-notify"], "what ships with the program");
 
     let (status, _) = answer(
         http.post(format!("{api}/plugin-store/refresh"))

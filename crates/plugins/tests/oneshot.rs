@@ -119,8 +119,8 @@ async fn the_program_gets_a_clean_environment() {
         Some("demo")
     );
     assert_eq!(
-        vars.get("FETCHBOX_API_VERSION").map(String::as_str),
-        Some("1")
+        vars.get("FETCHBOX_API_VERSION").cloned(),
+        Some(fetchbox_core::plugin::API_VERSION.to_string())
     );
     assert_eq!(vars.get("MINE").map(String::as_str), Some("yes"));
     let data = tmp.path().join("data");

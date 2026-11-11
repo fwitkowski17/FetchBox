@@ -46,6 +46,7 @@ export type PluginState = Schemas['PluginState'];
 export type PluginSource = Schemas['PluginSource'];
 export type PermissionSummary = Schemas['PermissionSummary'];
 export type StagedPlugin = Schemas['StagedPlugin'];
+export type CompatWarning = Schemas['CompatWarning'];
 export type StoreEntry = Schemas['StoreEntry'];
 export type StoreList = Schemas['StoreList'];
 export type ActionResult = Schemas['ActionResult'];

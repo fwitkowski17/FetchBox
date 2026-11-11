@@ -1044,6 +1044,22 @@ export interface components {
             /** @description The expected digest: lowercase hexadecimal. */
             expected: string;
         };
+        /**
+         * @description A plugin written for an older plugin API than this FetchBox's: it runs, but may not work as
+         *     meant. The interface words it; the server sends only the numbers.
+         */
+        CompatWarning: {
+            /**
+             * Format: int32
+             * @description The `api_version` of the manifest.
+             */
+            api_version: number;
+            /**
+             * Format: int32
+             * @description The plugin API of this FetchBox.
+             */
+            current: number;
+        };
         /** @description Description of a collision, shown to the user so they can choose. */
         Conflict: {
             /**
@@ -1113,13 +1129,13 @@ export interface components {
             /** @description Where it is downloaded from (`github.com/owner/name`, or a host), sorted. */
             hosts: string[];
             id: string;
-            /** @description The manifest's label, else the shared program's, else the id. */
+            /** @description The manifest's label, else the id. */
             label: string;
             /** @description It works without it: nothing is downloaded until the user asks for it. */
             optional: boolean;
             /**
              * Format: int64
-             * @description Bytes to download on this machine's platform, when the manifest or the list says (a GitHub
+             * @description Bytes to download on this machine's platform, when the manifest says (a GitHub
              *     release is not asked about while a package is only being reviewed).
              */
             size?: number | null;
@@ -1142,7 +1158,7 @@ export interface components {
          * @description Where a dependency comes from.
          * @enum {string}
          */
-        DependencySource: "pinned" | "github" | "shared";
+        DependencySource: "pinned" | "github";
         /** @description A dependency and whether it is in place. */
         DependencyView: {
             id: string;
@@ -1606,6 +1622,7 @@ export interface components {
         /** @description An installed plugin. */
         PluginView: {
             author: string;
+            compat?: null | components["schemas"]["CompatWarning"];
             dependencies: components["schemas"]["DependencyView"][];
             description: string;
             enabled: boolean;
@@ -1843,6 +1860,7 @@ export interface components {
         /** @description A plugin that was uploaded and read but is not installed yet: the user reviews it first. */
         StagedPlugin: {
             author: string;
+            compat?: null | components["schemas"]["CompatWarning"];
             /** @description What switching it on does about each of its dependencies on this machine. */
             dependency_plan: components["schemas"]["StagedDependency"][];
             description: string;

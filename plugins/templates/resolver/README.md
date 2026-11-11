@@ -37,7 +37,7 @@ After a change to the program, `cargo build --release` is enough (it is started 
 
 - `result` in `plugin.json` maps the JSON the program prints into the list (JSON Pointers); add `size` when you know it.
 - Make the file with your own program instead of the engine: add `run` and `choices` to the resolver (see
-  `plugins/official/yt-dlp` in the FetchBox repository).
+  https://github.com/fwitkowski17/youtube-downloader).
 - The program has no network code on purpose: a TLS library in a static program built for several platforms needs a C
   toolchain for each, which this workflow does not set up. Use a pure-Rust client, or add another program as a dependency
   and have the resolver run that instead.

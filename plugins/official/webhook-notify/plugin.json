@@ -1,5 +1,5 @@
 {
-  "api_version": 1,
+  "api_version": 2,
   "id": "webhook-notify",
   "name": "Webhook notifications",
   "version": "1.0.1",
