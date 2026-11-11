@@ -9,6 +9,8 @@
   import ConnectionOverlay from './lib/components/ConnectionOverlay.svelte';
   import DeleteDownloadDialog from './lib/components/DeleteDownloadDialog.svelte';
   import Icon from './lib/components/Icon.svelte';
+  import InstallPluginDialog from './lib/components/InstallPluginDialog.svelte';
+  import PluginDialogHost from './lib/components/PluginDialogHost.svelte';
   import ResumeSpaceDialog from './lib/components/ResumeSpaceDialog.svelte';
   import SpeedLimitDialog from './lib/components/SpeedLimitDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
@@ -31,6 +33,7 @@
   import { summarize } from './lib/util/downloads';
   import { motion } from './lib/util/motion';
   import Downloads from './routes/Downloads.svelte';
+  import Extensions from './routes/Extensions.svelte';
   import Login from './routes/Login.svelte';
   import Settings from './routes/Settings.svelte';
   import Stats from './routes/Stats.svelte';
@@ -194,6 +197,8 @@
               <Torrents />
             {:else if $route === 'stats'}
               <Stats />
+            {:else if $route === 'extensions'}
+              <Extensions />
             {:else}
               <Settings />
             {/if}
@@ -223,6 +228,8 @@
   <DeleteDownloadDialog />
   <SpeedLimitDialog />
   <UpdateDialog />
+  <InstallPluginDialog />
+  <PluginDialogHost />
 {/if}
 
 <!-- Outside the screens above: it must also cover the login screen and the first-run wizard. -->

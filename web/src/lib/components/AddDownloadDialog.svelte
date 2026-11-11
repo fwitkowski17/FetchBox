@@ -30,7 +30,9 @@
   import { ALGOS, algoLabel, checkChecksum, detectAlgo } from '../util/checksum';
   import { startingDisk } from '../util/disks';
   import { isSourceUrl, sourceOf } from '../util/format';
-  import { emptySummary, tally, type BatchSummary } from '../util/listing';
+  import { emptySummary, entryKey, tally, type BatchSummary } from '../util/listing';
+  import { plugins } from '../stores/plugins.svelte';
+  import { isUsable } from '../util/plugins';
   import { formatWhen, minutesToTime, nextOccurrence } from '../util/schedule';
 
   let url = $state('');
@@ -100,6 +102,19 @@
     | { state: 'failed'; reason: string };
   let probe = $state<Probe>({ state: 'idle' });
   const chosen = new SvelteSet<string>();
+  /** A look takes long enough that an extension may be answering (a video page can take a while). */
+  let slowChecking = $state(false);
+  const askedPlugins = $derived(
+    plugins.items.filter((p) => isUsable(p) && p.provides.resolvers.length > 0).map((p) => p.name),
+  );
+  $effect(() => {
+    if (probe.state !== 'checking') {
+      slowChecking = false;
+      return;
+    }
+    const timer = setTimeout(() => (slowChecking = true), 1500);
+    return () => clearTimeout(timer);
+  });
   /** Folders opened from a listing, so "Back" can return to them. */
   let trail = $state<string[]>([]);
   /** How far adding the chosen files has got (`done` of `total`), while it runs. */
@@ -216,7 +231,7 @@
           listing = info.kind === 'listing' ? info : null;
           // A new listing starts with every file chosen: the user takes away what they do not want.
           chosen.clear();
-          for (const e of info.entries) if (!e.is_dir) chosen.add(e.url);
+          for (const e of info.entries) if (!e.is_dir) chosen.add(entryKey(e));
         })
         .catch((e: unknown) => {
           if (abort.signal.aborted) return;
@@ -274,7 +289,7 @@
    *  and checks space for each). Files that are already there or do not fit are skipped and
    *  counted, so one problem does not stop the rest. */
   async function submitChosen(entries: ListingEntry[]): Promise<void> {
-    const files = entries.filter((e) => !e.is_dir && chosen.has(e.url));
+    const files = entries.filter((e) => !e.is_dir && chosen.has(entryKey(e)));
     if (files.length === 0) return;
     busy = true;
     error = null;
@@ -284,6 +299,8 @@
       try {
         await api.addDownload({
           url: file.url,
+          // A file made by an extension (a preset of a video) is named by it, and is fetched by it.
+          ...(file.via ? { via: file.via, filename: file.name } : {}),
           category: category === 'auto' ? undefined : category,
           credentials: login,
           ...diskFields(),
@@ -453,7 +470,11 @@
       {/if}
       <div id="url-probe" class={['text-sm', !listing && 'min-h-6']} aria-live="polite" data-part="probe" data-state={probe.state}>
         {#if probe.state === 'checking'}
-          <p class="text-muted">{t('add.probe.checking')}</p>
+          <p class="text-muted">
+            {slowChecking && askedPlugins.length > 0
+              ? t('add.via.asking', { plugin: askedPlugins.join(', ') })
+              : t('add.probe.checking')}
+          </p>
         {:else if probe.state === 'ok' && probe.info.kind === 'file'}
           <p class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <CategoryIcon category={probe.info.category} size={18} />

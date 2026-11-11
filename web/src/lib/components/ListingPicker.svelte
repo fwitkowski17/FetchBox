@@ -2,7 +2,8 @@
   import type { SvelteSet } from 'svelte/reactivity';
   import type { ListingEntry } from '../api/types';
   import { i18n, t } from '../i18n';
-  import { selectionTotal, visibleEntries } from '../util/listing';
+  import { plugins } from '../stores/plugins.svelte';
+  import { entryKey, selectionTotal, visibleEntries } from '../util/listing';
   import CategoryIcon from './CategoryIcon.svelte';
   import Icon from './Icon.svelte';
 
@@ -10,7 +11,7 @@
     entries: ListingEntry[];
     /** The page had more items than are shown. */
     truncated: boolean;
-    /** Addresses of the chosen files. */
+    /** Keys (`entryKey`) of the chosen files. */
     chosen: SvelteSet<string>;
     /** Whether there is a folder to go back to. */
     canGoBack: boolean;
@@ -25,17 +26,17 @@
   const shown = $derived(visibleEntries(entries, query));
   const shownFiles = $derived(shown.filter((e) => !e.is_dir));
   const total = $derived(selectionTotal(entries, chosen));
-  const allShownChosen = $derived(shownFiles.length > 0 && shownFiles.every((e) => chosen.has(e.url)));
-  const someShownChosen = $derived(shownFiles.some((e) => chosen.has(e.url)));
+  const allShownChosen = $derived(shownFiles.length > 0 && shownFiles.every((e) => chosen.has(entryKey(e))));
+  const someShownChosen = $derived(shownFiles.some((e) => chosen.has(entryKey(e))));
 
   function toggleAll(): void {
-    if (allShownChosen) for (const e of shownFiles) chosen.delete(e.url);
-    else for (const e of shownFiles) chosen.add(e.url);
+    if (allShownChosen) for (const e of shownFiles) chosen.delete(entryKey(e));
+    else for (const e of shownFiles) chosen.add(entryKey(e));
   }
 
-  function toggle(url: string): void {
-    if (chosen.has(url)) chosen.delete(url);
-    else chosen.add(url);
+  function toggle(key: string): void {
+    if (chosen.has(key)) chosen.delete(key);
+    else chosen.add(key);
   }
 
   let allBox = $state<HTMLInputElement>();
@@ -74,7 +75,7 @@
   </div>
 
   <ul class="max-h-[min(18rem,30dvh)] overflow-y-auto px-1" data-part="listing-items">
-    {#each shown as e (e.url)}
+    {#each shown as e (entryKey(e))}
       <li>
         {#if e.is_dir}
           <button
@@ -94,14 +95,22 @@
             <input
               type="checkbox"
               class="size-5 shrink-0 accent-[var(--accent)]"
-              checked={chosen.has(e.url)}
+              checked={chosen.has(entryKey(e))}
               {disabled}
-              onchange={() => toggle(e.url)}
+              onchange={() => toggle(entryKey(e))}
               aria-label={t('selection.card', { name: e.name })}
               data-part="listing-file"
             />
             <CategoryIcon category={e.category} size={20} />
             <span class="min-w-0 flex-1 truncate" title={e.name}>{e.name}</span>
+            {#if e.detail}
+              <span class="max-w-[45%] shrink-0 truncate rounded-md bg-accent-soft px-1.5 py-0.5 text-xs text-accent" data-part="listing-detail" title={e.detail}>{e.detail}</span>
+            {/if}
+            {#if e.via}
+              <span class="hidden shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-xs text-muted sm:inline" data-part="listing-via">
+                {t('add.via.badge', { plugin: plugins.get(e.via.plugin)?.name ?? e.via.plugin })}
+              </span>
+            {/if}
             {#if e.size !== null && e.size !== undefined}
               <span class="shrink-0 text-sm text-muted tabular-nums">{i18n.bytes(e.size)}</span>
             {/if}

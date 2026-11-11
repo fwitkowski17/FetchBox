@@ -223,15 +223,14 @@ impl HttpDownloader {
         policy: UrlPolicy,
         host_keys: Arc<dyn HostKeys>,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Event>), EngineError> {
-        let mut builder = Client::builder()
-            .user_agent(concat!("FetchBox/", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(Duration::from_secs(15))
-            .read_timeout(Duration::from_secs(30))
-            .redirect(policy.redirect_policy());
-        if let Some(resolver) = policy.resolver() {
-            builder = builder.dns_resolver(resolver);
-        }
-        let client = builder.build()?;
+        let client = policy
+            .apply(
+                Client::builder()
+                    .user_agent(concat!("FetchBox/", env!("CARGO_PKG_VERSION")))
+                    .connect_timeout(Duration::from_secs(15))
+                    .read_timeout(Duration::from_secs(30)),
+            )
+            .build()?;
         let (tx, rx) = mpsc::unbounded_channel();
         let inner = Inner {
             client,

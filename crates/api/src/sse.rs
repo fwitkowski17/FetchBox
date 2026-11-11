@@ -29,13 +29,16 @@ fn event_name(e: &Event) -> &'static str {
         Event::Settings { .. } => "settings",
         Event::Torrent { .. } => "torrent",
         Event::TorrentRemoved { .. } => "torrent_removed",
+        Event::Plugin { .. } => "plugin",
+        Event::PluginRemoved { .. } => "plugin_removed",
+        Event::PluginNotice { .. } => "plugin_notice",
     }
 }
 
 /// Live updates as server-sent events.
 ///
 /// Each SSE message has an `event:` name (`download`, `progress`, `removed`, `settings`, `torrent`,
-/// `torrent_removed`, or
+/// `torrent_removed`, `plugin`, `plugin_removed`, `plugin_notice`, or
 /// `resync` with empty data) and a JSON `data:` payload shaped like [`Event`]. After `resync`
 /// (this client fell behind) reload the list with `GET /api/downloads`. Subscribe before
 /// fetching the list so nothing in between is lost.

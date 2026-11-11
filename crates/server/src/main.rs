@@ -3,10 +3,14 @@
 mod assets;
 mod clock;
 mod hostkeys;
+mod link;
 mod logfmt;
 mod manager;
+mod scaffold;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_plugins;
 #[cfg(test)]
 mod tests_torrents;
 mod update;
@@ -58,8 +62,20 @@ struct Args {
     /// Run without authentication. Anyone who can reach the port can use the manager.
     #[arg(long)]
     no_auth: bool,
+    /// Plugins (extensions that add sources, hooks and tools; each can run programs as the user
+    /// FetchBox runs as). `off` switches the whole system off. They are also off while `--no-auth`
+    /// is used, because installing a plugin must not be open to everybody who can reach the port.
+    #[arg(long, env = "FETCHBOX_PLUGINS", value_enum, default_value_t = PluginsFlag::On)]
+    plugins: PluginsFlag,
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+/// The value of `--plugins`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum PluginsFlag {
+    On,
+    Off,
 }
 
 /// The password from the environment: `FETCHBOX_PASSWORD`, or the variable's name from before the
@@ -108,6 +124,56 @@ enum Command {
     /// run this, start the server again: it asks for a new account like on the first run and
     /// prints the setup code in its log. Downloads and settings are kept.
     ResetPassword,
+    /// Tools for writing extensions (plugins).
+    #[command(subcommand)]
+    Plugin(PluginCommand),
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum PluginCommand {
+    /// Start an extension from a template: creates the folder <ID>/ with a plugin.json that
+    /// already validates, a README and, depending on the template, a script. Needs nothing from
+    /// the server: no data directory, no database, no running FetchBox.
+    New {
+        /// The id of the extension, also the name of its folder: 2 to 32 lowercase letters, digits
+        /// and "-", starting with a letter.
+        id: String,
+        /// What to start from: hook, resolver or process (`plugin list` says what each makes).
+        #[arg(short, long, default_value = scaffold::DEFAULT_TEMPLATE)]
+        template: String,
+        /// Name shown in the app. Default: the id in words.
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Author shown in the app. Default: `git config user.name`.
+        #[arg(short, long)]
+        author: Option<String>,
+        /// The GitHub repository that will hold the project and its releases, owner/name. The
+        /// manifest's homepage and, for a template with a program, the place the program is
+        /// downloaded from. Default: the placeholder OWNER/<ID>, to be replaced before the first release.
+        #[arg(short, long)]
+        repo: Option<String>,
+        /// The folder to create <ID>/ in.
+        #[arg(short, long, default_value = ".")]
+        out: PathBuf,
+    },
+    /// Try a plugin project on this machine without a release: copies its plugin.json into
+    /// <data dir>/plugins/<id>/ and links the program it built (target/release/<id>) where the
+    /// dependency would be downloaded to. Run it with the --data-dir of the FetchBox that will run
+    /// the plugin; FetchBox does not have to be stopped (press Rescan in Extensions).
+    Link {
+        /// The project: a folder with a plugin.json.
+        #[arg(default_value = ".")]
+        project: PathBuf,
+        /// The dependency the program stands in for. Default: the only one, or the one named like
+        /// the plugin.
+        #[arg(long)]
+        dependency: Option<String>,
+        /// The program to link. Default: target/release/<dependency> in the project.
+        #[arg(long)]
+        bin: Option<PathBuf>,
+    },
+    /// List the templates `plugin new` can start from.
+    List,
 }
 
 /// `reset-password`: remove the stored password hash from the database in `data_dir`.
@@ -231,8 +297,41 @@ async fn run() -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    if let Some(Command::ResetPassword) = args.command {
-        return reset_password(&args.data_dir);
+    // The subcommands come before anything is created: none of them needs the data or download
+    // directory, and running one in any folder must not litter it with them.
+    match args.command {
+        Some(Command::ResetPassword) => return reset_password(&args.data_dir),
+        Some(Command::Plugin(PluginCommand::New {
+            id,
+            template,
+            name,
+            author,
+            repo,
+            out,
+        })) => {
+            return scaffold::run_new(&scaffold::NewPlugin {
+                id,
+                template,
+                name,
+                author,
+                repo,
+                out,
+            })
+        }
+        Some(Command::Plugin(PluginCommand::Link {
+            project,
+            dependency,
+            bin,
+        })) => {
+            return link::run_link(&link::LinkRequest {
+                project,
+                data_dir: args.data_dir,
+                dependency,
+                bin,
+            })
+        }
+        Some(Command::Plugin(PluginCommand::List)) => return scaffold::run_list(),
+        None => {}
     }
     std::fs::create_dir_all(&args.data_dir).context("create data dir")?;
     std::fs::create_dir_all(&args.download_dir).context("create download dir")?;
@@ -257,6 +356,25 @@ async fn run() -> anyhow::Result<()> {
             state_dir: args.data_dir.clone(),
             listen_port: args.torrent_port,
             dht: true,
+        })
+        .await;
+    let plugins_mode = match (args.plugins, args.no_auth) {
+        (PluginsFlag::Off, _) => manager::PluginsMode::Off,
+        (PluginsFlag::On, true) => manager::PluginsMode::NoAuth,
+        (PluginsFlag::On, false) => manager::PluginsMode::On,
+    };
+    manager
+        .enable_plugins(manager::PluginSetup {
+            data_dir: args.data_dir.clone(),
+            mode: plugins_mode,
+            policy: fetchbox_http_engine::UrlPolicy {
+                block_private: args.block_private_urls,
+            },
+            allow_plain_http: false,
+            github_api: None,
+            // `FETCHBOX_PLUGIN_INDEX_URL` points the plugin store somewhere else (a mirror, your own
+            // list); empty switches the remote catalog off.
+            index_url: std::env::var("FETCHBOX_PLUGIN_INDEX_URL").ok(),
         })
         .await;
     let auth = resolve_auth(&args, manager.clone())?;
@@ -291,6 +409,9 @@ async fn run() -> anyhow::Result<()> {
             tokio::time::sleep(SHUTDOWN_GRACE).await;
         } => tracing::warn!("closing connections that did not finish in time"),
     }
+    // Programs of plugins first: they may be talking to the torrent engine's data, and the
+    // runtime gives blocking work only a few seconds at exit.
+    manager.stop_plugins().await;
     manager.stop_torrents().await;
     tracing::info!("stopped");
     Ok(())
@@ -340,6 +461,7 @@ mod auth_config_tests {
             block_private_urls: false,
             log_activity: false,
             no_auth,
+            plugins: PluginsFlag::On,
             command: None,
         }
     }

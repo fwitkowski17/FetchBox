@@ -8,10 +8,12 @@ pub mod error;
 pub mod filename;
 pub mod limiter;
 pub mod model;
+pub mod plugin;
 pub mod schedule;
 pub mod scheduler;
 pub mod stats;
 pub mod torrent;
+pub mod version;
 
 use async_trait::async_trait;
 
@@ -22,7 +24,7 @@ pub use model::{
     AddRequest, Category, Conflict, ConflictKind, Credentials, DiskSpace, Download, Event, Handle,
     Hold, HostKeyProblem, HostKeyProblemKind, Id, InstallMethod, Job, KnownHost, ListingEntry,
     OnConflict, OnHoursEnd, ProbeRequest, Progress, ReleaseNote, SegmentState, Settings,
-    SourceKind, Status, TrustHost, UrlInfo, UrlKind, VersionInfo,
+    SourceKind, Status, TrustHost, UrlInfo, UrlKind, VersionInfo, Via,
 };
 pub use stats::{CategoryStat, DayStat, LargestFile, Stats, StatsRange};
 pub use torrent::{

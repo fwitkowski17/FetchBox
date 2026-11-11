@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use fetchbox_core::version::{is_newer, parse_version};
 use fetchbox_core::{InstallMethod, ReleaseNote, VersionInfo};
 
 /// The latest published releases of the project (drafts are not listed for anonymous requests;
@@ -263,69 +264,6 @@ fn parse_releases(body: &str) -> Option<Vec<Release>> {
     Some(out)
 }
 
-/// `1.2.3` or `1.2.3-rc.1`: the numbers, and the pre-release part (`rc.1`) if there is one.
-fn parse_version(v: &str) -> Option<(Vec<u64>, Option<String>)> {
-    let (numbers, pre) = match v.split_once('-') {
-        Some((n, p)) => (n, Some(p.to_owned())),
-        None => (v, None),
-    };
-    let numbers: Option<Vec<u64>> = numbers.split('.').map(|p| p.parse().ok()).collect();
-    let numbers = numbers?;
-    (!numbers.is_empty()).then_some((numbers, pre))
-}
-
-/// Order of two pre-release parts as semantic versioning has it: dot-separated identifiers, numbers
-/// compared as numbers and below words, words as text, and the longer one wins when the shorter is
-/// its beginning (`rc.1` < `rc.2` < `rc.10` < `rc.10.1`).
-fn cmp_pre(a: &str, b: &str) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let (mut x, mut y) = (a.split('.'), b.split('.'));
-    loop {
-        match (x.next(), y.next()) {
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some(p), Some(q)) => {
-                let order = match (p.parse::<u64>(), q.parse::<u64>()) {
-                    (Ok(m), Ok(n)) => m.cmp(&n),
-                    (Ok(_), Err(_)) => Ordering::Less,
-                    (Err(_), Ok(_)) => Ordering::Greater,
-                    (Err(_), Err(_)) => p.cmp(q),
-                };
-                if order != Ordering::Equal {
-                    return order;
-                }
-            }
-        }
-    }
-}
-
-/// Is `latest` a higher version than `current`? A pre-release ranks below its release
-/// (`0.7.0-rc.1` < `0.7.0`) and pre-releases of one version are ordered by their parts
-/// (`rc.1` < `rc.2`); anything that is not a version is never "newer".
-fn is_newer(latest: &str, current: &str) -> bool {
-    let (Some((a, a_pre)), Some((b, b_pre))) = (parse_version(latest), parse_version(current))
-    else {
-        return false;
-    };
-    let len = a.len().max(b.len());
-    for i in 0..len {
-        let (x, y) = (
-            a.get(i).copied().unwrap_or(0),
-            b.get(i).copied().unwrap_or(0),
-        );
-        if x != y {
-            return x > y;
-        }
-    }
-    // Same numbers: a release is newer than any pre-release, and pre-releases go by their parts.
-    match (a_pre, b_pre) {
-        (None, Some(_)) => true,
-        (Some(x), Some(y)) => cmp_pre(&x, &y) == std::cmp::Ordering::Greater,
-        _ => false,
-    }
-}
-
 fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -338,16 +276,6 @@ mod tests {
     use axum::http::StatusCode;
     use axum::routing::get;
     use std::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn versions_are_compared_by_their_numbers() {
-        assert!(is_newer("0.7.0", "0.6.1"));
-        assert!(is_newer("0.10.0", "0.9.9"));
-        assert!(is_newer("1.0", "0.9.9"));
-        assert!(!is_newer("0.6.1", "0.6.1"));
-        assert!(!is_newer("0.6.0", "0.6.1"));
-        assert!(!is_newer("1.0.0", "1"));
-    }
 
     #[test]
     fn the_install_method_is_read_forgivingly_and_a_bad_value_is_ignored() {
@@ -375,20 +303,6 @@ mod tests {
     }
 
     #[test]
-    fn a_pre_release_ranks_below_its_release() {
-        assert!(is_newer("0.7.0", "0.7.0-rc.1"));
-        assert!(!is_newer("0.7.0-rc.1", "0.7.0"));
-        assert!(is_newer("0.7.1-rc.1", "0.7.0"));
-    }
-
-    #[test]
-    fn something_that_is_not_a_version_is_never_newer() {
-        assert!(!is_newer("nightly", "0.6.1"));
-        assert!(!is_newer("0.7.0", "dev"));
-        assert!(!is_newer("", "0.6.1"));
-    }
-
-    #[test]
     fn releases_are_read_from_the_github_list_newest_first() {
         let body = r###"[
             {"tag_name":"v0.7.0","html_url":"https://github.com/o/r/releases/tag/v0.7.0","body":"## Changes\n- a"},
@@ -412,21 +326,6 @@ mod tests {
         // Not a list, not JSON.
         assert_eq!(parse_releases(r#"{"message":"Not Found"}"#), None);
         assert_eq!(parse_releases("<html>"), None);
-    }
-
-    #[test]
-    fn pre_releases_of_one_version_are_ordered_by_their_parts() {
-        assert!(is_newer("0.7.0-rc.2", "0.7.0-rc.1"));
-        assert!(is_newer("0.7.0-rc.10", "0.7.0-rc.2"), "numbers, not text");
-        assert!(is_newer("0.7.0-rc.1", "0.7.0-beta.3"), "rc after beta");
-        assert!(is_newer("0.7.0-rc.1.1", "0.7.0-rc.1"));
-        assert!(
-            is_newer("0.7.0-alpha", "0.7.0-1"),
-            "a number is below a word"
-        );
-        assert!(!is_newer("0.7.0-rc.1", "0.7.0-rc.1"));
-        assert!(!is_newer("0.7.0-rc.1", "0.7.0-rc.2"));
-        assert!(is_newer("0.7.1-alpha", "0.7.0"));
     }
 
     async fn serve(status: StatusCode, body: &'static str, hits: Arc<AtomicUsize>) -> String {

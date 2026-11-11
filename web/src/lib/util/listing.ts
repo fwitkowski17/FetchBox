@@ -8,6 +8,13 @@ export function visibleEntries(entries: readonly ListingEntry[], query: string):
   return entries.filter((e) => !e.is_dir && e.name.toLocaleLowerCase().includes(q));
 }
 
+/** What identifies an entry in the chosen set. Presets of one video (made by a plugin) share the
+ *  video's address, so the preset is part of the key; a plain file is its address. */
+export function entryKey(e: ListingEntry): string {
+  const via = e.via;
+  return via ? `${e.url}\0${via.plugin}/${via.resolver}/${via.ref ?? ''}` : e.url;
+}
+
 export interface SelectionTotal {
   count: number;
   /** Sum of the sizes the page showed. */
@@ -25,7 +32,7 @@ export function selectionTotal(entries: readonly ListingEntry[], chosen: Readonl
   let sized = 0;
   let partial = false;
   for (const e of entries) {
-    if (e.is_dir || !chosen.has(e.url)) continue;
+    if (e.is_dir || !chosen.has(entryKey(e))) continue;
     count += 1;
     if (e.size === null || e.size === undefined) partial = true;
     else {

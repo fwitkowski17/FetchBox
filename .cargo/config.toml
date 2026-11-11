@@ -1,0 +1,8 @@
+[alias]
+# Start an extension from a template (the same as `fetchbox plugin new`, SPEC 6.15):
+#   cargo new-plugin my-extension -o ../my-extension
+new-plugin = "run -q -p server -- plugin new"
+# Try an extension project in the dev backend without a release (`fetchbox plugin link`), from the
+# root of this checkout, where the dev data dir is:
+#   cargo plugin-link ../my-extension
+plugin-link = "run -q -p server -- --data-dir ./.dev/data plugin link"

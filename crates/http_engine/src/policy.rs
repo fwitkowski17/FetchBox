@@ -66,6 +66,18 @@ impl UrlPolicy {
         })
     }
 
+    /// Put this policy on an HTTP client: every redirect hop is checked and, when private addresses
+    /// are blocked, names are resolved through the filtering resolver. The address of the request
+    /// itself still has to go through [`check`](Self::check). Used by everything on the server that
+    /// fetches an address someone else chose (downloads, plugin dependencies, the plugin store).
+    pub fn apply(self, builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        let builder = builder.redirect(self.redirect_policy());
+        match self.resolver() {
+            Some(resolver) => builder.dns_resolver(resolver),
+            None => builder,
+        }
+    }
+
     /// DNS resolver that drops blocked addresses, or `None` when nothing is blocked.
     pub(crate) fn resolver(self) -> Option<Arc<FilteringResolver>> {
         self.block_private.then(|| Arc::new(FilteringResolver))

@@ -354,15 +354,16 @@ EOT
       rm -f "$UNIT" "$BIN"
       systemctl daemon-reload
       if ((purge)); then
-        rm -rf "$DATA_DIR/fetchbox.db" "$DATA_DIR/fetchbox.db-wal" "$DATA_DIR/fetchbox.db-shm" "$CONF_DIR"
+        rm -rf "$DATA_DIR/fetchbox.db" "$DATA_DIR/fetchbox.db-wal" "$DATA_DIR/fetchbox.db-shm" \
+          "$DATA_DIR/plugins" "$DATA_DIR/plugin-data" "$CONF_DIR"
         rmdir "$DATA_DIR" 2>/dev/null || true
         # Only the user this script created.
         if [[ "$svc_user" == fetchbox ]] && id -u fetchbox >/dev/null 2>&1; then
           userdel fetchbox 2>/dev/null || true
         fi
-        say "Removed the service, the program, the database and the settings. Downloaded files were left alone."
+        say "Removed the service, the program, the database, the extensions and the settings. Downloaded files were left alone."
       else
-        say "Removed the service and the program. Kept: ${DATA_DIR} (database), ${CONF_DIR} (settings) and all downloads."
+        say "Removed the service and the program. Kept: ${DATA_DIR} (database, extensions), ${CONF_DIR} (settings) and all downloads."
         say "Remove those too with: install.sh uninstall --purge"
       fi
       ;;

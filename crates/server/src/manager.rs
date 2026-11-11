@@ -11,8 +11,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+mod plugin_hooks;
+mod plugin_resolve;
+mod plugin_runner;
+mod plugin_store;
+mod plugins;
 mod torrents;
 
+pub use plugins::{PluginSetup, PluginsMode};
 pub use torrents::TorrentSetup;
 
 use crate::clock;
@@ -105,6 +111,8 @@ pub struct Manager {
     url_policy: UrlPolicy,
     /// BitTorrent: the engine and what is kept about it between ticks (see `torrents`).
     torrents: torrents::Torrents,
+    /// Plugins: what is installed and what runs (see `plugins`).
+    plugins: plugins::Plugins,
 }
 
 impl Manager {
@@ -172,6 +180,7 @@ impl Manager {
             install_method,
             url_policy: policy,
             torrents: torrents::Torrents::default(),
+            plugins: plugins::Plugins::default(),
             held: Mutex::new(HashSet::new()),
             suspended: Mutex::new(HashSet::new()),
             hours_seen: Mutex::new(None),
@@ -319,7 +328,9 @@ impl Manager {
     /// Fresh numbers from the engine for running downloads.
     fn view(&self, mut d: Download) -> Download {
         if d.status == Status::Downloading {
-            let p = self.engine.progress(d.id);
+            let p = self
+                .runner_progress(d.id)
+                .unwrap_or_else(|| self.engine.progress(d.id));
             if p.downloaded > 0 {
                 d.downloaded = p.downloaded;
             }
@@ -494,7 +505,7 @@ impl Manager {
             let downloading = matches!(self.get(id), Ok(d) if d.status == Status::Downloading);
             if stop && downloading {
                 self.suspended().insert(id);
-                if self.engine.pause(id).await.is_err() {
+                if self.pause_any(id).await.is_err() {
                     self.suspended().remove(&id);
                 }
             }
@@ -573,6 +584,9 @@ impl Manager {
         let Some(d) = d else { return Ok(false) };
         if d.status != Status::Queued {
             return Ok(false);
+        }
+        if d.plugin.is_some() {
+            return self.plugins_start_download(id).await;
         }
         let s = self.current_settings();
         // A disk that is not mounted is an empty folder on the system disk: writing there would
@@ -658,7 +672,9 @@ impl Manager {
                     segments::update_offsets(c, id, &pairs)
                 });
                 self.log_err("progress", id, r);
-                let p = self.engine.progress(id);
+                let p = self
+                    .runner_progress(id)
+                    .unwrap_or_else(|| self.engine.progress(id));
                 self.note_speed(p.speed);
                 self.publish(Event::Progress {
                     id,
@@ -805,9 +821,25 @@ impl Manager {
         disk: &str,
         subdir: &str,
         name: &str,
+        via: Option<&plugin_resolve::ViaPlan>,
     ) -> Result<Detected> {
+        // The same address is the same download, unless a plugin makes it differently: one video as
+        // audio and as video are two downloads.
+        let key = via.map(|p| (p.runner.as_str(), p.choice.as_str()));
         let dup = self
-            .with_db(|c| downloads::find_by_url(c, url))?
+            .with_db(|c| {
+                let mut same = Vec::new();
+                for d in downloads::find_by_url(c, url)? {
+                    let theirs = downloads::runner(c, d.id)?;
+                    let theirs = theirs
+                        .as_ref()
+                        .map(|(r, ch)| (r.as_str(), ch.as_deref().unwrap_or("")));
+                    if theirs == key {
+                        same.push(d);
+                    }
+                }
+                Ok(same)
+            })?
             .into_iter()
             .next();
         let reserved =
@@ -908,6 +940,9 @@ impl Manager {
         match self.engine.cancel(d.id).await {
             Ok(()) | Err(Error::NotFound(_)) => {}
             Err(e) => return Err(e),
+        }
+        if d.plugin.is_some() {
+            self.runner_cancel(d).await;
         }
         self.remove_part(d.id, &rel_dir(&d.disk, &d.subdir), &d.filename)
             .await;
@@ -1201,6 +1236,13 @@ impl Service for Manager {
 
     async fn probe(&self, url: &str, credentials: Option<Credentials>) -> Result<UrlInfo> {
         let (url, login) = split_login(url, credentials.as_ref())?;
+        // A plugin may understand the address (a video page): what it finds is shown as a list.
+        // Addresses with a login are for the engine's own sources.
+        if login.is_none() {
+            if let Some(info) = self.plugins_resolve(&url).await? {
+                return Ok(info);
+            }
+        }
         let found = self
             .engine
             .inspect_url(&url, login.as_ref())
@@ -1304,15 +1346,36 @@ impl Service for Manager {
         // A login written into the address is kept apart from it: the address is stored and shown,
         // the password is neither.
         let (url, login) = split_login(&req.url, req.credentials.as_ref())?;
-        let info = self
-            .probe_remote(&url, login.as_ref())
-            .await
-            .inspect_err(|e| {
-                tracing::warn!(from = %logfmt::host(&url), error = %e, "cannot add the download");
-            })?;
+        // A download a plugin makes (SPEC 6.15): the address is the plugin's to understand, so the
+        // engine does not look at it; it is only checked to be a plain web address.
+        let via = match &req.via {
+            Some(v) => {
+                if login.is_some() {
+                    return Err(Error::InvalidInput(
+                        "a download made by a plugin has no login of its own".into(),
+                    ));
+                }
+                Some(self.plugins_check_via(v)?)
+            }
+            None => None,
+        };
+        let info = match &via {
+            Some(_) => self.plugin_page_info(&url)?,
+            None => self
+                .probe_remote(&url, login.as_ref())
+                .await
+                .inspect_err(|e| {
+                    tracing::warn!(from = %logfmt::host(&url), error = %e, "cannot add the download");
+                })?,
+        };
         let name = sanitize(req.filename.as_deref().unwrap_or(&info.filename));
+        let name = match &via {
+            Some(plan) => plugin_resolve::planned_name(&name, plan),
+            None => name,
+        };
         let category = req
             .category
+            .or(via.as_ref().and_then(|p| p.category))
             .unwrap_or_else(|| detect_category(&name, info.content_type.as_deref()));
         // Decided once, now: later setting changes or category edits never move a download, and
         // neither does a later change of the default disk.
@@ -1351,7 +1414,9 @@ impl Service for Manager {
                 })?,
                 _ => false,
             };
-            let found = self.detect_conflict(&url, &disk, &subdir, &name).await?;
+            let found = self
+                .detect_conflict(&url, &disk, &subdir, &name, via.as_ref())
+                .await?;
             let (filename, overwrite) = match (found.conflict, req.on_conflict) {
                 (None, _) => (name, false),
                 (Some(c), OnConflict::Reject) => return Err(Error::Conflict(Box::new(c))),
@@ -1386,6 +1451,9 @@ impl Service for Manager {
                     },
                 )?;
                 downloads::set_remote_info(c, id, info.size, info.resumable, info.etag.as_deref())?;
+                if let Some(plan) = &via {
+                    downloads::set_runner(c, id, &plan.runner, Some(&plan.choice))?;
+                }
                 if hold {
                     // Really no room: keep the entry, but do not start it.
                     downloads::set_status(c, id, Status::Paused, None)?;
@@ -1448,7 +1516,7 @@ impl Service for Manager {
         self.suspended().remove(&id);
         if self.sched().is_running(id) {
             // The engine answers with a `Paused` event that persists offsets and frees the slot.
-            self.engine.pause(id).await?;
+            self.pause_any(id).await?;
         } else {
             self.held().remove(&id);
             let next = self.sched().release(id);
@@ -1606,6 +1674,11 @@ impl Service for Manager {
                 "a {} download has no speed to limit",
                 d.status.as_str()
             )));
+        }
+        if d.plugin.is_some() {
+            return Err(Error::InvalidState(
+                "a download made by a plugin has no speed limit of its own: the plugin's program does the transfer".into(),
+            ));
         }
         self.with_db(|c| downloads::set_speed_limit(c, id, rate))?;
         self.engine.set_speed_limit(id, rate); // live, if it is running
@@ -1765,6 +1838,87 @@ impl Service for Manager {
 
     async fn torrent_files(&self, id: Id) -> Result<Vec<TorrentFile>> {
         self.torrent_files_of(id).await
+    }
+
+    async fn plugins(&self) -> Result<fetchbox_core::plugin::PluginList> {
+        self.plugins_list().await
+    }
+
+    async fn plugin_rescan(&self) -> Result<fetchbox_core::plugin::PluginList> {
+        self.plugins_rescan().await
+    }
+
+    async fn plugin_stage(&self, zip: Vec<u8>) -> Result<fetchbox_core::plugin::StagedPlugin> {
+        self.plugins_stage(zip).await
+    }
+
+    async fn plugin_store(&self, refresh: bool) -> Result<fetchbox_core::plugin::StoreList> {
+        self.plugins_store(refresh).await
+    }
+
+    async fn plugin_stage_store(&self, id: String) -> Result<fetchbox_core::plugin::StagedPlugin> {
+        self.plugins_stage_store(id).await
+    }
+
+    async fn plugin_install(&self, token: String) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_install(token).await
+    }
+
+    async fn plugin_cancel(&self, token: String) -> Result<()> {
+        self.plugins_cancel(token).await
+    }
+
+    async fn plugin_set_enabled(
+        &self,
+        id: String,
+        enabled: bool,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_enable(id, enabled).await
+    }
+
+    async fn plugin_approve(
+        &self,
+        id: String,
+        hash: String,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_approve(id, hash).await
+    }
+
+    async fn plugin_remove(&self, id: String, keep_data: bool) -> Result<()> {
+        self.plugins_remove(id, keep_data).await
+    }
+
+    async fn plugin_save_settings(
+        &self,
+        id: String,
+        values: std::collections::BTreeMap<String, Option<fetchbox_core::plugin::SettingValue>>,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_settings(id, values).await
+    }
+
+    async fn plugin_action(
+        &self,
+        id: String,
+        action: String,
+        input: std::collections::BTreeMap<String, fetchbox_core::plugin::SettingValue>,
+    ) -> Result<fetchbox_core::plugin::ActionResult> {
+        self.plugins_action(id, action, input).await
+    }
+
+    async fn plugin_restart(&self, id: String) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_restart(id).await
+    }
+
+    async fn plugin_dependencies(
+        &self,
+        id: String,
+        dependency: Option<String>,
+    ) -> Result<fetchbox_core::plugin::PluginView> {
+        self.plugins_dependencies(id, dependency).await
+    }
+
+    async fn plugin_logs(&self, id: String) -> Result<Vec<String>> {
+        self.plugins_logs(id).await
     }
 
     fn subscribe(&self) -> broadcast::Receiver<Event> {

@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod error;
 pub mod openapi;
+mod plugins;
 pub mod routes;
 pub mod service;
 pub mod sse;

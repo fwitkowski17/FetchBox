@@ -1,0 +1,39 @@
+name: Release
+
+# Push a tag v<version> (the version of plugin.json) to publish a release with a ZIP of the plugin
+# for Extensions -> Install from file:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag is the version of the plugin
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(jq -r .version plugin.json)"
+          [ "$tag" = "$manifest" ] || { echo "the tag says $tag but plugin.json says $manifest" >&2; exit 1; }
+      - name: The ZIP and the release
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          mkdir package dist
+          cp plugin.json README.md package/
+          zip="__ID__-${tag#v}.zip"
+          (cd package && zip -r "../dist/$zip" .)
+          gh release create "$tag" "dist/$zip" --title "$tag" --generate-notes
+          {
+            echo "### Plugin ZIP"
+            echo "\`$zip\` sha256: \`$(sha256sum "dist/$zip" | cut -d' ' -f1)\`"
+            echo "(the value for \`download.sha256\` in the store catalog)"
+          } >> "$GITHUB_STEP_SUMMARY"
