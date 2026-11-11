@@ -947,7 +947,6 @@ const pl: Messages = {
   'ext.dep.plan.present': 'Już jest na tym urządzeniu',
   'ext.dep.plan.download': 'Zostanie pobrany',
   'ext.dep.plan.on_request': 'Pobierany tylko na Twoje życzenie',
-  'ext.dep.source.shared': 'Z listy FetchBox',
   'ext.dep.source.github': 'Wydania na GitHubie',
   'ext.dep.source.pinned': 'Stały adres',
   'ext.install.install': 'Zainstaluj',

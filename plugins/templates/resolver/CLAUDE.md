@@ -41,9 +41,8 @@ shows the entries as a list; FetchBox's own engine downloads each entry's `url`.
 - In the official Docker image there is no libc of its own to match: Linux builds are static (musl). The program has no network
   code on purpose; do not add a dependency that needs a C toolchain (TLS libraries such as ring or aws-lc) without setting that up
   in `release.yml` first.
-- A program other than yours (ffmpeg) is a dependency too. Prefer FetchBox's shared list (`{ "id": "ffmpeg", "shared": "ffmpeg" }`,
-  entries in `plugins/programs.json` of the FetchBox repository) to copying addresses and hashes: it is installed once for every
-  extension and updated with FetchBox. `${dep:ffmpeg}` is its path; add `network` and `programs` to `permissions.uses` if they are not there.
+- A program other than yours (ffmpeg) is a dependency too, declared by this project itself with `platforms` (an address, a
+  SHA-256 and a size per platform) or `github`; FetchBox has no list of programs to borrow from. `${dep:ffmpeg}` is its path; add `network` and `programs` to `permissions.uses` if they are not there.
 - Write only below `$FETCHBOX_PLUGIN_DATA`; the extension's own folder is read-only code that is replaced on update.
 - Texts shown to the user are plain text, never HTML; translations go in `i18n`, keyed by the English text.
 

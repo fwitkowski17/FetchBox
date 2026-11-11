@@ -4,7 +4,6 @@
 //! `plugins` crate and the server do that.
 
 mod manifest;
-mod programs;
 mod text;
 mod validate;
 mod view;
@@ -18,7 +17,6 @@ pub use manifest::{
     RestartPolicy, ResultMap, Section, SettingValue, ShowIf, SingleMap, Tab, Ui, UiKind, Webhook,
     WebhookBody,
 };
-pub use programs::{is_valid_version, shared_program, shared_programs, SharedProgram};
 pub use text::{
     glob_match, host_of, is_safe_relative, is_valid_id, is_valid_key, platform_key, tr, PLATFORMS,
 };

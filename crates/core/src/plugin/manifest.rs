@@ -198,11 +198,10 @@ pub struct Dependency {
     /// Following form: the releases of a repository.
     #[serde(default)]
     pub github: Option<GithubDependency>,
-    /// Shared form: a program from FetchBox's own list (`plugins/programs.json`), installed once
-    /// for every plugin that names it. The entry decides the files, so `platforms`, `github` and
-    /// `bin` are absent; `label` and `optional` are still the plugin's.
-    #[serde(default)]
-    pub shared: Option<String>,
+    /// The `shared` form of plugin API 1 (a program from a list FetchBox kept), removed in API 2.
+    /// Read only so that validation can say what to do instead of ignoring the field.
+    #[serde(default, rename = "shared", skip_serializing)]
+    pub removed_shared: Option<serde_json::Value>,
 }
 
 /// What a settings field or a dialog field is.

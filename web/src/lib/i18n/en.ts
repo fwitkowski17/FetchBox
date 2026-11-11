@@ -879,7 +879,6 @@ export const en = {
   'ext.dep.plan.present': 'Already on this machine',
   'ext.dep.plan.download': 'Will be downloaded',
   'ext.dep.plan.on_request': 'Downloaded only if you choose',
-  'ext.dep.source.shared': "From FetchBox's list",
   'ext.dep.source.github': 'Releases on GitHub',
   'ext.dep.source.pinned': 'Fixed address',
   'ext.install.install': 'Install',

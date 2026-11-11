@@ -604,30 +604,16 @@ pub fn validate(m: &Manifest) -> Check {
             return Err(format!("{name}: not a valid id"));
         }
         text("a dependency label", &d.label, 200)?;
-        let sources = usize::from(!d.platforms.is_empty())
-            + usize::from(d.github.is_some())
-            + usize::from(d.shared.is_some());
-        if sources != 1 {
+        if d.removed_shared.is_some() {
             return Err(format!(
-                "{name} needs exactly one of `platforms`, `github` or `shared`"
+                "{name}: `shared` was removed in plugin API 2; declare the program with `platforms` or `github`"
             ));
         }
-        if let Some(shared) = &d.shared {
-            if d.bin.is_some() {
-                return Err(format!(
-                    "{name}: `bin` is decided by the shared program \"{shared}\""
-                ));
-            }
-            if super::programs::shared_program(shared).is_none() {
-                let known: Vec<&str> = super::programs::shared_programs()
-                    .iter()
-                    .map(|p| p.id.as_str())
-                    .collect();
-                return Err(format!(
-                    "{name}: FetchBox has no shared program \"{shared}\" (it has: {})",
-                    known.join(", ")
-                ));
-            }
+        let sources = usize::from(!d.platforms.is_empty()) + usize::from(d.github.is_some());
+        if sources != 1 {
+            return Err(format!(
+                "{name} needs exactly one of `platforms` or `github`"
+            ));
         }
         if let Some(b) = &d.bin {
             if !is_safe_relative(b) {
@@ -1048,46 +1034,17 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_dependency_names_a_program_of_fetchboxs_list_and_nothing_else() {
-        let shared = |extra: serde_json::Value| {
-            let mut dep = serde_json::json!({"id": "ffmpeg", "optional": true, "shared": "ffmpeg"});
-            for (k, v) in extra.as_object().expect("object") {
-                dep[k] = v.clone();
-            }
-            dep
-        };
-        let mut v = base();
-        v["dependencies"]
-            .as_array_mut()
-            .expect("array")
-            .push(shared(serde_json::json!({})));
-        check(v).expect("a shared dependency next to a pinned one");
-
-        // The id of the dependency is the plugin's own; the entry is what `shared` names.
-        let mut v = base();
-        v["dependencies"][0] = shared(serde_json::json!({"id": "tool", "shared": "ffmpeg"}));
-        check(v).expect("any id");
-
+    fn a_shared_dependency_is_refused_with_what_to_do_instead() {
         let e = err_of(base(), |v| {
-            v["dependencies"][0] = shared(serde_json::json!({"shared": "nope"}))
+            v["dependencies"][0] =
+                serde_json::json!({"id": "ffmpeg", "optional": true, "shared": "ffmpeg"})
         });
         assert!(
-            e.contains("no shared program \"nope\"") && e.contains("ffmpeg"),
+            e.contains(
+                "`shared` was removed in plugin API 2; declare the program with `platforms` or `github`"
+            ),
             "{e}"
         );
-        let e = err_of(base(), |v| {
-            v["dependencies"][0] = shared(serde_json::json!({"bin": "x"}))
-        });
-        assert!(e.contains("bin") && e.contains("decided"), "{e}");
-        // One source only: not with `platforms`, not with `github`.
-        let e = err_of(base(), |v| v["dependencies"][0]["shared"] = "ffmpeg".into());
-        assert!(e.contains("exactly one"), "{e}");
-        let e = err_of(base(), |v| {
-            v["dependencies"][0] = shared(serde_json::json!({
-                "github": {"repo": "o/r", "assets": {"linux-x86_64": "x"}, "sha256_asset": "SUMS"}
-            }));
-        });
-        assert!(e.contains("exactly one"), "{e}");
     }
 
     #[test]

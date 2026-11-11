@@ -54,12 +54,7 @@ pub fn link(request: &LinkRequest) -> anyhow::Result<Linked> {
         .map_err(|e| anyhow::anyhow!("{} is not a valid plugin: {e}", manifest_path.display()))?;
 
     let layout = Layout::new(&request.data_dir);
-    // A shared program (FetchBox's list) is not the author's to build, so it is not what is linked.
-    let own: Vec<&Dependency> = manifest
-        .dependencies
-        .iter()
-        .filter(|d| d.shared.is_none())
-        .collect();
+    let own: Vec<&Dependency> = manifest.dependencies.iter().collect();
     let dep = match &request.dependency {
         Some(wanted) => Some(*own.iter().find(|d| &d.id == wanted).with_context(|| {
             format!("the plugin has no dependency of its own named \"{wanted}\"")

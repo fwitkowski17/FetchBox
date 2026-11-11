@@ -15,7 +15,7 @@ rest (downloads the programs it depends on, draws its settings and dialogs, runs
 - [Folder, ZIP and where things live](#folder-zip-and-where-things-live)
 - [The manifest](#the-manifest) (`plugin.json`)
   - [Identity and platforms](#identity-and-platforms)
-  - [Dependencies: programs FetchBox downloads for you](#dependencies) (and [shared programs](#shared-programs-ffmpeg-and-friends))
+  - [Dependencies: programs FetchBox downloads for you](#dependencies)
   - [Settings](#settings)
   - [Templates for commands](#templates-for-commands)
   - [Resolvers: new sources of downloads](#resolvers)
@@ -259,11 +259,11 @@ manifest in the ZIP it publishes (see below).
 }
 ```
 
-A third form names a program of [FetchBox's own list](#shared-programs-ffmpeg-and-friends): `{ "id": "ffmpeg", "shared": "ffmpeg" }`.
-
 Rules:
 
-- A dependency has exactly one source: `platforms` (pinned), `github` (following) or `shared`.
+- A dependency has exactly one source: `platforms` (pinned) or `github` (following). An extension carries every program
+  it needs, ffmpeg included, so it never depends on what a given FetchBox version ships. (Plugin API 1 also had a
+  `shared` form, a program from a list kept in FetchBox; it was removed in API 2 and a manifest that uses it is refused.)
 - Addresses are `https://` only and go through the same URL policy as downloads (`--block-private-urls`). A hash
   that does not match, a file larger than expected (`size` is an upper bound; the default limit is 500 MiB) or an
   archive that tries to escape its folder fails the install with the reason shown on the card.
@@ -278,36 +278,6 @@ Rules:
   beats "latest" in a URL.
 - Prefer self-contained programs. In the Docker image the program is started directly, so a Python script or a
   PyInstaller binary that needs a shell will not work; a PyInstaller or static binary does.
-
-### Shared programs (ffmpeg and friends)
-
-Some programs are wanted by many extensions, and copying their addresses and hashes into every manifest would also
-download a copy of each. FetchBox keeps a list of such programs, [`programs.json`](programs.json), embedded in the
-program (today: `ffmpeg`). A dependency names one:
-
-```json
-{ "id": "ffmpeg", "label": "ffmpeg (merges video and audio)", "optional": true, "shared": "ffmpeg" }
-```
-
-- It is used like any dependency: `${dep:ffmpeg}`, `${dep_dir:ffmpeg}`, `requires: ["ffmpeg"]`, `{ "when": "dep:ffmpeg", ... }`.
-  `id` is yours (it only has to be unique in your manifest), `shared` is the entry of the list. `label` and `optional` are
-  yours; `platforms`, `github` and `bin` are not allowed (the entry decides, and a name that is not on the list is refused with
-  the names that are).
-- The program is installed **once** for every extension that names it, into `<data>/plugin-programs/<program>/<version>/`,
-  not into your extension's data folder, and **not downloaded again** by **Download programs** (it is updated with FetchBox).
-  When a FetchBox whose list names a newer version starts, a program that was installed before (in the old version, or in
-  your extension's own folder from before it took the program from the list) is fetched again by itself, the old folder is
-  removed and the extension's own copy too; an optional program nobody downloaded stays an opt-in. Removing an extension
-  leaves a shared program in place.
-- The review screen lists it under "Additional dependencies" (see [Permissions](#permissions-and-the-trust-model)), with
-  the hosts the files come from; the groups `network` and `programs` are still yours to declare in `permissions.uses`.
-- **Trust.** The addresses and SHA-256 values of a shared program are FetchBox's, not yours: they change with a FetchBox
-  update and the extension is not reviewed again for it. That is the point, and the reason the list is short and each entry
-  is pinned (an address, a SHA-256 and a size per platform). To add a program, send a pull request that adds an entry to
-  [`programs.json`](programs.json): `id`, `label`, a `version` that is also a folder name, and per platform the `url`,
-  `sha256`, `size`, `archive` and the `bin` path inside it. A test checks every entry.
-- An older FetchBox does not know `shared` and refuses the manifest ("needs either `platforms` or `github`"). Programs that
-  FetchBox does not list still use `platforms` or `github`.
 
 ### Settings
 

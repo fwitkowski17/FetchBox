@@ -745,17 +745,12 @@ impl Manager {
             return;
         };
         for dep in &manifest.dependencies {
-            // The same rule the review before installing shows (`Installer::plan`): an optional
-            // program the user already chose to download stays chosen when it has to be fetched
-            // again (a shared program whose version FetchBox's list moved on).
+            // The same rule the review before installing shows (`Installer::plan`).
             let plan = host.installer.plan(id, dep);
             let wanted = match which {
                 Fetch::Missing => plan == DependencyPlan::Download,
                 Fetch::Update => match plan {
-                    // A shared program is updated with FetchBox (its list names the version), and
-                    // fetching it again would replace the folder other plugins are running from.
-                    DependencyPlan::Present => dep.shared.is_none(),
-                    DependencyPlan::Download => true,
+                    DependencyPlan::Present | DependencyPlan::Download => true,
                     DependencyPlan::OnRequest => false,
                 },
                 Fetch::One(only) => *only == dep.id,

@@ -8,9 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fetchbox_core::plugin::{
-    shared_programs, ArchiveKind, Dependency, DependencyPlan, GithubDependency, SharedProgram,
-};
+use fetchbox_core::plugin::{ArchiveKind, Dependency, DependencyPlan, GithubDependency};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
@@ -117,8 +115,6 @@ pub struct Installer {
     fetcher: Fetcher,
     layout: Layout,
     platform: String,
-    /// The programs plugins may share (FetchBox's list; tests put their own here).
-    shared: Vec<SharedProgram>,
     gate: Semaphore,
 }
 
@@ -133,67 +129,23 @@ impl Installer {
             fetcher,
             layout,
             platform,
-            shared: shared_programs().to_vec(),
             gate: Semaphore::new(1),
         }
-    }
-
-    /// Use another list of shared programs than FetchBox's own (tests).
-    pub fn with_shared_programs(mut self, list: Vec<SharedProgram>) -> Self {
-        self.shared = list;
-        self
     }
 
     fn deps_dir(&self, plugin: &str) -> PathBuf {
         self.layout.data_dir_of(plugin).join("deps")
     }
 
-    /// The entry of the list that a shared dependency names.
-    fn shared_entry(&self, dep: &Dependency) -> Option<&SharedProgram> {
-        let name = dep.shared.as_deref()?;
-        self.shared.iter().find(|p| p.id == name)
-    }
-
-    /// The dependency as the installer works with it: a shared one is the entry of the list (its
-    /// files and the name of its program), under the plugin's own id and label.
-    fn effective(&self, dep: &Dependency) -> Dependency {
-        let Some(entry) = self.shared_entry(dep) else {
-            return dep.clone();
-        };
-        Dependency {
-            id: dep.id.clone(),
-            label: if dep.label.is_empty() {
-                entry.label.clone()
-            } else {
-                dep.label.clone()
-            },
-            optional: dep.optional,
-            bin: None,
-            platforms: entry.platforms.clone(),
-            github: None,
-            shared: None,
-        }
-    }
-
-    /// The folder of a dependency: its own below the plugin's data, or, for a shared program, the
-    /// one every plugin that names it uses, `plugin-programs/<program>/<version>/` (a new version
-    /// is a new folder).
+    /// The folder of a dependency, below the plugin's data.
     pub fn dep_dir(&self, plugin: &str, dep: &Dependency) -> PathBuf {
-        match self.shared_entry(dep) {
-            Some(entry) => self
-                .layout
-                .programs_dir()
-                .join(&entry.id)
-                .join(&entry.version),
-            None => self.deps_dir(plugin).join(&dep.id),
-        }
+        self.deps_dir(plugin).join(&dep.id)
     }
 
     /// The dependency's program.
     pub fn bin_path(&self, plugin: &str, dep: &Dependency) -> PathBuf {
-        let effective = self.effective(dep);
         self.dep_dir(plugin, dep)
-            .join(program_name_for(&effective, &self.platform))
+            .join(program_name_for(dep, &self.platform))
     }
 
     /// What is installed, if the dependency is in place (its record is there and so is its program).
@@ -346,9 +298,6 @@ impl Installer {
 
     /// Download, verify, unpack and put in place one dependency of a plugin. Waits for other installs
     /// first (one at a time keeps a small machine usable). `progress` is called while it downloads.
-    ///
-    /// A shared program that is in place when its turn comes (another plugin fetched it while this
-    /// one waited) is not fetched again.
     pub async fn install(
         &self,
         plugin: &str,
@@ -360,25 +309,7 @@ impl Installer {
             .acquire()
             .await
             .map_err(|_| Error::Fetch("the installer is shut down".into()))?;
-        let entry = match (&dep.shared, self.shared_entry(dep)) {
-            (Some(name), None) => {
-                return Err(Error::NotFound(format!(
-                    "FetchBox has no shared program \"{name}\""
-                )));
-            }
-            (_, entry) => entry,
-        };
-        if entry.is_some() {
-            if let Some(info) = self.state(plugin, dep) {
-                return Ok(info);
-            }
-        }
-
-        let effective = self.effective(dep);
-        let mut resolved = self.resolve(&effective).await?;
-        if let Some(entry) = entry {
-            resolved.version = Some(entry.version.clone());
-        }
+        let resolved = self.resolve(dep).await?;
         let target = self.dep_dir(plugin, dep);
         // The work folder is next to the final one, so the last step is a rename on one file system.
         let parent = target
@@ -388,20 +319,14 @@ impl Installer {
         let work = parent.join(format!(".tmp-{}", hex(&random()?)));
         tokio::fs::create_dir_all(&work).await?;
         let result = self
-            .install_in(&effective, &target, &resolved, &work, progress)
+            .install_in(dep, &target, &resolved, &work, progress)
             .await;
         let _ = tokio::fs::remove_dir_all(&work).await;
         let info = result?;
-        if let Some(entry) = entry {
-            self.prune_other_versions(entry);
-            // The copy this plugin kept in its own folder before the program was shared is unused now.
-            let _ = std::fs::remove_dir_all(self.deps_dir(plugin).join(&dep.id));
-        }
         tracing::info!(
             target: "activity",
             plugin,
             dependency = %dep.id,
-            shared = dep.shared.as_deref().unwrap_or("-"),
             version = info.version.as_deref().unwrap_or("-"),
             host = %info.host,
             "plugin dependency installed"
@@ -414,55 +339,10 @@ impl Installer {
     pub fn plan(&self, plugin: &str, dep: &Dependency) -> DependencyPlan {
         if self.state(plugin, dep).is_some() {
             DependencyPlan::Present
-        } else if !dep.optional || self.was_installed_before(plugin, dep) {
+        } else if !dep.optional {
             DependencyPlan::Download
         } else {
             DependencyPlan::OnRequest
-        }
-    }
-
-    /// Was this shared program installed before, in a version that is not the current one? That is
-    /// the case for a user who chose to download an optional program and then got a FetchBox whose
-    /// list names a newer version, and for one who had it in the plugin's own folder before the
-    /// manifest took it from the list. They are not asked again: it is fetched anew.
-    pub fn was_installed_before(&self, plugin: &str, dep: &Dependency) -> bool {
-        let Some(entry) = self.shared_entry(dep) else {
-            return false;
-        };
-        if self
-            .deps_dir(plugin)
-            .join(&dep.id)
-            .join(INFO_FILE)
-            .is_file()
-        {
-            return true;
-        }
-        let Ok(versions) = std::fs::read_dir(self.layout.programs_dir().join(&entry.id)) else {
-            return false;
-        };
-        versions.flatten().any(|v| {
-            let name = v.file_name();
-            let name = name.to_string_lossy();
-            !name.starts_with('.')
-                && name != entry.version.as_str()
-                && v.path().join(INFO_FILE).is_file()
-        })
-    }
-
-    /// Every plugin resolves a shared program to the version of FetchBox's list, so the folders of
-    /// the versions before it are not wanted by anybody (a program that is still running from one
-    /// keeps running; it is unlinked, not killed). Best effort.
-    fn prune_other_versions(&self, entry: &SharedProgram) {
-        let Ok(versions) = std::fs::read_dir(self.layout.programs_dir().join(&entry.id)) else {
-            return;
-        };
-        for version in versions.flatten() {
-            let name = version.file_name();
-            let name = name.to_string_lossy();
-            if name.starts_with('.') || name == entry.version.as_str() {
-                continue;
-            }
-            let _ = std::fs::remove_dir_all(version.path());
         }
     }
 
@@ -557,12 +437,6 @@ pub fn link_local(
     dep: &Dependency,
     program: &Path,
 ) -> Result<DepInfo> {
-    if let Some(name) = &dep.shared {
-        return Err(Error::Fetch(format!(
-            "\"{}\" is the shared program \"{name}\" of FetchBox's list: it is installed once for every plugin and cannot be replaced by a local build",
-            dep.id
-        )));
-    }
     let platform = fetchbox_core::plugin::platform_key();
     let name = program_name_for(dep, &platform);
     let dir = layout.data_dir_of(plugin).join("deps").join(&dep.id);
@@ -665,7 +539,7 @@ mod tests {
             bin: None,
             platforms,
             github: None,
-            shared: None,
+            removed_shared: None,
         }
     }
 
@@ -707,7 +581,7 @@ mod tests {
                 tag: tag.map(str::to_owned),
                 sha256: BTreeMap::new(),
             }),
-            shared: None,
+            removed_shared: None,
         };
         // What an install of release v1.0.0 leaves behind.
         let folder = layout.data_dir_of("demo").join("deps/tool");
@@ -747,239 +621,6 @@ mod tests {
         );
     }
 
-    fn shared_entry(version: &str, url: String, body: &[u8]) -> SharedProgram {
-        let mut platforms = BTreeMap::new();
-        platforms.insert(
-            "linux-x86_64".to_owned(),
-            DepSource {
-                url,
-                sha256: sha(body),
-                archive: ArchiveKind::Raw,
-                strip: 0,
-                size: Some(body.len() as u64),
-                bin: Some("bin/ffmpeg".into()),
-            },
-        );
-        SharedProgram {
-            id: "ffmpeg".into(),
-            label: "ffmpeg for the tests".into(),
-            version: version.into(),
-            platforms,
-        }
-    }
-
-    fn shared_dep(id: &str) -> Dependency {
-        Dependency {
-            id: id.into(),
-            label: String::new(),
-            optional: true,
-            bin: None,
-            platforms: BTreeMap::new(),
-            github: None,
-            shared: Some("ffmpeg".into()),
-        }
-    }
-
-    #[tokio::test]
-    async fn a_shared_program_is_downloaded_once_for_every_plugin_that_names_it() {
-        let hits = Arc::new(AtomicU64::new(0));
-        let counted = hits.clone();
-        let base = serve(Router::new().route(
-            "/ff",
-            get(move || {
-                counted.fetch_add(1, Ordering::SeqCst);
-                async { b"static ffmpeg".to_vec() }
-            }),
-        ))
-        .await;
-        let tmp = tempfile::tempdir().expect("tmp");
-        let inst = installer(tmp.path(), None).with_shared_programs(vec![shared_entry(
-            "1",
-            format!("{base}/ff"),
-            b"static ffmpeg",
-        )]);
-
-        // Two plugins switched on together: one waits for the other's download and finds it there.
-        let (a, b) = (shared_dep("ffmpeg"), shared_dep("tools"));
-        let (first, second) = tokio::join!(
-            inst.install("alpha", &a, &nothing),
-            inst.install("beta", &b, &nothing)
-        );
-        let (first, second) = (first.expect("alpha"), second.expect("beta"));
-        assert_eq!(hits.load(Ordering::SeqCst), 1, "fetched once");
-        assert_eq!(first.version.as_deref(), Some("1"));
-        assert_eq!(second.version.as_deref(), Some("1"));
-
-        // The program is shared, whatever each plugin calls the dependency, and is not in the
-        // data folder of either.
-        let program = tmp.path().join("plugin-programs/ffmpeg/1/bin/ffmpeg");
-        assert_eq!(inst.bin_path("alpha", &a), program);
-        assert_eq!(inst.bin_path("beta", &b), program);
-        assert_eq!(std::fs::read(&program).expect("program"), b"static ffmpeg");
-        assert!(inst.state("alpha", &a).is_some() && inst.state("beta", &b).is_some());
-        assert!(!tmp.path().join("plugin-data").exists());
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&program)
-                .expect("meta")
-                .permissions()
-                .mode();
-            assert!(mode & 0o111 != 0, "executable");
-        }
-
-        // A plugin that comes later finds it in place and downloads nothing.
-        inst.install("gamma", &shared_dep("ffmpeg"), &nothing)
-            .await
-            .expect("gamma");
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn a_newer_entry_is_a_new_folder_and_the_old_versions_are_removed() {
-        let base = serve(
-            Router::new()
-                .route("/one", get(|| async { b"one".to_vec() }))
-                .route("/two", get(|| async { b"two".to_vec() })),
-        )
-        .await;
-        let tmp = tempfile::tempdir().expect("tmp");
-        let dep = shared_dep("ffmpeg");
-
-        let old = installer(tmp.path(), None).with_shared_programs(vec![shared_entry(
-            "1",
-            format!("{base}/one"),
-            b"one",
-        )]);
-        old.install("demo", &dep, &nothing).await.expect("v1");
-        let programs = tmp.path().join("plugin-programs/ffmpeg");
-        assert!(programs.join("1/bin/ffmpeg").is_file());
-        // Not versions: a work folder is left alone by the pruning.
-        std::fs::create_dir_all(programs.join(".tmp-other")).expect("work folder");
-
-        // FetchBox is updated: its list names version 2, so version 1 is not in place any more.
-        let new = installer(tmp.path(), None).with_shared_programs(vec![shared_entry(
-            "2",
-            format!("{base}/two"),
-            b"two",
-        )]);
-        assert!(new.state("demo", &dep).is_none());
-        new.install("demo", &dep, &nothing).await.expect("v2");
-        assert_eq!(
-            std::fs::read(new.bin_path("demo", &dep)).expect("read"),
-            b"two"
-        );
-        assert!(!programs.join("1").exists(), "the old version is gone");
-        assert!(programs.join("2").is_dir());
-        assert!(programs.join(".tmp-other").is_dir());
-    }
-
-    #[tokio::test]
-    async fn the_plan_says_what_switching_a_plugin_on_does_about_a_dependency() {
-        let base = serve(Router::new().route("/two", get(|| async { b"two".to_vec() }))).await;
-        let tmp = tempfile::tempdir().expect("tmp");
-        let inst = installer(tmp.path(), None).with_shared_programs(vec![shared_entry(
-            "2",
-            format!("{base}/two"),
-            b"two",
-        )]);
-        let optional = shared_dep("ffmpeg");
-        let mut required = shared_dep("ffmpeg");
-        required.optional = false;
-
-        // Nothing is there: a required program is downloaded, an optional one only on request.
-        assert_eq!(inst.plan("demo", &required), DependencyPlan::Download);
-        assert_eq!(inst.plan("demo", &optional), DependencyPlan::OnRequest);
-
-        // An optional program that was chosen before comes again with the new version of the list.
-        let old = tmp.path().join("plugin-programs/ffmpeg/1");
-        std::fs::create_dir_all(&old).expect("old version");
-        std::fs::write(old.join(INFO_FILE), "{}").expect("record");
-        assert_eq!(inst.plan("demo", &optional), DependencyPlan::Download);
-
-        // Once it is there, for this plugin and for any other that names it, nothing is downloaded.
-        inst.install("demo", &optional, &nothing)
-            .await
-            .expect("installed");
-        assert_eq!(inst.plan("demo", &optional), DependencyPlan::Present);
-        assert_eq!(inst.plan("another", &required), DependencyPlan::Present);
-    }
-
-    #[tokio::test]
-    async fn a_program_that_was_installed_before_is_fetched_again_when_the_list_moves_on() {
-        let base = serve(Router::new().route("/two", get(|| async { b"two".to_vec() }))).await;
-        let tmp = tempfile::tempdir().expect("tmp");
-        let inst = installer(tmp.path(), None).with_shared_programs(vec![shared_entry(
-            "2",
-            format!("{base}/two"),
-            b"two",
-        )]);
-        let dep = shared_dep("ffmpeg");
-
-        // Nobody ever downloaded it: an optional program stays an opt-in.
-        assert!(!inst.was_installed_before("demo", &dep));
-
-        // An earlier version of the program is in place (a work folder does not count).
-        let programs = tmp.path().join("plugin-programs/ffmpeg");
-        std::fs::create_dir_all(programs.join(".tmp-x")).expect("work folder");
-        std::fs::create_dir_all(programs.join("1")).expect("old version");
-        assert!(
-            !inst.was_installed_before("demo", &dep),
-            "no record, not installed"
-        );
-        std::fs::write(programs.join("1").join(INFO_FILE), "{}").expect("record");
-        assert!(inst.was_installed_before("demo", &dep));
-        std::fs::remove_dir_all(programs.join("1")).expect("remove");
-        assert!(!inst.was_installed_before("demo", &dep));
-
-        // Or it was in the plugin's own folder, from before the manifest named the shared entry.
-        let legacy = tmp.path().join("plugin-data/demo/deps/ffmpeg");
-        std::fs::create_dir_all(&legacy).expect("legacy");
-        std::fs::write(legacy.join("ffmpeg"), b"old copy").expect("program");
-        std::fs::write(legacy.join(INFO_FILE), "{}").expect("record");
-        assert!(inst.was_installed_before("demo", &dep));
-        assert!(
-            !inst.was_installed_before("other", &dep),
-            "that is another plugin's folder"
-        );
-
-        // Only a shared program has a before.
-        assert!(!inst.was_installed_before("demo", &github_dep(Some("SUMS"), "x")));
-
-        // The fetch that follows leaves the shared copy and removes the unused one.
-        inst.install("demo", &dep, &nothing)
-            .await
-            .expect("installed");
-        assert!(inst.state("demo", &dep).is_some());
-        assert!(!legacy.exists(), "the plugin's own copy is gone");
-    }
-
-    #[tokio::test]
-    async fn a_shared_program_that_does_not_exist_or_cannot_be_linked_is_refused() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let inst = installer(tmp.path(), None).with_shared_programs(Vec::new());
-        let err = inst
-            .install("demo", &shared_dep("ffmpeg"), &nothing)
-            .await
-            .expect_err("unknown");
-        assert!(
-            err.to_string().contains("no shared program \"ffmpeg\""),
-            "{err}"
-        );
-        assert!(inst.state("demo", &shared_dep("ffmpeg")).is_none());
-
-        let program = tmp.path().join("built");
-        std::fs::write(&program, b"x").expect("program");
-        let err = link_local(
-            &Layout::new(tmp.path()),
-            "demo",
-            &shared_dep("ffmpeg"),
-            &program,
-        )
-        .expect_err("shared");
-        assert!(err.to_string().contains("shared program"), "{err}");
-    }
-
     #[test]
     fn a_local_build_stands_in_for_the_download() {
         let tmp = tempfile::tempdir().expect("tmp");
@@ -1000,7 +641,7 @@ mod tests {
                 tag: None,
                 sha256: BTreeMap::new(),
             }),
-            shared: None,
+            removed_shared: None,
         };
         let installer = Installer::new(
             Fetcher::new(UrlPolicy::default()).expect("fetcher"),
@@ -1072,6 +713,32 @@ mod tests {
             .map(|e| e.expect("e").file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(left, ["tool"]);
+    }
+
+    /// FetchBox before plugin API 2 kept programs plugins shared in `<data>/plugin-programs/`. That
+    /// folder is not read any more: a dependency of the same name is the plugin's own.
+    #[tokio::test]
+    async fn a_leftover_folder_of_shared_programs_is_ignored() {
+        let body = b"\x7fELF ffmpeg".to_vec();
+        let served = body.clone();
+        let base =
+            serve(Router::new().route("/ffmpeg", get(move || async move { served.clone() }))).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let old = tmp.path().join("plugin-programs/ffmpeg/imageio-0.6.0");
+        std::fs::create_dir_all(&old).expect("old folder");
+        std::fs::write(old.join("ffmpeg"), b"old").expect("old program");
+        std::fs::write(old.join(INFO_FILE), "{}").expect("old record");
+        let inst = installer(tmp.path(), None);
+        let mut dep = pinned("ffmpeg", format!("{base}/ffmpeg"), &body, ArchiveKind::Raw, 0);
+        dep.optional = true;
+
+        assert_eq!(inst.plan("demo", &dep), DependencyPlan::OnRequest);
+        inst.install("demo", &dep, &|_| {}).await.expect("install");
+        assert_eq!(inst.plan("demo", &dep), DependencyPlan::Present);
+        assert_eq!(
+            inst.bin_path("demo", &dep),
+            tmp.path().join("plugin-data/demo/deps/ffmpeg/ffmpeg")
+        );
     }
 
     #[tokio::test]
@@ -1388,7 +1055,7 @@ mod tests {
                 tag: None,
                 sha256: BTreeMap::new(),
             }),
-            shared: None,
+            removed_shared: None,
         }
     }
 

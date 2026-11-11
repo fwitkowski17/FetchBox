@@ -1113,13 +1113,13 @@ export interface components {
             /** @description Where it is downloaded from (`github.com/owner/name`, or a host), sorted. */
             hosts: string[];
             id: string;
-            /** @description The manifest's label, else the shared program's, else the id. */
+            /** @description The manifest's label, else the id. */
             label: string;
             /** @description It works without it: nothing is downloaded until the user asks for it. */
             optional: boolean;
             /**
              * Format: int64
-             * @description Bytes to download on this machine's platform, when the manifest or the list says (a GitHub
+             * @description Bytes to download on this machine's platform, when the manifest says (a GitHub
              *     release is not asked about while a package is only being reviewed).
              */
             size?: number | null;
@@ -1142,7 +1142,7 @@ export interface components {
          * @description Where a dependency comes from.
          * @enum {string}
          */
-        DependencySource: "pinned" | "github" | "shared";
+        DependencySource: "pinned" | "github";
         /** @description A dependency and whether it is in place. */
         DependencyView: {
             id: string;

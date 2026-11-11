@@ -3763,7 +3763,7 @@
           },
           "label": {
             "type": "string",
-            "description": "The manifest's label, else the shared program's, else the id."
+            "description": "The manifest's label, else the id."
           },
           "optional": {
             "type": "boolean",
@@ -3775,7 +3775,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Bytes to download on this machine's platform, when the manifest or the list says (a GitHub\nrelease is not asked about while a package is only being reviewed).",
+            "description": "Bytes to download on this machine's platform, when the manifest says (a GitHub\nrelease is not asked about while a package is only being reviewed).",
             "minimum": 0
           },
           "source": {
@@ -3823,8 +3823,7 @@
         "description": "Where a dependency comes from.",
         "enum": [
           "pinned",
-          "github",
-          "shared"
+          "github"
         ]
       },
       "DependencyView": {
