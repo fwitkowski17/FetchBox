@@ -606,7 +606,7 @@ pub fn validate(m: &Manifest) -> Check {
         text("a dependency label", &d.label, 200)?;
         if d.removed_shared.is_some() {
             return Err(format!(
-                "{name}: `shared` was removed in plugin API 2; declare the program with `platforms` or `github`"
+                "{name}: `shared` was removed in plugin API 2; declare the program with `platforms` or `github` (this extension was made for an older FetchBox: look for a newer version of it)"
             ));
         }
         let sources = usize::from(!d.platforms.is_empty()) + usize::from(d.github.is_some());
@@ -1043,6 +1043,10 @@ mod tests {
             e.contains(
                 "`shared` was removed in plugin API 2; declare the program with `platforms` or `github`"
             ),
+            "{e}"
+        );        // The card shows this to whoever installed the plugin, not only to its author.
+        assert!(
+            e.contains("made for an older FetchBox: look for a newer version of it"),
             "{e}"
         );
     }

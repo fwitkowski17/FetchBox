@@ -1148,7 +1148,9 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   project of its own, `youtube-downloader` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds;
   yt-dlp from its GitHub releases checked against `SHA2-256SUMS`, and an optional static ffmpeg it pins itself to the
   `imageio-ffmpeg` 0.6.0 wheels on PyPI; presets: best merged, up to 720p merged, best single file, audio, MP3). Extensions
-  are meant to live out of tree; `plugins/official/` keeps only what needs no program.
+  are meant to live out of tree; `plugins/official/` keeps only what needs no program. An installed `yt-dlp` from before is not migrated
+  (another id): its manifest uses `shared` and is refused with a note that it was made for an older FetchBox; the README
+  tells users to remove it and install youtube-downloader.
 - **Not covered in this version.** A sandbox beyond the OS user (seccomp, namespaces, resource limits), signatures beyond SHA-256,
   custom headers or cookies in the engine, an iframe interface, extensions that register sources in `core`, calls from one
   extension to another, calls from a program into FetchBox, Windows and macOS beyond "best effort" (process groups, the
