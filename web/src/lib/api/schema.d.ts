@@ -1044,6 +1044,22 @@ export interface components {
             /** @description The expected digest: lowercase hexadecimal. */
             expected: string;
         };
+        /**
+         * @description A plugin written for an older plugin API than this FetchBox's: it runs, but may not work as
+         *     meant. The interface words it; the server sends only the numbers.
+         */
+        CompatWarning: {
+            /**
+             * Format: int32
+             * @description The `api_version` of the manifest.
+             */
+            api_version: number;
+            /**
+             * Format: int32
+             * @description The plugin API of this FetchBox.
+             */
+            current: number;
+        };
         /** @description Description of a collision, shown to the user so they can choose. */
         Conflict: {
             /**
@@ -1606,6 +1622,7 @@ export interface components {
         /** @description An installed plugin. */
         PluginView: {
             author: string;
+            compat?: null | components["schemas"]["CompatWarning"];
             dependencies: components["schemas"]["DependencyView"][];
             description: string;
             enabled: boolean;
@@ -1843,6 +1860,7 @@ export interface components {
         /** @description A plugin that was uploaded and read but is not installed yet: the user reviews it first. */
         StagedPlugin: {
             author: string;
+            compat?: null | components["schemas"]["CompatWarning"];
             /** @description What switching it on does about each of its dependencies on this machine. */
             dependency_plan: components["schemas"]["StagedDependency"][];
             description: string;

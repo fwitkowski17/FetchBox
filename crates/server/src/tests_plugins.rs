@@ -362,6 +362,40 @@ async fn switching_on_starts_the_program_and_switching_off_stops_it() {
     assert_eq!(states.last(), Some(&PluginState::Disabled));
 }
 
+/// A plugin written for an older plugin API that this FetchBox still runs: it installs and runs,
+/// and the review and its card say it was made for an older FetchBox.
+#[tokio::test]
+async fn an_older_plugin_api_still_runs_with_a_warning() {
+    use fetchbox_core::plugin::{CompatWarning, API_VERSION};
+
+    let rig = Rig::new().await;
+    let old = manifest("old", json!({"api_version": 1}));
+    let staged = rig
+        .mgr
+        .plugin_stage(package(&old, false))
+        .await
+        .expect("stage");
+    let warning = Some(CompatWarning {
+        api_version: 1,
+        current: API_VERSION,
+    });
+    assert_eq!(staged.compat, warning);
+    rig.mgr.plugin_cancel(staged.token).await.expect("cancel");
+
+    let view = rig.install(&old, false).await;
+    assert_eq!(view.compat, warning);
+    rig.mgr
+        .plugin_set_enabled("old".into(), true)
+        .await
+        .expect("enable");
+    rig.wait_for("old", PluginState::Ready).await;
+
+    let current = rig
+        .install(&manifest("new", json!({"api_version": API_VERSION})), false)
+        .await;
+    assert_eq!(current.compat, None);
+}
+
 #[tokio::test]
 async fn a_plugin_without_a_program_is_simply_ready() {
     let rig = Rig::new().await;

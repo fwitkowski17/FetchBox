@@ -1075,6 +1075,13 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   on any plugin being healthy.
 - **State.** `disabled`, `preparing` (dependencies), `ready`, `starting`, `running`, `failed`, `needs_review`, `unsupported` (platform
   or `min_fetchbox`).
+- **Plugin API compatibility.** `core::plugin::API_VERSION` (2) is the manifest format this build writes for and
+  `MIN_API_VERSION` (1) the oldest it still runs; `api_compat` sorts an `api_version` into current, older or too old. A
+  newer one is refused by `validate` (as before). An older but supported one runs, and `PluginView.compat` and
+  `StagedPlugin.compat` carry `CompatWarning {api_version, current}`, which the card and the install dialog word as "made
+  for an older version of FetchBox"; a too old one is `unsupported` with the supported range as the reason. The number is
+  raised only for a change that can break a plugin (2: `shared` dependencies removed), so a plugin is not flagged at every
+  release. `min_fetchbox` stays the lower bound on FetchBox itself.
 - **Interface schema.** Settings fields: `text`, `secret` (never returned: `has_value`), `textarea`, `number`, `toggle`, `select`,
   `info`, `output`; `show_if`. `ui.actions` (`run`, `webhook`, `process`, `builtin` (`update_dependencies`, `restart`), `open_dialog`,
   `open_url`; placement `card`, `settings`, `hidden`; `confirm`), `ui.dialogs` (fields, buttons with `closes`), `ui.tab` (a tab of

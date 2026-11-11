@@ -135,6 +135,17 @@ pub struct DependencyNeed {
     pub size: Option<u64>,
 }
 
+/// A plugin written for an older plugin API than this FetchBox's: it runs, but may not work as
+/// meant. The interface words it; the server sends only the numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CompatWarning {
+    /// The `api_version` of the manifest.
+    pub api_version: u32,
+    /// The plugin API of this FetchBox.
+    pub current: u32,
+}
+
 /// What switching a plugin on does about one dependency.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -452,6 +463,8 @@ pub struct PluginView {
     pub progress: Option<DependencyProgress>,
     /// A newer version in the store.
     pub update_available: Option<String>,
+    /// Made for an older plugin API: it runs, but may not work as meant.
+    pub compat: Option<CompatWarning>,
     pub i18n: BTreeMap<String, BTreeMap<String, String>>,
 }
 
@@ -475,6 +488,8 @@ pub struct StagedPlugin {
     pub dependency_plan: Vec<StagedDependency>,
     /// What it replaces: the installed version and what that one was allowed.
     pub replaces: Option<StagedReplaces>,
+    /// Made for an older plugin API: it can be installed, but may not work as meant.
+    pub compat: Option<CompatWarning>,
 }
 
 /// The installed plugin a staged one would replace.

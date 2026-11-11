@@ -3625,6 +3625,28 @@
           }
         }
       },
+      "CompatWarning": {
+        "type": "object",
+        "description": "A plugin written for an older plugin API than this FetchBox's: it runs, but may not work as\nmeant. The interface words it; the server sends only the numbers.",
+        "required": [
+          "api_version",
+          "current"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The `api_version` of the manifest.",
+            "minimum": 0
+          },
+          "current": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The plugin API of this FetchBox.",
+            "minimum": 0
+          }
+        }
+      },
       "Conflict": {
         "type": "object",
         "description": "Description of a collision, shown to the user so they can choose.",
@@ -5048,6 +5070,17 @@
           "author": {
             "type": "string"
           },
+          "compat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CompatWarning",
+                "description": "Made for an older plugin API: it runs, but may not work as meant."
+              }
+            ]
+          },
           "dependencies": {
             "type": "array",
             "items": {
@@ -5546,6 +5579,17 @@
         "properties": {
           "author": {
             "type": "string"
+          },
+          "compat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CompatWarning",
+                "description": "Made for an older plugin API: it can be installed, but may not work as meant."
+              }
+            ]
           },
           "dependency_plan": {
             "type": "array",

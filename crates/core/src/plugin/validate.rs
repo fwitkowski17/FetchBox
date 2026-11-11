@@ -976,7 +976,7 @@ mod tests {
 
     #[test]
     fn a_newer_plugin_api_asks_for_an_update() {
-        let e = err_of(base(), |v| v["api_version"] = 2.into());
+        let e = err_of(base(), |v| v["api_version"] = (super::API_VERSION + 1).into());
         assert!(e.contains("update FetchBox"), "{e}");
         assert!(err_of(base(), |v| v["api_version"] = 0.into()).contains("missing"));
     }

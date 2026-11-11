@@ -218,6 +218,14 @@ fn unsupported(m: &Manifest) -> Option<String> {
             return Some(format!("it needs FetchBox {min} or newer"));
         }
     }
+    if plugin::api_compat(m.api_version) == plugin::ApiCompat::TooOld {
+        return Some(format!(
+            "it was made for plugin API {}; this FetchBox supports {} to {}",
+            m.api_version,
+            plugin::MIN_API_VERSION,
+            plugin::API_VERSION
+        ));
+    }
     None
 }
 
@@ -598,6 +606,7 @@ impl Manager {
                 dependencies: Vec::new(),
                 progress: None,
                 update_available: None,
+                compat: None,
                 i18n: BTreeMap::new(),
             });
         };
@@ -671,6 +680,7 @@ impl Manager {
             dependencies,
             progress,
             update_available: self.store_update_for(id, &m.version),
+            compat: plugin::compat_warning(m.api_version),
             i18n: m.i18n.clone(),
         })
     }
@@ -1071,6 +1081,7 @@ impl Manager {
             permissions: derive_permissions(m),
             dependency_plan,
             replaces,
+            compat: plugin::compat_warning(m.api_version),
         })
     }
 

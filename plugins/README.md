@@ -135,7 +135,7 @@ An extension that sends a request to a web address when a download finishes. Mak
 
 ```json
 {
-  "api_version": 1,
+  "api_version": 2,
   "id": "hello-hook",
   "name": "Hello hook",
   "version": "1.0.0",
@@ -199,7 +199,7 @@ needs (see [permissions](#permissions-and-the-trust-model)), and a group name th
 
 | Field | |
 | --- | --- |
-| `api_version` | `1`. A manifest that needs a newer one is shown as *not supported*. |
+| `api_version` | `2`, the plugin API it was written for. A manifest that needs a newer one is refused (update FetchBox). An older one that FetchBox still supports (today `1`) installs and runs, with a note on its card and in the install dialog that it was made for an older FetchBox and may not work correctly; one older than that is *not supported*. FetchBox raises the number only when it changes the format in a way that can break a plugin (2 removed the `shared` form of dependencies), not with every release. |
 | `id` | `^[a-z][a-z0-9-]{1,31}$`; the folder name; never changes. |
 | `name`, `version`, `description`, `author`, `homepage`, `license` | Shown on cards. `version` is `1.2.3` or `1.2.3-rc.1`. `homepage` must be `https://`. |
 | `min_fetchbox` | Lowest FetchBox version it works with. |
