@@ -87,7 +87,7 @@ transcoding is out of scope.
 ## Part 4: the youtube-downloader project (`~/Projekty/youtube-downloader`)
 
 - Rename the folder `~/Projekty/yt-dlp` → `~/Projekty/youtube-downloader` (its git history kept).
-- `plugin.json`: `id` `youtube-downloader`, `name` "YouTube downloader" (pl: "Pobieranie z YouTube"), `version` `0.1.0`,
+- `plugin.json`: `id` `youtube-downloader`, `name` "YouTube Downloader" (one name in every language: no `i18n` entry for it), `version` `0.1.0`,
   `api_version` 2, `homepage` `https://github.com/fwitkowski17/youtube-downloader`, `author` from git config.
   Dependencies: `yt-dlp` (`github`, unchanged), `ffmpeg` (`optional`, `platforms` with the four imageio-ffmpeg 0.6.0
   wheels, `sha256`, `size`, `archive: zip` and per-platform `bin`, values copied from `programs.json`).
