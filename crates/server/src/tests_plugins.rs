@@ -768,10 +768,39 @@ async fn plugins_share_a_program_from_fetchboxs_list() {
 /// what switching the plugin on does: the rule is the one the installer follows.
 #[tokio::test]
 async fn the_review_lists_dependencies_apart_and_says_what_will_be_downloaded() {
-    use fetchbox_core::plugin::{shared_program, DependencyPlan, DependencySource};
+    use fetchbox_core::plugin::{DependencyPlan, DependencySource};
 
     let rig = Rig::new().await;
-    let plan = |staged: &fetchbox_core::plugin::StagedPlugin, id: &str| {
+    let platform = platform_key();
+    let m = manifest(
+        "deps",
+        json!({
+            "dependencies": [
+                {
+                    "id": "tool",
+                    "github": {
+                        "repo": "o/r",
+                        "assets": {platform.clone(): "tool"},
+                        "sha256_asset": "SHA2-256SUMS"
+                    }
+                },
+                {
+                    "id": "extra",
+                    "optional": true,
+                    "platforms": {platform: {
+                        "url": "https://example.com/extra",
+                        "sha256": "a".repeat(64)
+                    }}
+                }
+            ]
+        }),
+    );
+    let staged = rig
+        .mgr
+        .plugin_stage(package(&m, false))
+        .await
+        .expect("stage");
+    let plan = |id: &str| {
         staged
             .dependency_plan
             .iter()
@@ -779,21 +808,8 @@ async fn the_review_lists_dependencies_apart_and_says_what_will_be_downloaded() 
             .unwrap_or_else(|| panic!("no plan for {id}"))
             .plan
     };
-    let stage = || async {
-        let staged = rig
-            .mgr
-            .plugin_stage_store("yt-dlp".into())
-            .await
-            .expect("stage");
-        rig.mgr
-            .plugin_cancel(staged.token.clone())
-            .await
-            .expect("cancel");
-        staged
-    };
 
-    let first = stage().await;
-    let deps: Vec<_> = first
+    let deps: Vec<_> = staged
         .permissions
         .dependencies
         .iter()
@@ -802,55 +818,21 @@ async fn the_review_lists_dependencies_apart_and_says_what_will_be_downloaded() 
     assert_eq!(
         deps,
         [
-            ("ffmpeg", DependencySource::Shared, true),
-            ("yt-dlp", DependencySource::Github, false)
+            ("extra", DependencySource::Pinned, true),
+            ("tool", DependencySource::Github, false)
         ]
     );
     assert!(
-        !first
+        !staged
             .permissions
             .programs
             .iter()
             .any(|p| p.contains("dependency")),
         "a dependency is not a program it runs: {:?}",
-        first.permissions.programs
+        staged.permissions.programs
     );
-    assert_eq!(plan(&first, "yt-dlp"), DependencyPlan::Download, "required");
-    assert_eq!(
-        plan(&first, "ffmpeg"),
-        DependencyPlan::OnRequest,
-        "optional"
-    );
-
-    // Somebody chose ffmpeg before, in a version the list has moved on from: it comes again.
-    let programs = rig.root.path().join("data/plugin-programs/ffmpeg");
-    std::fs::create_dir_all(programs.join("an-older-version")).expect("old version");
-    std::fs::write(
-        programs.join("an-older-version/.fetchbox-dependency.json"),
-        "{}",
-    )
-    .expect("record");
-    assert_eq!(plan(&stage().await, "ffmpeg"), DependencyPlan::Download);
-
-    // And once the current version is on this machine (put there by hand: the real address is PyPI's)
-    // nothing is downloaded for it, whichever plugin asks.
-    let entry = shared_program("ffmpeg").expect("ffmpeg is on the list");
-    let Some(source) = entry.platforms.get(&platform_key()) else {
-        return;
-    };
-    let folder = programs.join(&entry.version);
-    let program = folder.join(source.bin.as_deref().expect("a program path"));
-    std::fs::create_dir_all(program.parent().expect("parent")).expect("folder");
-    std::fs::write(&program, b"ffmpeg").expect("program");
-    std::fs::write(
-        folder.join(".fetchbox-dependency.json"),
-        json!({"version": entry.version, "sha256": "", "host": "test", "installed_at": 0})
-            .to_string(),
-    )
-    .expect("record");
-    let last = stage().await;
-    assert_eq!(plan(&last, "ffmpeg"), DependencyPlan::Present);
-    assert_eq!(plan(&last, "yt-dlp"), DependencyPlan::Download);
+    assert_eq!(plan("tool"), DependencyPlan::Download, "required");
+    assert_eq!(plan("extra"), DependencyPlan::OnRequest, "optional");
 }
 
 #[tokio::test]
@@ -1859,11 +1841,7 @@ async fn the_store_routes_list_stage_and_refuse() {
         .map(|e| e["id"].as_str().expect("id").to_owned())
         .collect();
     ids.sort();
-    assert_eq!(
-        ids,
-        ["webhook-notify", "yt-dlp"],
-        "what ships with the program"
-    );
+    assert_eq!(ids, ["webhook-notify"], "what ships with the program");
 
     let (status, _) = answer(
         http.post(format!("{api}/plugin-store/refresh"))

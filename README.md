@@ -274,8 +274,11 @@ Open **Extensions** in the side menu (above Settings). There are two ways in: th
 
 What ships with FetchBox:
 
-- **Video sites (yt-dlp)**: paste a YouTube, Vimeo, SoundCloud, Dailymotion or Twitch link (a video, a playlist or a channel; more sites can be added in its settings) and choose the quality in the add dialog: best (video and audio merged), up to 720p, a single file, audio only or MP3. It downloads yt-dlp (and, for merging and MP3, ffmpeg) by itself when you switch it on, checking them by SHA-256; **Update** fetches the newest yt-dlp, which sites make necessary now and then. Mind the terms of the sites and the law: download only what you have the right to.
 - **Webhook notifications**: a request to an address of your choice (ntfy, Home Assistant, Gotify, n8n...) when a download finishes or fails, with a test button.
+
+Extensions with a repository of their own:
+
+- **[YouTube Downloader](https://github.com/fwitkowski17/youtube-downloader)**: paste a YouTube, Vimeo, SoundCloud, Dailymotion or Twitch link (a video, a playlist or a channel; more sites can be added in its settings) and choose the quality in the add dialog: best (video and audio merged), up to 720p, a single file, audio only or MP3. It downloads yt-dlp (and, for merging and MP3, ffmpeg) by itself when you switch it on, checking them by SHA-256; **Update** fetches the newest yt-dlp, which sites make necessary now and then. Mind the terms of the sites and the law: download only what you have the right to. Install it with **Install from file** from the ZIP of its latest release.
 
 > [!CAUTION]
 > **An extension runs programs on the machine with the rights of FetchBox**, so install only what you trust. For that reason extensions are **off while `--no-auth` is used**, and `--plugins off` switches them off entirely. In the Docker image (which has no shell or interpreter) an extension can only run programs it brings or downloads itself.

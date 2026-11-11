@@ -29,8 +29,8 @@ A lightweight, self-hosted download manager for a homelab, controlled from a web
 - BitTorrent (6.13): magnet links and `.torrent` files, on a page of their own, with the statuses of a BitTorrent client and a
   details panel (peers, files, speed).
 - Extensions (6.15): add-ons made of a JSON manifest and external programs, installed from a built-in store or from a ZIP or
-  a folder on disk; they can add sources of downloads (the reference extension is YouTube and other video sites through
-  yt-dlp), react to events (webhooks, programs), download the programs they need, and bring settings, dialogs and a tab in
+  a folder on disk; they can add sources of downloads (the reference extension, YouTube and other video sites through
+  yt-dlp, is the separate project youtube-downloader), react to events (webhooks, programs), download the programs they need, and bring settings, dialogs and a tab in
   Settings of their own. A page "Extensions" in the side menu above Settings; Settings has the tabs General and Extensions.
 
 ## 3. Future
@@ -991,7 +991,8 @@ An extension adds sources of downloads, reactions to events, programs that run n
 and settings of its own, without being part of FetchBox. The author's guide is [`plugins/README.md`](../plugins/README.md);
 this section is what the program does. Chosen with the maintainer: **a manifest plus external processes** (no WASM, no
 code in the page), a **JSON** manifest, a **declarative** interface drawn by the host (`ui.kind = "iframe"` is reserved for
-later), and for the first version the foundation, a built-in store and one reference extension (`yt-dlp`). Metrics for
+later), and for the first version the foundation, a built-in store and one reference extension (`yt-dlp`, since moved to a repository of its own as
+`youtube-downloader`, https://github.com/fwitkowski17/youtube-downloader). Metrics for
 VictoriaMetrics and an MCP bridge are later extensions that need nothing new from the format.
 
 - **Crates.** `core::plugin` (`manifest`, `view`, `validate`, `template`, `text`; no I/O) holds the types of the manifest and of
@@ -1148,10 +1149,11 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
     asked for a range; `plugin link` and its refusals; the `pin` and `guard` blocks of the release workflow), `deps::tests` (`link_local`) and `tests_plugins` (a linked program runs without any
     download).
 - **Extensions that ship.** `webhook-notify` (a request when a download finishes or fails: settings, a test dialog, a hook; no
-  program) and `yt-dlp` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds; yt-dlp from its GitHub
-  releases checked against `SHA2-256SUMS`, and an optional static ffmpeg pinned to the `imageio-ffmpeg` 0.6.0 wheels on PyPI, whose
-  hashes are those PyPI publishes; presets: best merged, up to 720p merged, best single file, audio, MP3). Both are declarative; the
-  tests of the `server` crate check that every bundled manifest is valid.
+  program), declarative; the tests of the `server` crate check that every bundled manifest is valid. The video extension is a
+  project of its own, `youtube-downloader` (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch and any pattern the user adds;
+  yt-dlp from its GitHub releases checked against `SHA2-256SUMS`, and an optional static ffmpeg it pins itself to the
+  `imageio-ffmpeg` 0.6.0 wheels on PyPI; presets: best merged, up to 720p merged, best single file, audio, MP3). Extensions
+  are meant to live out of tree; `plugins/official/` keeps only what needs no program.
 - **Not covered in this version.** A sandbox beyond the OS user (seccomp, namespaces, resource limits), signatures beyond SHA-256,
   custom headers or cookies in the engine, an iframe interface, extensions that register sources in `core`, calls from one
   extension to another, calls from a program into FetchBox, Windows and macOS beyond "best effort" (process groups, the
@@ -1162,9 +1164,7 @@ VictoriaMetrics and an MCP bridge are later extensions that need nothing new fro
   groups, flood, protocol errors), and `server/src/tests_plugins.rs` through the manager and the HTTP API (ZIP to enabled,
   dependencies from a local server, resolvers, a download made by a program with progress, pause and resume, cancel and
   restart, hooks and webhooks, the store routes, refusals, `--no-auth`). Frontend: `util/plugins`, `util/pluginUi`,
-  `util/permissions`, `util/routeParts`, `util/listing` and the client. The `yt-dlp` extension was run by hand end to end against a
-  local server (probe, three presets with a real ffmpeg including MP3); sites on the internet were not reachable from the build
-  machine, so YouTube itself was not tried.
+  `util/permissions`, `util/routeParts`, `util/listing` and the client.
 
 ## 7. Dependencies (Rust)
 

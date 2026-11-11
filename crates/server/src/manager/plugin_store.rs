@@ -277,12 +277,12 @@ mod tests {
         }
         assert!(broken.is_empty(), "{broken:?}");
         ids.sort();
-        assert_eq!(ids, ["webhook-notify", "yt-dlp"]);
+        assert_eq!(ids, ["webhook-notify"]);
     }
 
     #[test]
     fn the_store_lists_what_ships_with_the_program() {
         let names: Vec<_> = bundled_entries().iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(names, ["webhook-notify", "yt-dlp"]);
+        assert_eq!(names, ["webhook-notify"]);
     }
 }

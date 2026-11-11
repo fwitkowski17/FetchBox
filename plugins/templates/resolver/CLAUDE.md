@@ -25,7 +25,7 @@ shows the entries as a list; FetchBox's own engine downloads each entry's `url`.
 - A failure is a non-zero exit code with the reason on standard error (the last lines are shown to the user). It never
   blocks adding the address in the ordinary way.
 - Without `run` in the resolver the entries are plain addresses for FetchBox's engine. To make the file with your own program,
-  add `run` and `choices` (see `plugins/official/yt-dlp` in the FetchBox repository).
+  add `run` and `choices` (see https://github.com/fwitkowski17/youtube-downloader).
 
 ## Rules that are easy to break
 

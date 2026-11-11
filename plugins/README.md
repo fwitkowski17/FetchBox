@@ -29,9 +29,9 @@ rest (downloads the programs it depends on, draws its settings and dialogs, runs
 - [Ideas: VictoriaMetrics and MCP](#ideas-victoriametrics-and-mcp)
 - [Limits](#limits)
 
-The two extensions in [`official/`](official) are complete examples: `webhook-notify` (settings, a dialog and a
-hook, no program at all) and `yt-dlp` (dependencies, a resolver with presets, and a download done by the
-extension's own program).
+Two complete examples: `webhook-notify` in [`official/`](official) (settings, a dialog and a hook, no program at
+all) and [YouTube Downloader](https://github.com/fwitkowski17/youtube-downloader), a project of its own (dependencies, a resolver with presets, and a download done
+by the extension's own program).
 
 ## What an extension can do
 
@@ -90,7 +90,7 @@ tests scaffold each of them, run its checks and build it.
 ### How a program gets to the user
 
 The program of a `resolver` or `process` project is a [dependency](#dependencies) that **follows the releases of the
-project's own repository**, the way the `yt-dlp` extension follows yt-dlp's:
+project's own repository**, the way YouTube Downloader follows yt-dlp's:
 
 ```json
 "dependencies": [{ "id": "my-bridge", "github": { "repo": "you/my-bridge",
@@ -233,7 +233,7 @@ without the manifest changing.
 
 **Following a GitHub repository**: FetchBox asks for the latest release (or `tag`), takes the asset named for the
 platform and checks it against a checksum list that the release itself publishes (`sha256_asset`; required). This
-is how the `yt-dlp` extension keeps yt-dlp current (the **Update** button fetches the newest release).
+is how YouTube Downloader keeps yt-dlp current (the **Update** button fetches the newest release).
 
 The list comes from the same place as the file, so whoever can replace a release asset can replace the list. A manifest
 can do better and pin the hashes itself: with a `tag`, `github.sha256` maps a platform to the SHA-256 of its asset,
@@ -270,7 +270,7 @@ Rules:
 - `archive` is `raw` (the file is the program; the default), `gz`, `zip`, `tar.gz` or `tar.xz`. For a GitHub asset
   it is taken from the file name. `strip` removes leading path components of archive entries.
 - `bin` is the program's path inside what was unpacked (default: the dependency's `id`). A platform entry can have
-  its own `bin` when a package names its program differently per platform (the ffmpeg of the `yt-dlp` extension
+  its own `bin` when a package names its program differently per platform (the ffmpeg of YouTube Downloader
   does: it is unpacked from a wheel of the `imageio-ffmpeg` package, whose program is called after its platform).
 - `optional: true` means the extension works without it; a preset can ask for it with `requires` (see
   [resolvers](#resolvers)). A missing *required* dependency keeps the extension in *preparing*.
@@ -658,7 +658,7 @@ mkdir -p ./.dev/data/plugins && cp -r hello-hook ./.dev/data/plugins/
    and rescan). Editing your scripts does not.
 
 Test a resolver without a real site: serve a small file with `python3 -m http.server`, add `http://127.0.0.1:8000/*`
-to the extension's *More sites* (for `yt-dlp`) and paste `http://127.0.0.1:8000/clip.mp4`. Test a hook with a
+to the extension's *More sites* (for YouTube Downloader) and paste `http://127.0.0.1:8000/clip.mp4`. Test a hook with a
 throwaway receiver (`nc -l 9000` or a request-bin) and a download that fails or finishes quickly. Test a command by
 running it yourself first: it receives exactly the arguments the template makes.
 
