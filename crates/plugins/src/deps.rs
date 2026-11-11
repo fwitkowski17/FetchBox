@@ -174,6 +174,12 @@ impl Installer {
                     return None;
                 }
             }
+            // Likewise a pinned file: a newer version of the plugin may pin another build.
+            if let Some(src) = dep.platforms.get(&self.platform) {
+                if !info.sha256.eq_ignore_ascii_case(&src.sha256) {
+                    return None;
+                }
+            }
         }
         Some(info)
     }
@@ -343,6 +349,17 @@ impl Installer {
             DependencyPlan::Download
         } else {
             DependencyPlan::OnRequest
+        }
+    }
+
+    /// Whether "Update" (download the programs again) fetches this dependency: what follows a GitHub
+    /// release may have a newer one; a pinned file that is in place cannot change, and fetching it
+    /// again would only risk failing the plugin on a slow or missing host.
+    pub fn update_wanted(&self, plugin: &str, dep: &Dependency) -> bool {
+        match self.plan(plugin, dep) {
+            DependencyPlan::Present => dep.github.is_some(),
+            DependencyPlan::Download => true,
+            DependencyPlan::OnRequest => false,
         }
     }
 
@@ -739,6 +756,37 @@ mod tests {
             inst.bin_path("demo", &dep),
             tmp.path().join("plugin-data/demo/deps/ffmpeg/ffmpeg")
         );
+    }
+
+    /// "Update" fetches again what can be newer (a GitHub release) and leaves a pinned file that is
+    /// in place alone: it cannot change, and fetching it again only risks failing the plugin.
+    #[tokio::test]
+    async fn update_leaves_a_pinned_file_in_place_and_fetches_a_changed_pin() {
+        let body = b"\x7fELF ffmpeg".to_vec();
+        let served = body.clone();
+        let base =
+            serve(Router::new().route("/ffmpeg", get(move || async move { served.clone() }))).await;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inst = installer(tmp.path(), None);
+        let mut dep = pinned("ffmpeg", format!("{base}/ffmpeg"), &body, ArchiveKind::Raw, 0);
+        dep.optional = true;
+        assert!(!inst.update_wanted("demo", &dep), "optional, nobody asked");
+        inst.install("demo", &dep, &|_| {}).await.expect("install");
+        assert!(!inst.update_wanted("demo", &dep), "pinned and in place");
+
+        // A newer version of the plugin pins another build: the old one is not in place any more.
+        let mut newer = dep.clone();
+        for src in newer.platforms.values_mut() {
+            src.sha256 = "b".repeat(64);
+        }
+        assert_eq!(inst.plan("demo", &newer), DependencyPlan::OnRequest);
+        newer.optional = false;
+        assert_eq!(inst.plan("demo", &newer), DependencyPlan::Download);
+        assert!(inst.update_wanted("demo", &newer));
+
+        // What follows a release is asked for again.
+        let github = github_dep(Some("SUMS"), "x");
+        assert!(inst.update_wanted("demo", &github));
     }
 
     #[tokio::test]

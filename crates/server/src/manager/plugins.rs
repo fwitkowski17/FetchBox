@@ -756,13 +756,9 @@ impl Manager {
         };
         for dep in &manifest.dependencies {
             // The same rule the review before installing shows (`Installer::plan`).
-            let plan = host.installer.plan(id, dep);
             let wanted = match which {
-                Fetch::Missing => plan == DependencyPlan::Download,
-                Fetch::Update => match plan {
-                    DependencyPlan::Present | DependencyPlan::Download => true,
-                    DependencyPlan::OnRequest => false,
-                },
+                Fetch::Missing => host.installer.plan(id, dep) == DependencyPlan::Download,
+                Fetch::Update => host.installer.update_wanted(id, dep),
                 Fetch::One(only) => *only == dep.id,
             };
             if !wanted {
