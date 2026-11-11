@@ -704,7 +704,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
 
 ### 6.9 Version and updates
 
-- The version is the workspace version in `Cargo.toml` (`0.9.1`); the binary prints it with
+- The version is the workspace version in `Cargo.toml` (`0.10.0`); the binary prints it with
   `--version`, the API with `GET /api/version` and Settings shows it in the "About" card (also in `docs/openapi.json`, whose
   `info.version` it is). `web/package.json` carries the same number.
 - Update check: the server asks the GitHub releases API for the list of releases (`/repos/<owner>/<repo>/releases?per_page=20`;
