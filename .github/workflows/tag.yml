@@ -15,7 +15,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: tag-version
+  group: tag-version-v2
   cancel-in-progress: false
 
 jobs:
