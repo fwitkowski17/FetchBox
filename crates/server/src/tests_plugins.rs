@@ -23,18 +23,30 @@ pub fn fake_plugin() -> PathBuf {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
         let exe = std::env::current_exe().expect("test exe");
-        let profile = exe.parent().and_then(Path::parent).expect("target dir");
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let mut cmd = std::process::Command::new(cargo);
-        cmd.args(["build", "--quiet", "-p", "fetchbox-test-plugin"]);
-        if profile.ends_with("release") {
+        cmd.args([
+            "build",
+            "--quiet",
+            "-p",
+            "fetchbox-test-plugin",
+            "--message-format=json",
+        ]);
+        // Test executables may live in a separate build directory, so the profile is read from
+        // the path and the program's own location from what cargo reports.
+        if exe.components().any(|c| c.as_os_str() == "release") {
             cmd.arg("--release");
         }
-        assert!(
-            cmd.status().expect("cargo").success(),
-            "building the stand-in plugin failed"
-        );
-        let path = profile.join(format!("fake-plugin{}", std::env::consts::EXE_SUFFIX));
+        cmd.stdout(std::process::Stdio::piped());
+        let out = cmd.output().expect("cargo");
+        assert!(out.status.success(), "building the stand-in plugin failed");
+        let path = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .filter(|m| m["reason"] == "compiler-artifact" && m["target"]["name"] == "fake-plugin")
+            .filter_map(|m| m["executable"].as_str().map(PathBuf::from))
+            .next_back()
+            .expect("cargo did not report the stand-in plugin");
         assert!(path.exists(), "no {}", path.display());
         path
     })
