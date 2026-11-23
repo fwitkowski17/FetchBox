@@ -25,6 +25,11 @@ use axum::Router;
 use clap::Parser;
 use fetchbox_api::auth::MIN_PASSWORD_LEN;
 
+/// glibc's malloc keeps freed memory in per-thread arenas; with the BitTorrent engine's blocking
+/// threads a 53 GB torrent left ~550 MB resident that was free (SPEC 6.13, "Resources").
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// Self-hosted download manager.
 #[derive(Debug, Parser)]
 #[command(name = "fetchbox", version, about)]

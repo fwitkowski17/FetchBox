@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.1"
+version = "0.10.2"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -86,6 +86,12 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 tar = { version = "0.4", default-features = false }
 flate2 = "1"
 lzma-rust2 = { version = "0.23", default-features = false, features = ["std", "xz"] }
+
+# Global allocator of the `fetchbox` binary. glibc's malloc keeps freed memory in per-thread arenas,
+# and the BitTorrent engine runs disk work on extra threads: after a 53 GB torrent the process held
+# ~550 MB that was free (44 MB with MALLOC_ARENA_MAX=2). mimalloc returns it without an environment
+# variable, in every installation. Two crates; its C code is built with `cc` (already in the tree).
+mimalloc = { version = "0.1", default-features = false }
 
 # Embedded frontend: serve web/dist from the binary
 rust-embed = "8"

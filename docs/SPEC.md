@@ -704,7 +704,7 @@ Statuses: `queued`, `downloading`, `paused`, `verifying`, `completed`, `failed`,
 
 ### 6.9 Version and updates
 
-- The version is the workspace version in `Cargo.toml` (`0.10.1`); the binary prints it with
+- The version is the workspace version in `Cargo.toml` (`0.10.2`); the binary prints it with
   `--version`, the API with `GET /api/version` and Settings shows it in the "About" card (also in `docs/openapi.json`, whose
   `info.version` it is). `web/package.json` carries the same number.
 - Update check: the server asks the GitHub releases API for the list of releases (`/repos/<owner>/<repo>/releases?per_page=20`;
@@ -962,6 +962,9 @@ no web UI of its own). It does not implement the `Downloader` trait of 6.1, whos
   port open before the first one). Not measured: large swarms, many torrents, slow disks and ARM boards. Pieces arrive in no particular order,
   so the writes are scattered; the README says what that asks of the disk (SSD recommended, SMR and memory cards not advised) and of the network
   (port 6881 forwarded for the best speeds, upload bandwidth, since seeding goes on).
+  Memory: the binary uses mimalloc as its allocator. With glibc's malloc a 53 GB torrent of many files (LXC, 1 GB of RAM) left about 550 MB
+  resident that had been freed: the engine does its disk work on extra threads, each with an arena of its own that glibc rarely gives back
+  (44 MB with `MALLOC_ARENA_MAX=2`, 26 MB after `malloc_trim`). Not a leak, but a small machine cannot spare it.
 - **Where it needs care.** The engine's UDP tracker client binds `[::]` and nothing else, which fails (and with it the start of the whole
   session) on a host whose kernel has no IPv6. `vendor/librqbit-tracker-comms/` is that one upstream crate with `UdpTrackerClient::new`
   falling back to IPv4 (`[patch.crates-io]` in `Cargo.toml`; its `README.fetchbox.md` says what was changed). A torrent restored as
@@ -1172,6 +1175,8 @@ build time, which every builder of this project has).
 `zip` (deflate only), `tar`, `flate2` and `lzma-rust2` (extensions, 6.15: reading a plugin's ZIP and the `.zip`, `.tar.gz` and `.tar.xz` archives of its
 dependencies in pure Rust; no compression code is built for writing; five small crates in all), the `process` feature of `tokio` and of `rustix` (running
 a plugin's programs and killing their whole process group, 6.15).
+`mimalloc` (the allocator of the binary, 6.13: glibc kept hundreds of MB of freed memory in its per-thread arenas after a large torrent;
+two crates, its C code built with `cc`, linked statically).
 Tests: `rcgen` and `rand` (a throwaway certificate and a host key) behind the engine's `test-servers` feature.
 
 ## 8. Milestones
