@@ -23,7 +23,7 @@ jobs:
     name: Tag matches Cargo.toml
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The app compares the release tag with its own version to say "an update is available", so a
       # tag that differs from the version inside the binary would be a lie.
       - name: Compare the tag with the workspace version
@@ -39,8 +39,8 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -49,7 +49,7 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: web/dist
@@ -74,8 +74,8 @@ jobs:
     # `rust:1-trixie` when Debian 12 no longer needs to be supported: the floor becomes glibc 2.41.
     container: rust:1-bookworm
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: web/dist
@@ -87,7 +87,7 @@ jobs:
           tar -C target/release -czf "out/fetchbox-linux-${{ matrix.arch }}.tar.gz" fetchbox
           (cd out && sha256sum "fetchbox-linux-${{ matrix.arch }}.tar.gz" > "fetchbox-linux-${{ matrix.arch }}.tar.gz.sha256")
           ./target/release/fetchbox --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.arch }}
           path: out/*
@@ -105,9 +105,9 @@ jobs:
     # nfpm only assembles files, so both CPUs are packaged on the same x86_64 runner.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-nfpm
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: binary-${{ matrix.arch }}
           path: binary
@@ -117,7 +117,7 @@ jobs:
           tar -xzf "binary/fetchbox-linux-${{ matrix.arch }}.tar.gz" -C binary fetchbox
           packaging/build.sh "${GITHUB_REF_NAME#v}" "${{ matrix.deb_arch }}" binary/fetchbox out
           ls -l out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-${{ matrix.arch }}
           path: out/*
@@ -138,8 +138,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: packages-${{ matrix.arch }}
           path: out
@@ -156,7 +156,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: "{binary,packages}-*"
           merge-multiple: true
