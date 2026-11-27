@@ -4,7 +4,7 @@ source "$_cs_boot" 2>/dev/null || source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_
 # Copyright (c) 2026 Filip Witkowski
 # Author: Filip Witkowski
 # License: MIT
-# Source: https://github.com/fwitkowski17/WebDownloadManager
+# Source: https://github.com/fwitkowski17/FetchBox
 
 APP="FetchBox"
 var_tags="${var_tags:-downloads;manager}"
@@ -29,7 +29,7 @@ variables
 color
 catch_errors
 
-FB_REPO="fwitkowski17/WebDownloadManager"
+FB_REPO="fwitkowski17/FetchBox"
 FB_LEGACY_DIR="/opt/fetchbox" # where the first versions of this installer put the program
 FB_UID=1000 # the user the service runs as, inside the container (the install script creates it)
 FB_DOWNLOADS="/downloads"

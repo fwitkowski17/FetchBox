@@ -14,7 +14,7 @@ description: |-
   One program that downloads in segments, pauses and resumes, sorts files into categories and limits
   speed, controlled from a browser (the web app is inside the binary). Runs as a systemd service.
 vendor: Filip Witkowski
-homepage: https://github.com/fwitkowski17/WebDownloadManager
+homepage: https://github.com/fwitkowski17/FetchBox
 license: MIT
 
 # The binary is built on Debian 12 (glibc 2.36), which is the oldest system it runs on.

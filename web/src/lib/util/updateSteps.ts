@@ -8,7 +8,7 @@ export type InstallMethod = NonNullable<VersionInfo['install_method']>;
 /** Every method, in the order they are listed when the installer did not say which one was used. */
 export const INSTALL_METHODS: readonly InstallMethod[] = ['docker', 'package', 'lxc', 'script', 'source'];
 
-const DEFAULT_REPO = 'fwitkowski17/WebDownloadManager';
+const DEFAULT_REPO = 'fwitkowski17/FetchBox';
 
 /** `owner/repo` of a GitHub release link; the project's own repository when the link is not one. */
 export function repoOf(releaseUrl: string | null | undefined): string {

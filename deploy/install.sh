@@ -2,7 +2,7 @@
 # Installs FetchBox on a Linux host as a systemd service: downloads the release binary, creates a
 # service user and the folders, writes the unit and starts it. Nothing is compiled.
 #
-#   curl -fsSL https://raw.githubusercontent.com/fwitkowski17/WebDownloadManager/main/deploy/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/fwitkowski17/FetchBox/main/deploy/install.sh | sudo bash
 #   curl -fsSL .../install.sh | sudo bash -s -- install --port 9000 --download-dir /mnt/nas/downloads
 #   sudo ./install.sh update
 #   sudo ./install.sh uninstall [--purge]
@@ -21,7 +21,7 @@
 main() {
   set -euo pipefail
 
-  local REPO="fwitkowski17/WebDownloadManager"
+  local REPO="fwitkowski17/FetchBox"
   local RELEASES="${FETCHBOX_RELEASES_URL:-https://github.com/${REPO}/releases}"
   local BIN="/usr/local/bin/fetchbox"
   local CONF_DIR="/etc/fetchbox"

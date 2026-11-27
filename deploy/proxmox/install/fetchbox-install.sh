@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Filip Witkowski
 # Author: Filip Witkowski
 # License: MIT
-# Source: https://github.com/fwitkowski17/WebDownloadManager
+# Source: https://github.com/fwitkowski17/FetchBox
 
 source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"
 color
@@ -13,7 +13,7 @@ setting_up_container
 network_check
 update_os
 
-FB_REPO="fwitkowski17/WebDownloadManager"
+FB_REPO="fwitkowski17/FetchBox"
 FB_UID=1000 # keep in step with ct/fetchbox.sh
 FB_PORT=80  # keep in step with ct/fetchbox.sh
 

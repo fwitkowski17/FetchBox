@@ -6,7 +6,7 @@ describe('repoOf', () => {
     expect(repoOf('https://github.com/me/fork/releases/tag/v1.0.0')).toBe('me/fork');
   });
   it('falls back to the project when the link is something else', () => {
-    const own = 'fwitkowski17/WebDownloadManager';
+    const own = 'fwitkowski17/FetchBox';
     expect(repoOf(null)).toBe(own);
     expect(repoOf('https://example.com/o/r/releases/tag/v1')).toBe(own);
     expect(repoOf('https://github.com/o/r/pull/1')).toBe(own);

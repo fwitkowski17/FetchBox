@@ -11,7 +11,7 @@ use fetchbox_core::{InstallMethod, ReleaseNote, VersionInfo};
 /// The latest published releases of the project (drafts are not listed for anonymous requests;
 /// pre-releases are listed and filtered by the setting when the answer is described).
 pub const RELEASES_API: &str =
-    "https://api.github.com/repos/fwitkowski17/WebDownloadManager/releases?per_page=20";
+    "https://api.github.com/repos/fwitkowski17/FetchBox/releases?per_page=20";
 
 /// Version of this program.
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");

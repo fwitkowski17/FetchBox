@@ -1,6 +1,6 @@
 # Contributing to FetchBox
 
-Thank you for helping. Bug reports, ideas, translations and code are all welcome. For anything bigger than a small fix, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues) first so we can agree on the approach before you spend the time.
+Thank you for helping. Bug reports, ideas, translations and code are all welcome. For anything bigger than a small fix, please open an [issue](https://github.com/fwitkowski17/FetchBox/issues) first so we can agree on the approach before you spend the time.
 
 The specification in [docs/SPEC.md](docs/SPEC.md) is the source of truth for how FetchBox is meant to behave and why. Read the part that concerns your change; when a change alters behaviour, update the specification in the same pull request.
 
@@ -13,8 +13,8 @@ You need:
 - optionally Docker, to try the image.
 
 ```bash
-git clone https://github.com/fwitkowski17/WebDownloadManager.git
-cd WebDownloadManager
+git clone https://github.com/fwitkowski17/FetchBox.git
+cd FetchBox
 
 # backend (http://127.0.0.1:8080)
 cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads

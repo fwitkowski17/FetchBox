@@ -1,7 +1,7 @@
 # FetchBox
 
-[![CI](https://github.com/fwitkowski17/WebDownloadManager/actions/workflows/ci.yml/badge.svg)](https://github.com/fwitkowski17/WebDownloadManager/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/fwitkowski17/WebDownloadManager?include_prereleases&sort=semver)](https://github.com/fwitkowski17/WebDownloadManager/releases)
+[![CI](https://github.com/fwitkowski17/FetchBox/actions/workflows/ci.yml/badge.svg)](https://github.com/fwitkowski17/FetchBox/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/fwitkowski17/FetchBox?include_prereleases&sort=semver)](https://github.com/fwitkowski17/FetchBox/releases)
 
 A small, self-hosted download manager for a homelab, controlled from a web interface on a desktop or a phone. One Rust binary serves the API and the embedded web app, keeps a queue, and carries on when your browser is closed. No database server, no Node.js at runtime.
 
@@ -51,7 +51,7 @@ A few notes behind those numbers:
 - **Torrents** ask a little more than downloads, mostly of the disk and the network:
   - **Disk.** The pieces of a torrent come from many peers in no particular order, so the writes jump around the file (a download writes it from start to end), and seeding reads pieces at random. An SSD is comfortable; a CMR hard disk copes with a few torrents; an SMR disk or a memory card does not (see [below](#-disk-speed-and-memory-cards)). Adding a torrent whose files are already on the disk reads and checks all of them once; a restart does not repeat that for torrents that were complete or are resumed (the engine saves which pieces are done).
   - **Open files.** The engine keeps every file of every torrent open, and every peer is a connection, so a torrent of thousands of files needs thousands of file descriptors. FetchBox raises its limit to the hard limit of the system at start (no root needed); a system or container with a low hard limit (some NAS firmware, `ulimit -Hn`) needs it raised, or such a torrent will not start.
-  - **CPU and memory.** Measured with one 256 MiB torrent on the loopback (release build, x86_64): it was received, hashed and written in about 2 seconds using about 1.5 seconds of CPU time, and the whole program peaked at 20 MB of memory (it is 11 MB with no torrent). Not measured: a large swarm or dozens of torrents; both grow with the number of torrents and connected peers.
+  - **CPU and memory.** Measured with one 256 MiB torrent on the loopback (release build, x86_64): it was received, hashed and written in about 2 seconds using about 1.5 seconds of CPU time, and the whole program peaked at 20 MB of memory (it is 11 MB with no torrent). A large torrent (53 GB, many files, in a container with 1 GB of RAM) took the program to about 550 MB with versions before 0.10.2: not a leak, but memory that was already freed and that glibc's allocator kept in per-thread pools. From 0.10.2 the program uses mimalloc instead, which gives it back; the measurement above was not repeated with it on a swarm of that size. Memory still grows with the number of torrents and connected peers, and a large swarm or dozens of torrents were not measured.
   - **Network.** Torrents work without an open port, but only the peers you connect to can be used, so speeds and the number of peers are lower. IPv6 is not used yet. The speed limits for torrents are in **Settings** (they are separate from those of downloads).
 - **Operating systems** older than Debian 12 or Ubuntu 22.04, 32-bit systems (including 32-bit Raspberry Pi OS) and musl systems such as Alpine are not supported by the release binaries.
 
@@ -69,7 +69,7 @@ A few notes behind those numbers:
 - **A power cut or a kernel crash.** The data you have downloaded is forced to the disk every couple of seconds, and the point a download resumes from is stored only after that, so after a power cut a download continues from what is really in the file (at most a few seconds are fetched again). A finished file is synced before it gets its real name. This costs a little speed on a slow disk, because the program waits for the disk instead of hiding behind the system's cache for long.
 
 > [!NOTE]
-> How FetchBox behaves when the line is faster than the disk, on slow and SMR drives, and the syncing after a power cut are new and **not tested thoroughly yet**. If you see something different, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues).
+> How FetchBox behaves when the line is faster than the disk, on slow and SMR drives, and the syncing after a power cut are new and **not tested thoroughly yet**. If you see something different, please open an [issue](https://github.com/fwitkowski17/FetchBox/issues).
 
 ## 📦 Install
 
@@ -85,7 +85,7 @@ A few notes behind those numbers:
 ### Docker Compose
 
 ```bash
-git clone https://github.com/fwitkowski17/WebDownloadManager.git fetchbox
+git clone https://github.com/fwitkowski17/FetchBox.git fetchbox
 cd fetchbox
 docker compose up -d --build
 docker compose logs fetchbox     # the line with the one-time "setup code"
@@ -102,23 +102,23 @@ mkdir -p data downloads && sudo chown 65532:65532 data downloads
 On the Proxmox host, in the style of the [community-scripts](https://github.com/community-scripts/ProxmoxVE):
 
 ```bash
-export COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/fwitkowski17/WebDownloadManager/main/deploy/proxmox
+export COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/fwitkowski17/FetchBox/main/deploy/proxmox
 bash -c "$(curl -fsSL $COMMUNITY_SCRIPTS_URL/ct/fetchbox.sh)"
 ```
 
-It creates a small Debian 13 container (the web interface is on port **80**, so the address is just `http://<ip>`), installs the `.deb` package from the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
+It creates a small Debian 13 container (the web interface is on port **80**, so the address is just `http://<ip>`), installs the `.deb` package from the latest [release](https://github.com/fwitkowski17/FetchBox/releases) and can bind-mount a directory of the host as `/downloads`. See [deploy/proxmox/README.md](deploy/proxmox/README.md) for the options, the permissions of the mapped folder and updating.
 
 ### DEB / RPM package
 
-Every [release](https://github.com/fwitkowski17/WebDownloadManager/releases) has a `.deb` (`amd64`, `arm64`) and an `.rpm` (`x86_64`, `aarch64`). Installing one adds the program, a systemd service that starts at boot, the `fetchbox` user and the settings file, and starts it:
+Every [release](https://github.com/fwitkowski17/FetchBox/releases) has a `.deb` (`amd64`, `arm64`) and an `.rpm` (`x86_64`, `aarch64`). Installing one adds the program, a systemd service that starts at boot, the `fetchbox` user and the settings file, and starts it:
 
 ```bash
 # Debian, Ubuntu, Raspberry Pi OS
-url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/WebDownloadManager/releases/latest | grep -o "\"browser_download_url\": *\"[^\"]*_$(dpkg --print-architecture)\.deb\"" | cut -d'"' -f4)"
+url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/FetchBox/releases/latest | grep -o "\"browser_download_url\": *\"[^\"]*_$(dpkg --print-architecture)\.deb\"" | cut -d'"' -f4)"
 curl -fsSLO "$url" && sudo apt install "./$(basename "$url")"
 
 # Fedora and other RPM systems (glibc 2.36 or newer; RHEL 9 is too old)
-url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/WebDownloadManager/releases/latest | grep -o "\"browser_download_url\": *\"[^\"]*\.$(uname -m)\.rpm\"" | cut -d'"' -f4)"
+url="$(curl -fsSL https://api.github.com/repos/fwitkowski17/FetchBox/releases/latest | grep -o "\"browser_download_url\": *\"[^\"]*\.$(uname -m)\.rpm\"" | cut -d'"' -f4)"
 curl -fsSLO "$url" && sudo dnf install "./$(basename "$url")"
 ```
 
@@ -142,10 +142,10 @@ Removing the package (`apt remove fetchbox`, `dnf remove fetchbox`) stops the se
 ### Linux host (systemd)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fwitkowski17/WebDownloadManager/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/fwitkowski17/FetchBox/main/deploy/install.sh | sudo bash
 ```
 
-The script downloads the latest [release](https://github.com/fwitkowski17/WebDownloadManager/releases) for your CPU (x86_64 or aarch64), checks its checksum, creates a `fetchbox` user, writes `/etc/systemd/system/fetchbox.service`, starts the service and prints the address and the one-time setup code. Nothing is compiled. Options go after `bash -s --`, for example `... | sudo bash -s -- install --port 9000 --download-dir /mnt/nas/downloads`; `--user NAME` runs the service as an existing user (the owner of a NAS folder) and `--version X.Y.Z` picks a release.
+The script downloads the latest [release](https://github.com/fwitkowski17/FetchBox/releases) for your CPU (x86_64 or aarch64), checks its checksum, creates a `fetchbox` user, writes `/etc/systemd/system/fetchbox.service`, starts the service and prints the address and the one-time setup code. Nothing is compiled. Options go after `bash -s --`, for example `... | sudo bash -s -- install --port 9000 --download-dir /mnt/nas/downloads`; `--user NAME` runs the service as an existing user (the owner of a NAS folder) and `--version X.Y.Z` picks a release.
 
 | What | Where |
 | --- | --- |
@@ -167,7 +167,7 @@ It needs root, systemd, `curl` or `wget`, `tar` and `sha256sum`; `./install.sh h
 
 ### Release binary
 
-Download `fetchbox-linux-x86_64.tar.gz` (or `-aarch64`) from the [Releases](https://github.com/fwitkowski17/WebDownloadManager/releases) page, unpack it and run:
+Download `fetchbox-linux-x86_64.tar.gz` (or `-aarch64`) from the [Releases](https://github.com/fwitkowski17/FetchBox/releases) page, unpack it and run:
 
 ```bash
 ./fetchbox --data-dir ./data --download-dir ./downloads --port 8080
@@ -246,7 +246,7 @@ Besides `http://` and `https://`, FetchBox downloads from FTP and SFTP servers: 
 - **One connection.** FTP and SFTP use a single connection per download, whatever *Connections per download* says: servers often allow only a few per user, and these protocols do not need more to fill a line.
 
 > [!NOTE]
-> Not supported yet: SFTP with a private key (only a password), FTPS servers with a self-signed certificate, active-mode FTP, and changing the login of a download after it was added (remove it and add it again). FTP and SFTP are tested against vsftpd and OpenSSH and against test servers, but not against every server out there: if one misbehaves, please open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues) with its name.
+> Not supported yet: SFTP with a private key (only a password), FTPS servers with a self-signed certificate, active-mode FTP, and changing the login of a download after it was added (remove it and add it again). FTP and SFTP are tested against vsftpd and OpenSSH and against test servers, but not against every server out there: if one misbehaves, please open an [issue](https://github.com/fwitkowski17/FetchBox/issues) with its name.
 
 ## 🧲 Torrents
 
@@ -361,7 +361,7 @@ Ideas in rough order, with no promised dates. The ones marked 🧭 are being des
 - 🌐 **More languages**: [one file and one line each](CONTRIBUTING.md#adding-a-language).
 
 > [!TIP]
-> Wishes and bug reports go into the [issues](https://github.com/fwitkowski17/WebDownloadManager/issues).
+> Wishes and bug reports go into the [issues](https://github.com/fwitkowski17/FetchBox/issues).
 
 ## 📚 Documentation
 
@@ -376,7 +376,7 @@ Ideas in rough order, with no promised dates. The ones marked 🧭 are being des
 
 ## 🤝 Contributing
 
-Bug reports, ideas, translations and code are all welcome. Open an [issue](https://github.com/fwitkowski17/WebDownloadManager/issues) first for anything bigger than a small fix. The short version of sending a change:
+Bug reports, ideas, translations and code are all welcome. Open an [issue](https://github.com/fwitkowski17/FetchBox/issues) first for anything bigger than a small fix. The short version of sending a change:
 
 ```bash
 cargo run -p server -- --data-dir ./.dev/data --download-dir ./.dev/downloads   # backend

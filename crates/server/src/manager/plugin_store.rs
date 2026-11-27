@@ -26,7 +26,7 @@ struct Bundled;
 
 /// Where the catalog of third-party plugins is, unless `FETCHBOX_PLUGIN_INDEX_URL` says otherwise.
 pub const DEFAULT_INDEX_URL: &str =
-    "https://raw.githubusercontent.com/fwitkowski17/WebDownloadManager/main/plugins/index.json";
+    "https://raw.githubusercontent.com/fwitkowski17/FetchBox/main/plugins/index.json";
 
 /// The store entries of the bundled plugins (read once).
 fn bundled_entries() -> &'static [StoreEntry] {

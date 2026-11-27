@@ -1,6 +1,6 @@
 [Unit]
 Description=FetchBox download manager
-Documentation=https://github.com/fwitkowski17/WebDownloadManager
+Documentation=https://github.com/fwitkowski17/FetchBox
 After=network-online.target
 Wants=network-online.target
 
